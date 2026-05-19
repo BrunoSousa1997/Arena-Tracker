@@ -8,9 +8,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview",
     "electron": "electron .",
-    "electron-dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && electron .\""
+    "electron-dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && electron .\"",
+    "dist": "npm run build && electron-builder"
   },
   "dependencies": {
     "idb": "^8.0.3",
@@ -28,6 +28,19 @@
   "build": {
     "appId": "com.arena.tracker",
     "productName": "Arena Tracker",
+    "asar": true,
+    "asarUnpack": [
+      "**/node_modules/idb/**",
+      "**/*.node"
+    ],
+    "files": [
+      "dist/**",
+      "electron.js",
+      "package.json"
+    ],
+    "compression": "maximum",
+    "removePackageScripts": true,
+    "nodeGypRebuild": false,
     "win": {
       "target": "nsis"
     },
