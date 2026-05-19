@@ -1,0 +1,38 @@
+{
+  "name": "arena-tracker",
+  "private": true,
+  "version": "0.0.0",
+  "main": "electron.js",
+  "description": "Arena Tracker - League of Legends Arena win tracker",
+  "author": "Bruno Sousa",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "electron": "electron .",
+    "electron-dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && electron .\""
+  },
+  "dependencies": {
+    "idb": "^8.0.3",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "wait-on": "^9.0.10",
+    "vite": "^8.0.12",
+    "@vitejs/plugin-react": "^6.0.1",
+    "electron": "^30.0.0",
+    "electron-builder": "^26.8.1"
+  },
+  "build": {
+    "appId": "com.arena.tracker",
+    "productName": "Arena Tracker",
+    "win": {
+      "target": "nsis"
+    },
+    "publish": {
+      "provider": "github"
+    }
+  }
+}
