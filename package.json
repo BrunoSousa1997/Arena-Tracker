@@ -6,24 +6,28 @@
   "description": "Arena Tracker - League of Legends Arena win tracker",
   "author": "Bruno Sousa",
   "scripts": {
-    "dev": "vite",
+    "setup": "npm install",
+    "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "build": "vite build",
-    "electron": "electron .",
-    "electron-dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && electron .\"",
-    "dist": "npm run build && electron-builder"
+    "clean": "rimraf dist out",
+    "prebuild": "npm run clean",
+    "dist": "npm run build && electron-builder",
+    "electron": "electron ."
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.106.0",
     "idb": "^8.0.3",
     "react": "^19.2.6",
     "react-dom": "^19.2.6"
   },
   "devDependencies": {
-    "concurrently": "^9.2.1",
-    "wait-on": "^9.0.10",
-    "vite": "^8.0.12",
     "@vitejs/plugin-react": "^6.0.1",
+    "concurrently": "^9.2.1",
     "electron": "^30.0.0",
-    "electron-builder": "^26.8.1"
+    "electron-builder": "^26.8.1",
+    "rimraf": "^6.1.3",
+    "vite": "^8.0.12",
+    "wait-on": "^9.0.10"
   },
   "build": {
     "appId": "com.arena.tracker",
