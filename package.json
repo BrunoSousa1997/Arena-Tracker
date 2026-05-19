@@ -1,7 +1,7 @@
 {
   "name": "arena-tracker",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.1",
   "main": "electron.js",
   "description": "Arena Tracker - League of Legends Arena win tracker",
   "author": "Bruno Sousa",
@@ -16,6 +16,8 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.0",
+    "dotenv": "^17.4.2",
+    "electron-updater": "^6.8.3",
     "idb": "^8.0.3",
     "react": "^19.2.6",
     "react-dom": "^19.2.6"
@@ -32,24 +34,26 @@
   "build": {
     "appId": "com.arena.tracker",
     "productName": "Arena Tracker",
-    "asar": true,
-    "asarUnpack": [
-      "**/node_modules/idb/**",
-      "**/*.node"
-    ],
+    "asar": false,
     "files": [
       "dist/**",
       "electron.js",
-      "package.json"
+      "node_modules/**"
     ],
     "compression": "maximum",
     "removePackageScripts": true,
     "nodeGypRebuild": false,
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+       "icon": "logo.png"
     },
-    "publish": {
-      "provider": "github"
-    }
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "BrunoSousa1997",
+        "repo": "Arena-Tracker",
+        "private": true
+      }
+    ]
   }
 }
