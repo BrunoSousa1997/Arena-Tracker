@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { getWins, addWin, removeWin, ensureUser } from "./db/api";
-
+import { motion, AnimatePresence } from "framer-motion";
 const ROLES = [
   "ALL",
   "Fighter",
@@ -30,18 +30,20 @@ export default function App() {
   const [showAccountPanel, setShowAccountPanel] = useState(false);
 
   const [hovered, setHovered] = useState(null);
+  const [isElectron, setIsElectron] = useState(false);
 
+  useEffect(() => {
+    setIsElectron(!!window.electron);
+  }, []);
+
+  console.log(window.electron)
   // ================= LOAD ACCOUNTS =================
   useEffect(() => {
     const saved = localStorage.getItem("riot-accounts");
     const active = localStorage.getItem("active-account");
 
     if (saved) setAccounts(JSON.parse(saved));
-
-    if (active) {
-      setActiveAccount(active);
-      setShowAccountPanel(false);
-    }
+    if (active) setActiveAccount(active);
   }, []);
 
   // ================= PATCH =================
@@ -119,7 +121,6 @@ export default function App() {
     setSwitching(true);
 
     await ensureUser(name);
-
     localStorage.setItem("active-account", name);
 
     setTimeout(() => {
@@ -133,110 +134,140 @@ export default function App() {
   const handleAddWin = async (champ) => {
     if (!activeAccount) return;
 
-    await ensureUser(activeAccount);
-    await addWin(activeAccount, champ);
+    setWins((prev) => {
+      if (prev.includes(champ)) return prev; // 👈 trava duplicados instantaneamente
+      return [...prev, champ];
+    });
 
-    const updated = await getWins(activeAccount);
-    setWins(updated || []);
+    try {
+      await ensureUser(activeAccount);
+      await addWin(activeAccount, champ);
+    } catch (err) {
+      console.error(err);
+
+      // rollback seguro
+      setWins((prev) => prev.filter((c) => c !== champ));
+    }
   };
-
   const handleRemoveWin = async (champ) => {
     if (!activeAccount) return;
 
-    await removeWin(activeAccount, champ);
+    setWins((prev) => prev.filter((c) => c !== champ));
 
-    const updated = await getWins(activeAccount);
-    setWins(updated || []);
+    try {
+      await removeWin(activeAccount, champ);
+    } catch (err) {
+      console.error(err);
+
+      // rollback
+      setWins((prev) => [...prev, champ]);
+    }
   };
-
   const owned = useMemo(() => new Set(wins), [wins]);
 
   // ================= FILTER =================
-  const filtered = useMemo(() => {
-    const q = debouncedSearch.toLowerCase().trim();
+  const q = debouncedSearch.toLowerCase().trim();
 
-    return champions.filter((c) => {
-      const name = c.id.toLowerCase();
+  const filteredChampions = useMemo(() => {
+    return champions
+      .filter((c) => {
+        const name = c.id.toLowerCase();
 
-      const matchSearch =
-        q === "" || name.includes(q) || name.startsWith(q);
+        const matchSearch =
+          q === "" || name.includes(q) || name.startsWith(q);
 
-      const matchRole =
-        roleFilter === "ALL" || c.tags.includes(roleFilter);
+        const matchRole =
+          roleFilter === "ALL" || c.tags.includes(roleFilter);
 
-      return matchSearch && matchRole && !owned.has(c.id);
-    });
+        return matchSearch && matchRole && !owned.has(c.id);
+      })
+      .sort((a, b) => a.id.localeCompare(b.id));
   }, [debouncedSearch, champions, roleFilter, owned]);
-
+  const filteredWins = useMemo(() => {
+    return wins
+      .filter((w) => {
+        return q === "" || w.toLowerCase().includes(q);
+      })
+      .sort((a, b) => a.localeCompare(b));
+  }, [wins, debouncedSearch]);
   return (
     <div style={styles.app}>
-      <div style={{ width: "100%", maxWidth: 1400 }}>
+      <div style={{ width: "100%", maxWidth: 1800 }}>
 
         {/* HEADER */}
         <div style={styles.header}>
-          <h1 style={styles.title}>🏆 Arena Tracker</h1>
+          <img height={80} src="./logo.ico" />
         </div>
 
-        {/* ================= ACCOUNTS ================= */}
-        <div style={styles.card}>
-          <h2 style={styles.sectionTitle}>{activeAccount ? activeAccount : "Accounts"}</h2>
+        {/* ================= TOP BAR ================= */}
+        <div style={styles.topBar}>
 
-          {/* ACTIVE VIEW */}
-          {activeAccount && !showAccountPanel && (
-            <div>
+          <div style={styles.accountBox}>
+            <div style={styles.accountName}>
+              {activeAccount || "No account"}
+            </div>
+
+            {activeAccount && (
               <button
-                onClick={() => setShowAccountPanel(true)}
-                style={styles.primaryBtn}
+                onClick={() => setShowAccountPanel((v) => !v)}
+                style={{
+                  ...styles.smallBtn,
+                  ...(showAccountPanel
+                    ? {
+                      background: "#c8aa6e",
+                      color: "#0b0f1a",
+                      border: "1px solid rgba(200,170,110,0.6)",
+                    }
+                    : {}),
+                }}
               >
-                Switch account
+                ⚙
               </button>
+            )}
+          </div>
+
+          {activeAccount && (
+            <div style={styles.winsBox}>
+              <div style={styles.winsNumber}>{wins.length}</div>
+              <div style={styles.winsLabel}>Wins</div>
             </div>
           )}
-
-          {/* SWITCH PANEL */}
-          {(showAccountPanel || !activeAccount) && (
-            <>
-              <div style={{ display: "flex", gap: 10 }}>
-                <input
-                  placeholder="Summoner Name"
-                  value={riotName}
-                  onChange={(e) => setRiotName(e.target.value)}
-                  style={styles.input}
-                />
-
-                <button onClick={createAccount} style={styles.primaryBtn}>
-                  Create
-                </button>
-              </div>
-
-              <div style={styles.accountRow}>
-                {accounts.map((acc) => (
-                  <button
-                    key={acc}
-                    onClick={() => switchAccount(acc)}
-                    style={{
-                      ...styles.filterBtn,
-                      ...(activeAccount === acc
-                        ? styles.filterBtnActive
-                        : {}),
-                    }}
-                  >
-                    {acc}
-                  </button>
-                ))}
-              </div>
-
-              {activeAccount && (
-                <button
-                  onClick={() => setShowAccountPanel(false)}
-                  style={styles.filterBtn}
-                >
-                  Cancel
-                </button>
-              )}
-            </>
-          )}
         </div>
+
+        {/* ================= ACCOUNT DROPDOWN ================= */}
+        {((showAccountPanel && activeAccount) || !activeAccount) && (
+          <div style={styles.dropdown}>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                placeholder="Summoner name"
+                value={riotName}
+                onChange={(e) => setRiotName(e.target.value)}
+                style={styles.input}
+              />
+
+              <button onClick={createAccount} style={styles.primaryBtn}>
+                Add
+              </button>
+            </div>
+
+            <div style={styles.accountRow}>
+              {accounts.map((acc) => (
+                <button
+                  key={acc}
+                  onClick={() => switchAccount(acc)}
+                  style={{
+                    ...styles.filterBtn,
+                    ...(activeAccount === acc
+                      ? styles.filterBtnActive
+                      : {}),
+                  }}
+                >
+                  {acc}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* ================= MAIN ================= */}
         {activeAccount && (
@@ -249,29 +280,19 @@ export default function App() {
               transition: "all 0.18s ease",
             }}
           >
-            {/* STATS */}
-            <div style={styles.statsCard}>
-              <div style={styles.statNumber}>{wins.length}</div>
-              <div style={styles.statLabel}>Victorious Champions</div>
+            <div style={styles.globalSearch}>
+              <span>🔎</span>
+
+              <input
+                placeholder="Search champions or wins..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                style={styles.globalSearchInput}
+              />
             </div>
-
-            {/* ADD CHAMP */}
-            <div style={styles.card}>
+            {/* CHAMPIONS */}
+            <div style={styles.cardScroll}>
               <h2 style={styles.sectionTitle}>Champions</h2>
-
-              {/* SEARCH */}
-              <div style={styles.searchWrapper}>
-                <span style={styles.searchIcon}>🔎</span>
-
-                <input
-                  placeholder="Search champions..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  style={styles.searchInput}
-                />
-              </div>
-
-              {/* FILTERS */}
               <div style={styles.filters}>
                 {ROLES.map((r) => (
                   <button
@@ -288,52 +309,66 @@ export default function App() {
                   </button>
                 ))}
               </div>
-
-              {/* GRID */}
-              <div style={styles.grid}>
-                {filtered.map((c) => (
-                  <div
-                    key={c.id}
-                    onMouseEnter={() => setHovered(c.id)}
-                    onMouseLeave={() => setHovered(null)}
-                    onClick={() => handleAddWin(c.id)}
-                    style={{
-                      ...styles.cardChamp,
-                      ...(hovered === c.id
-                        ? styles.cardChampHover
-                        : {}),
-                    }}
-                  >
-                    <img
-                      src={`${DRAGON}/img/champion/${c.id}.png`}
-                      style={styles.icon}
-                    />
-                  </div>
-                ))}
+              <div style={styles.grid} className="scrollArea">
+                <AnimatePresence>
+                  {filteredChampions.map((c) => (
+                    <motion.div
+                      key={c.id}
+                      initial={{ opacity: 0, scale: 0.7 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.7 }}
+                      transition={{ duration: 0.08 }}
+                      whileHover={{ scale: 1.08 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => handleAddWin(c.id)}
+                      style={{
+                        ...styles.cardChamp,
+                        border:
+                          hovered === c.id
+                            ? "1px solid rgba(200,170,110,0.5)"
+                            : "1px solid rgba(200,170,110,0.12)",
+                      }}
+                    >
+                      <img
+                        src={`${DRAGON}/img/champion/${c.id}.png`}
+                        style={styles.icon}
+                      />
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
               </div>
             </div>
 
-            {/* SELECTED */}
-            <div style={styles.card}>
-              <h2 style={styles.sectionTitle}>Victorious Champions</h2>
+            {/* WINS */}
+            <div style={styles.cardScroll}>
+              <h2 style={styles.sectionTitle}>Your Victories</h2>
 
-              <div style={styles.grid}>
-                {wins.map((champ) => (
-                  <div
-                    key={champ}
-                    onClick={() => handleRemoveWin(champ)}
-                    style={styles.winCard}
-                  >
-                    <img
-                      src={`${DRAGON}/img/champion/${champ}.png`}
-                      style={styles.icon}
-                    />
-                  </div>
-                ))}
+              <div style={styles.grid} className="scrollArea">
+                <AnimatePresence>
+                  {filteredWins.map((champ) => (
+                    <motion.div
+                      key={champ}
+                      initial={{ opacity: 0, scale: 0.7 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.7 }}
+                      transition={{ duration: 0.08 }}
+                      whileTap={{ scale: 0.95 }}
+                      whileHover={{ scale: 1.08 }}
+                      onClick={() => handleRemoveWin(champ)}
+                      style={styles.winCard}
+                    >
+                      <img
+                        src={`${DRAGON}/img/champion/${champ}.png`}
+                        style={styles.icon}
+                      />
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
               </div>
             </div>
           </div>
         )}
+
       </div>
     </div>
   );
@@ -343,55 +378,97 @@ export default function App() {
 const styles = {
   app: {
     minHeight: "100vh",
+    width: "100vw",
+    overflowX: "hidden",
+    overflowY: "hidden",
     color: "#e5e7eb",
-    padding: "28px",
+    paddingTop: "32px",
     fontFamily: "Cinzel, serif",
     display: "flex",
     justifyContent: "center",
     boxSizing: "border-box",
-
-    /* NEW BACKGROUND */
     backgroundImage:
-      "linear-gradient(rgba(5,7,13,0.85), rgba(5,7,13,0.92)), url('https://cmsassets.rgpub.io/sanity/images/dsfx7636/news/27fd1033cf923429f0811e355402aecfb00d00cb-1751x1096.jpg?accountingTag=LoL&auto=format&fit=fill&q=80&w=1184')",
-
+      "linear-gradient(rgba(5,7,13,0.85), rgba(5,7,13,0.92)), url('https://cmsassets.rgpub.io/sanity/images/dsfx7636/news/27fd1033cf923429f0811e355402aecfb00d00cb-1751x1096.jpg')",
     backgroundSize: "cover",
     backgroundPosition: "center",
-    backgroundRepeat: "no-repeat",
     backgroundAttachment: "fixed",
+    overflow: "hidden"
   },
 
-  header: { textAlign: "center", marginBottom: 18 },
+  header: { textAlign: "center", marginBottom: 10, marginTop: 5 },
 
-  title: {
+  title: { color: "#c8aa6e", fontSize: 34 },
+
+  topBar: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: "10px 14px",
+    borderRadius: 14,
+    marginTop: 10,
+    background:
+      "linear-gradient(180deg, rgba(20,24,33,0.92), rgba(10,12,18,0.96))",
+    border: "1px solid rgba(200,170,110,0.22)",
+  },
+
+  accountBox: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+  },
+
+  accountName: {
     color: "#c8aa6e",
-    fontSize: 34,
-    letterSpacing: 2,
-    textShadow: "0 0 12px rgba(200,170,110,0.4)",
+    fontWeight: 600,
+    fontSize: 14,
   },
 
-  card: {
+  smallBtn: {
+    padding: "6px 10px",
+    borderRadius: 8,
+    border: "1px solid rgba(200,170,110,0.25)",
+    background: "rgba(10,12,18,0.85)",
+    color: "#c8aa6e",
+    cursor: "pointer",
+    fontSize: 12,
+    transition: "all 0.15s ease",
+  },
+
+  winsBox: {
+    display: "flex",
+    alignItems: "baseline",
+    gap: 6,
+  },
+
+  winsNumber: {
+    fontSize: 20,
+    color: "#c8aa6e",
+    fontWeight: 700,
+  },
+
+  winsLabel: {
+    fontSize: 12,
+    color: "#9ca3af",
+  },
+
+  dropdown: {
+    marginTop: 10,
+    padding: 12,
+    borderRadius: 14,
+    background: "rgba(10,12,18,0.92)",
+    border: "1px solid rgba(200,170,110,0.22)",
+  },
+
+  cardScroll: {
     background:
       "linear-gradient(180deg, rgba(20,24,33,0.92), rgba(10,12,18,0.96))",
     border: "1px solid rgba(200,170,110,0.22)",
     borderRadius: 16,
     padding: 18,
     marginTop: 16,
-    boxShadow: "0 10px 30px rgba(0,0,0,0.6)",
+    display: "flex",
+    flexDirection: "column",
   },
-
-  statsCard: {
-    background:
-      "linear-gradient(180deg, rgba(25,30,42,0.9), rgba(10,12,18,0.95))",
-    border: "1px solid rgba(200,170,110,0.3)",
-    borderRadius: 16,
-    padding: 18,
-    textAlign: "center",
-    marginTop: 16,
-  },
-
-  statNumber: { fontSize: 42, color: "#c8aa6e" },
-
-  statLabel: { fontSize: 12, color: "#9ca3af" },
 
   sectionTitle: { marginBottom: 12, color: "#c8aa6e" },
 
@@ -400,9 +477,8 @@ const styles = {
     padding: 12,
     borderRadius: 10,
     background: "rgba(10,12,18,0.9)",
-    color: "#fff",
+    color: "#c8aa6e",
     border: "1px solid rgba(200,170,110,0.25)",
-    outline: "none",
   },
 
   primaryBtn: {
@@ -414,32 +490,11 @@ const styles = {
     cursor: "pointer",
   },
 
-  searchWrapper: {
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-    padding: "10px 12px",
-    borderRadius: 12,
-    background: "rgba(10,12,18,0.85)",
-    border: "1px solid rgba(200,170,110,0.25)",
-    marginBottom: 12,
-  },
-
-  searchIcon: { opacity: 0.7 },
-
-  searchInput: {
-    width: "100%",
-    border: "none",
-    outline: "none",
-    background: "transparent",
-    color: "#fff",
-    fontSize: 14,
-  },
-
-  filters: {
+  accountRow: {
     display: "flex",
     gap: 6,
     flexWrap: "wrap",
+    marginTop: 10,
   },
 
   filterBtn: {
@@ -447,7 +502,7 @@ const styles = {
     borderRadius: 8,
     border: "1px solid rgba(200,170,110,0.25)",
     background: "rgba(10,12,18,0.8)",
-    color: "#9ca3af",
+    color: "#c8aa6e",
     cursor: "pointer",
     fontSize: 12,
   },
@@ -456,12 +511,40 @@ const styles = {
     background: "#c8aa6e",
     color: "#0b0f1a",
   },
+  searchIcon: { opacity: 0.7 },
+  globalSearch: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    padding: "10px 12px",
+    borderRadius: 12,
+    background: "rgba(10,12,18,0.85)",
+    border: "1px solid rgba(200,170,110,0.25)",
+    marginTop: 12,
+    marginBottom: 16,
+  },
+
+  globalSearchInput: {
+    width: "100%",
+    border: "none",
+    outline: "none",
+    background: "transparent",
+    color: "#c8aa6e",
+  },
+
+  filters: {
+    display: "flex",
+    gap: 6,
+    flexWrap: "wrap",
+  },
 
   grid: {
+    padding: "3px",
     display: "grid",
     gridTemplateColumns: "repeat(auto-fill, minmax(54px, 1fr))",
     gap: 10,
     marginTop: 12,
+    maxHeight: "26vh"
   },
 
   cardChamp: {
@@ -476,7 +559,6 @@ const styles = {
   cardChampHover: {
     transform: "scale(1.08)",
     border: "1px solid rgba(200,170,110,0.5)",
-    boxShadow: "0 0 18px rgba(200,170,110,0.25)",
   },
 
   winCard: {
@@ -491,17 +573,7 @@ const styles = {
     width: 48,
     height: 48,
     borderRadius: 10,
+    pointerEvents: "none", // 👈 ISTO resolve o hover
   },
 
-  accountRow: {
-    display: "flex",
-    gap: 6,
-    flexWrap: "wrap",
-    marginTop: 10,
-  },
-
-  activeAccount: {
-    marginBottom: 10,
-    color: "#c8aa6e",
-  },
 };
