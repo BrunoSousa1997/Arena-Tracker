@@ -42,7 +42,9 @@
     "files": [
       "dist/**",
       "electron.js",
-      "node_modules/**"
+      "preload.js",
+      "node_modules/**",
+      "assets/**"
     ],
     "compression": "maximum",
     "removePackageScripts": true,
@@ -51,9 +53,6 @@
     "win": {
       "target": "nsis",
       "icon": "assets/logo.ico"
-    },
-    "directories": {
-      "buildResources": "assets"
     },
     "publish": [
       {
