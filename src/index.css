@@ -1,14 +1,84 @@
-:root {
+/* ================= TEMA (claro/escuro) =================
+   Paleta neutra (slate) + um único acento vívido (índigo), pensada para
+   contraste AA e para não pintar tudo com a mesma cor: o índigo aparece só
+   em ações/estados ativos, o resto da UI é neutro. Cores de resultado
+   (vitória/derrota/lugar) vivem à parte, também com variante por tema —
+   ver mais abaixo e placement.js. Trocado via atributo data-theme na tag
+   <html> (ver App.jsx). */
+:root,
+:root[data-theme="dark"] {
+  --bg-deep: #0a0b10;
+  --bg-mid: #131620;
+  --panel-rgb: 22, 25, 33;
+  --panel-deep-rgb: 15, 16, 21;
+  --soft-rgb: 255, 255, 255;
+
+  --accent-text: #9499f5;
+  --text-body: #e9eaee;
+  --text-secondary: #9aa0ab;
+  --text-secondary-rgb: 154, 160, 171;
+  --text-muted: #6d7280;
+
+  --place-good: #4ade80;
+  --place-mid: #fb923c;
+  --place-low: #f87171;
+  --place-unknown: #6d7280;
+
+  --text: #9ca3af;
+  --text-h: #f3f4f6;
+  --bg: #16171d;
+  --border: #2e303a;
+  --code-bg: #1f2028;
+  --accent: #c084fc;
+  --accent-bg: rgba(192, 132, 252, 0.15);
+  --accent-border: rgba(192, 132, 252, 0.5);
+}
+
+:root[data-theme="light"] {
+  /* Hierarquia de 3 níveis para os containers ficarem claramente visíveis:
+     a página é um cinza neutro claro, os campos recuados (inputs/dropdowns)
+     ficam num cinza intermédio, e os painéis (cards) ficam em branco para
+     se destacarem por cima de tudo. */
+  --bg-deep: #e7e9ee;
+  --bg-mid: #f7f8fa;
+  --panel-rgb: 255, 255, 255;
+  --panel-deep-rgb: 243, 244, 247;
+  --soft-rgb: 0, 0, 0;
+
+  --accent-text: #4338ca;
+  --text-body: #14161c;
+  --text-secondary: #565d6a;
+  --text-secondary-rgb: 86, 93, 106;
+  --text-muted: #868c98;
+
+  --place-good: #15803d;
+  --place-mid: #c2410c;
+  --place-low: #b91c1c;
+  --place-unknown: #6b7280;
+
   --text: #6b6375;
   --text-h: #08060d;
   --bg: #fff;
   --border: #e5e4e7;
   --code-bg: #f4f3ec;
-
   --accent: #aa3bff;
   --accent-bg: rgba(170, 59, 255, 0.1);
   --accent-border: rgba(170, 59, 255, 0.5);
+}
 
+/* --accent-rgb: índigo vívido, só para o que deve mesmo destacar-se (tab
+   ativa, botão principal, barra de progresso) — usar em poucos sítios de
+   propósito, nunca como moldura genérica. --border-rgb é neutro e serve de
+   linha subtil para todos os containers/painéis, para não pintar tudo da
+   mesma cor e perder hierarquia visual. */
+:root {
+  --accent-rgb: 99, 102, 241;
+  --accent-solid: #4f46e5;
+  --accent-solid-text: #ffffff;
+  --border-rgb: 148, 154, 166;
+}
+
+:root {
   --sans: system-ui, "Segoe UI", Roboto, sans-serif;
   --heading: system-ui, "Segoe UI", Roboto, sans-serif;
   --mono: ui-monospace, Consolas, monospace;
@@ -22,20 +92,6 @@
 
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-}
-
-/* DARK MODE */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-  }
 }
 
 /* RESET GLOBAL */
@@ -101,8 +157,133 @@ code {
 }
 
 .scrollArea::-webkit-scrollbar-thumb {
-  background: rgba(200, 170, 110, 0.4);
+  background: rgba(var(--accent-rgb), 0.4);
   border-radius: 10px;
+}
+
+/* SCROLLBAR da área principal (Visão Geral/Histórico/Estatísticas/Coleção) —
+   mais larga e com "respiro" nas pontas (via border transparente +
+   background-clip) para não parecer colada às bordas da janela. */
+.mainScroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(var(--accent-rgb), 0.4) transparent;
+}
+
+.mainScroll::-webkit-scrollbar {
+  width: 10px;
+}
+
+.mainScroll::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 6px 0;
+}
+
+.mainScroll::-webkit-scrollbar-thumb {
+  background-color: rgba(var(--accent-rgb), 0.35);
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.mainScroll::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(var(--accent-rgb), 0.55);
+  background-clip: padding-box;
+}
+
+/* SPINNER (usado em modais de importação/loading) */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Barra de progresso indeterminada, "crescente", usada durante a sincronização */
+@keyframes growSyncBar {
+  0% {
+    width: 5%;
+    margin-left: 0%;
+  }
+  50% {
+    width: 70%;
+    margin-left: 10%;
+  }
+  100% {
+    width: 5%;
+    margin-left: 95%;
+  }
+}
+
+/* ================= INTERAÇÃO GLOBAL (hover/focus) =================
+   Antes cada botão só tinha "cursor: pointer" — sem qualquer feedback visual
+   ao passar o rato ou focar por teclado, o que faz a app parecer estática/
+   pouco polida. Em vez de repetir isto em cada componente (são dezenas de
+   botões espalhados por ficheiros diferentes), fica um único sítio que cobre
+   todos de uma vez. Também alinha a fonte de botões/inputs com o resto da
+   app — por omissão um <button> não herda a fonte do body, por isso muitos
+   ficavam com a fonte do sistema em vez do resto do texto à volta. */
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button:not(:disabled) {
+  transition: filter 0.15s ease, transform 0.08s ease, background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+button:not(:disabled):hover {
+  filter: brightness(1.16);
+}
+
+button:not(:disabled):active {
+  transform: scale(0.96);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+input:focus-visible,
+select:focus-visible,
+button:focus-visible {
+  outline: 2px solid rgba(var(--accent-rgb), 0.55);
+  outline-offset: 1px;
+}
+
+select {
+  transition: border-color 0.15s ease;
+}
+
+select:hover {
+  border-color: rgba(var(--accent-rgb), 0.5);
+}
+
+/* Fileiras clicáveis que não são <button> (a linha do Histórico/Estatísticas
+   que abre os detalhes) — o "!important" é mesmo preciso aqui: o fundo é
+   definido inline (cor calculada por linha) e um estilo inline sempre ganha
+   a uma regra externa normal, exceto com !important. */
+.clickableRow {
+  transition: background-color 0.15s ease;
+}
+
+.clickableRow:hover {
+  background-color: rgba(var(--accent-rgb), 0.24) !important;
+}
+
+/* Cartões clicáveis (ex: destaques da Visão Geral) — pequeno levantamento +
+   contorno mais vivo ao passar o rato, para ficar claro que se pode clicar. */
+.clickableCard {
+  transition: border-color 0.15s ease, transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.clickableCard:hover {
+  border-color: rgba(var(--accent-rgb), 0.6) !important;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
 }
 
 /* ANIMAÇÕES (se ainda usares CSS fallback) */

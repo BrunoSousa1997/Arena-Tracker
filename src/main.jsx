@@ -3,10 +3,13 @@ import { createRoot } from "react-dom/client";
 import "./index.css";
 import App from "./App.jsx";
 import TitleBar from "./Tittlebar.jsx";
+import { LanguageProvider } from "./i18n";
 
 createRoot(document.getElementById("root")).render(
   <StrictMode>
-     <TitleBar />
-    <App />
+    <LanguageProvider>
+      <TitleBar />
+      <App />
+    </LanguageProvider>
   </StrictMode>
 );

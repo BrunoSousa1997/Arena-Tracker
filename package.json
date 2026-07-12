@@ -1,7 +1,7 @@
 {
   "name": "arena-tracker",
   "private": true,
-  "version": "1.0.2",
+  "version": "2.0.0",
   "main": "electron.js",
   "description": "Arena Tracker - League of Legends Arena win tracker",
   "author": "Bruno Sousa",
@@ -13,7 +13,8 @@
     "prebuild": "npm run clean",
     "dist": "npm run build && electron-builder",
     "electron": ".\\node_modules\\electron\\dist\\electron.exe electron.js",
-    "start": "concurrently \"npm run dev\" \"npm run electron\""
+    "start": "concurrently \"npm run dev\" \"npm run electron\"",
+    "release": "npm run build && electron-builder --publish always"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.0",
@@ -36,31 +37,42 @@
     "wait-on": "^9.0.10"
   },
   "build": {
-    "appId": "com.arena.tracker",
-    "productName": "Arena Tracker",
-    "asar": false,
-    "files": [
-      "dist/**",
-      "electron.js",
-      "preload.js",
-      "node_modules/**",
-      "assets/**"
-    ],
-    "compression": "maximum",
-    "removePackageScripts": true,
-    "nodeGypRebuild": false,
-    "icon": "assets/logo.ico",
-    "win": {
-      "target": "nsis",
-      "icon": "assets/logo.ico"
-    },
-    "publish": [
-      {
-        "provider": "github",
-        "owner": "BrunoSousa1997",
-        "repo": "Arena-Tracker",
-        "private": true
-      }
-    ]
-  }
+  "appId": "com.arena.tracker",
+  "productName": "Arena Tracker",
+  "asar": true,
+
+  "files": [
+    "dist/**",
+    "electron.js",
+    "preload.js",
+    "node_modules/**"
+  ],
+
+  "extraResources": [
+    {
+      "from": "assets",
+      "to": "assets"
+    }
+  ],
+
+  "icon": "assets/logo.ico",
+
+  "win": {
+    "target": "nsis",
+    "icon": "assets/logo.ico"
+  },
+
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true
+  },
+
+  "publish": [
+    {
+      "provider": "github",
+      "owner": "BrunoSousa1997",
+      "repo": "Arena-Tracker"
+    }
+  ]
+}
 }

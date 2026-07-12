@@ -46,8 +46,8 @@ const styles = {
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
-        background: "rgba(10,12,18,0.95)",
-        borderBottom: "1px solid rgba(200,170,110,0.2)",
+        background: "rgba(var(--panel-deep-rgb),0.95)",
+        borderBottom: "1px solid rgba(var(--accent-rgb),0.2)",
         zIndex: 99999,
         WebkitAppRegion: "drag",
     },
@@ -63,23 +63,39 @@ const styles = {
         WebkitAppRegion: "no-drag",
     },
 
+    // fontSize/lineHeight explícitos (não herdados) e centragem via flex —
+    // sem isto, um botão tão pequeno (22x16) fica à mercê do tamanho de letra
+    // global da app (18px/145%), que não cabe nem de perto nesta altura e
+    // desformata o glifo lá dentro.
     btn: {
         width: 22,
         height: 16,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
         border: "none",
-        background: "rgba(255,255,255,0.06)",
-        color: "#c8aa6e",
+        background: "rgba(var(--soft-rgb),0.06)",
+        color: "var(--accent-text)",
         borderRadius: 6,
         cursor: "pointer",
+        fontSize: 10,
+        lineHeight: 1,
+        padding: 0,
     },
 
     close: {
         width: 22,
         height: 16,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
         border: "none",
-        background: "#c8aa6e",
-        color: "#0b0f1a",
+        background: "#4f46e5",
+        color: "#ffffff",
         borderRadius: 6,
         cursor: "pointer",
+        fontSize: 10,
+        lineHeight: 1,
+        padding: 0,
     },
 };
