@@ -15,7 +15,7 @@ nunca no código nem no instalador.
    ficheiro, na mesma pasta) → **Deploy**.
 5. **Settings** → **Variables and Secrets** → **Add**:
    - Nome: `RIOT_API_KEY`
-   - Valor: a tua chave atual da Riot (developer.riotgames.com)
+   - Valor: a tua Production API Key da Riot (developer.riotgames.com)
    - Marca como **Encrypt**
    - **Save and deploy**
 6. Copia o URL público do Worker — algo como:
@@ -36,11 +36,10 @@ GitHub sem problema.
 Depois disto: `npm run release` (ou `npm run dist`) já produz uma app que
 funciona para qualquer amigo, sem `.env`, sem chave, sem configuração.
 
-## Quando a chave expirar (a cada 24h)
+## Se algum dia precisares de trocar a chave
 
-A chave gratuita da Riot ("Development/Personal API Key") expira todos os
-dias — isto não tem como se contornar sem uma Production Key aprovada pela
-Riot. Mas agora só precisas de:
+Como já tens uma Production API Key registada, não há renovação diária a
+fazer — mas se algum dia precisares de trocar a chave (ex: por segurança):
 
 1. Ir a developer.riotgames.com, copiar a chave nova.
 2. No Worker: **Settings** → **Variables and Secrets** → editar
@@ -48,7 +47,3 @@ Riot. Mas agora só precisas de:
 
 Isto atualiza instantaneamente TODOS os amigos que já têm a app instalada
 — não precisas de lhes enviar nada nem eles precisam de fazer nada.
-
-Se um dia quiseres deixar de depender disto, a alternativa permanente é
-candidatar este projeto a uma **Production API Key** na Riot (não expira,
-mas exige aprovação).

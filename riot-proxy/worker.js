@@ -6,9 +6,9 @@
 // variável de ambiente "encriptada" no dashboard da Cloudflare) — nunca
 // aparece no código nem é enviada para o GitHub.
 //
-// Quando a chave expirar (a cada 24h, é assim que a Riot faz as chaves
-// gratuitas), só precisas de a atualizar aqui — fica logo a funcionar para
-// todos os amigos que já têm a app instalada, sem lhes enviares nada.
+// Se um dia precisares de trocar a chave, só precisas de a atualizar
+// aqui — fica logo a funcionar para todos os amigos que já têm a app
+// instalada, sem lhes enviares nada.
 //
 // Ver riot-proxy/INSTRUCOES.md para o passo a passo do deploy.
 

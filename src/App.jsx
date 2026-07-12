@@ -1011,6 +1011,14 @@ export default function App() {
 
   return (
     <div style={styles.app}>
+      {/* Aurora mágica de fundo — duas manchas de luz (indigo + dourado) a
+          derivar lentamente atrás de tudo (z-index negativo, ver
+          styles.app com position:relative para isto ficar mesmo por trás
+          do conteúdo em vez de por cima). Puramente decorativo, por isso
+          aria-hidden e sem pointer events. */}
+      <div style={styles.auroraBlob1} aria-hidden="true" />
+      <div style={styles.auroraBlob2} aria-hidden="true" />
+
       <UpdateNotifier />
 
       <AnimatePresence>
@@ -1089,7 +1097,6 @@ export default function App() {
                   ? t("already_have_win")
                   : t("no_win_yet_luck")}
               </div>
-
               {liveChampionAlert.gameEnded && (
                 <div style={styles.liveBannerSyncReminder}>{t("game_ended_sync_reminder")}</div>
               )}
@@ -1593,6 +1600,7 @@ const styles = {
   },
 
   app: {
+    position: "relative",
     height: "100vh",
     width: "100vw",
     overflowX: "hidden",
@@ -1604,14 +1612,49 @@ const styles = {
     justifyContent: "center",
     boxSizing: "border-box",
     backgroundImage:
-      "radial-gradient(circle at 20% 15%, rgba(var(--accent-rgb),0.10), transparent 45%), " +
-      "radial-gradient(circle at 85% 80%, rgba(154,160,166,0.10), transparent 40%), " +
       "repeating-linear-gradient(135deg, rgba(var(--accent-rgb),0.035) 0px, rgba(var(--accent-rgb),0.035) 1px, transparent 1px, transparent 26px), " +
       "linear-gradient(180deg, var(--bg-deep), var(--bg-mid) 55%, var(--bg-deep))",
     backgroundSize: "cover",
     backgroundPosition: "center",
     backgroundAttachment: "fixed",
     overflow: "hidden",
+  },
+
+  // Duas manchas de luz animadas (ver keyframes auroraBlob1/auroraBlob2 em
+  // index.css) — substituem os dois brilhos estáticos que existiam antes
+  // dentro do backgroundImage acima, agora com movimento visível e cores
+  // mais vivas (indigo + dourado, a mesma dupla de cores já usada no resto
+  // da app: accent e destaque "build vencedora"). z-index:-1 + "app" com
+  // position:relative garante que isto fica sempre por trás de todo o
+  // conteúdo real, nunca por cima.
+  auroraBlob1: {
+    position: "absolute",
+    zIndex: -1,
+    top: "-15%",
+    left: "-10%",
+    width: "60vw",
+    height: "60vw",
+    maxWidth: 620,
+    maxHeight: 620,
+    borderRadius: "50%",
+    background: "radial-gradient(circle, rgba(99,102,241,0.5), transparent 70%)",
+    pointerEvents: "none",
+    animation: "auroraBlob1 16s ease-in-out infinite",
+  },
+
+  auroraBlob2: {
+    position: "absolute",
+    zIndex: -1,
+    top: "20%",
+    right: "-15%",
+    width: "50vw",
+    height: "50vw",
+    maxWidth: 560,
+    maxHeight: 560,
+    borderRadius: "50%",
+    background: "radial-gradient(circle, rgba(250,204,21,0.38), transparent 70%)",
+    pointerEvents: "none",
+    animation: "auroraBlob2 20s ease-in-out infinite",
   },
 
   liveBanner: {
