@@ -3,6 +3,44 @@ import { motion, AnimatePresence } from "framer-motion";
 import Tooltip from "./Tooltip";
 import { useLanguage } from "./i18n";
 
+// Tags mais comuns da Riot (o servidor de origem já vem embutido nelas) —
+// escolher a tag certa já define sozinho o servidor certo para a Riot API,
+// sem precisar de um select de servidor à parte (que só duplicava a mesma
+// informação e podia ficar dessincronizado da tag escolhida).
+const TAG_OPTIONS = [
+  { value: "EUW", region: "europe" },
+  { value: "EUNE", region: "europe" },
+  { value: "TR1", region: "europe" },
+  { value: "RU", region: "europe" },
+  { value: "NA1", region: "americas" },
+  { value: "BR1", region: "americas" },
+  { value: "LAN", region: "americas" },
+  { value: "LAS", region: "americas" },
+  { value: "OCE", region: "americas" },
+  { value: "KR", region: "asia" },
+  { value: "JP1", region: "asia" },
+  { value: "PH2", region: "sea" },
+  { value: "SG2", region: "sea" },
+  { value: "TH2", region: "sea" },
+  { value: "TW2", region: "sea" },
+  { value: "VN2", region: "sea" },
+];
+
+const CUSTOM_TAG = "__custom__";
+
+// Só usado quando a tag é "Outra" (personalizada) — nesse caso já não dá
+// para adivinhar o servidor a partir da tag, por isso volta a perguntar.
+const FALLBACK_REGIONS = [
+  { value: "europe", labelKey: "region_europe" },
+  { value: "americas", labelKey: "region_americas" },
+  { value: "asia", labelKey: "region_asia" },
+  { value: "sea", labelKey: "region_sea" },
+];
+
+function regionForTag(tag) {
+  return TAG_OPTIONS.find((o) => o.value === tag)?.region || null;
+}
+
 export default function AccountManager({
   accounts,
   activeAccount,
@@ -16,31 +54,54 @@ export default function AccountManager({
   const [showCreate, setShowCreate] = useState(accounts.length === 0);
   const [newUsername, setNewUsername] = useState("");
   const [newRiotAccount, setNewRiotAccount] = useState("");
-  const [newRiotTag, setNewRiotTag] = useState("");
+  const [newTagChoice, setNewTagChoice] = useState(TAG_OPTIONS[0].value);
+  const [newRiotTag, setNewRiotTag] = useState(TAG_OPTIONS[0].value);
+  const [newRegion, setNewRegion] = useState("europe");
   const [editingUsername, setEditingUsername] = useState(null);
   const [editRiotAccount, setEditRiotAccount] = useState("");
+  const [editTagChoice, setEditTagChoice] = useState(TAG_OPTIONS[0].value);
   const [editRiotTag, setEditRiotTag] = useState("");
+  const [editRegion, setEditRegion] = useState("europe");
+
+  const selectNewTag = (value) => {
+    setNewTagChoice(value);
+    setNewRiotTag(value === CUSTOM_TAG ? "" : value);
+  };
+
+  const selectEditTag = (value) => {
+    setEditTagChoice(value);
+    setEditRiotTag(value === CUSTOM_TAG ? "" : value);
+  };
 
   const startEdit = (acc) => {
     setEditingUsername(acc.username);
     setEditRiotAccount(acc.riotAccount || "");
+    const knownTag = TAG_OPTIONS.some((o) => o.value === acc.riotTag);
+    setEditTagChoice(knownTag ? acc.riotTag : CUSTOM_TAG);
     setEditRiotTag(acc.riotTag || "");
+    setEditRegion(acc.region || "europe");
   };
 
   const saveEdit = () => {
+    const region =
+      editTagChoice === CUSTOM_TAG ? editRegion : regionForTag(editTagChoice) || "europe";
     onUpdateRiotAccount(editingUsername, {
       riotAccount: editRiotAccount,
       riotTag: editRiotTag,
+      region,
     });
     setEditingUsername(null);
   };
 
   const handleCreate = () => {
     if (!newUsername.trim()) return;
-    onCreate(newUsername.trim(), newRiotAccount.trim(), newRiotTag.trim());
+    const region = newTagChoice === CUSTOM_TAG ? newRegion : regionForTag(newTagChoice) || "europe";
+    onCreate(newUsername.trim(), newRiotAccount.trim(), newRiotTag.trim(), region);
     setNewUsername("");
     setNewRiotAccount("");
-    setNewRiotTag("");
+    setNewTagChoice(TAG_OPTIONS[0].value);
+    setNewRiotTag(TAG_OPTIONS[0].value);
+    setNewRegion("europe");
     setShowCreate(false);
   };
 
@@ -118,28 +179,59 @@ export default function AccountManager({
 
                     {isEditing && (
                       <div style={styles.editRow}>
-                        <input
-                          value={editRiotAccount}
-                          onChange={(e) => setEditRiotAccount(e.target.value)}
-                          placeholder={t("riot_name_placeholder")}
-                          style={styles.input}
-                          autoFocus
-                        />
-                        <input
-                          value={editRiotTag}
-                          onChange={(e) => setEditRiotTag(e.target.value)}
-                          placeholder={t("tag_placeholder")}
-                          style={{ ...styles.input, maxWidth: 90 }}
-                        />
-                        <button onClick={saveEdit} style={styles.smallBtn}>
-                          {t("save_btn")}
-                        </button>
-                        <button
-                          onClick={() => setEditingUsername(null)}
-                          style={styles.smallBtnGhost}
-                        >
-                          {t("cancel_btn")}
-                        </button>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <input
+                            value={editRiotAccount}
+                            onChange={(e) => setEditRiotAccount(e.target.value)}
+                            placeholder={t("riot_name_placeholder")}
+                            style={styles.input}
+                            autoFocus
+                          />
+                          <select
+                            value={editTagChoice}
+                            onChange={(e) => selectEditTag(e.target.value)}
+                            style={{ ...styles.select, maxWidth: 100 }}
+                          >
+                            {TAG_OPTIONS.map((o) => (
+                              <option key={o.value} value={o.value}>
+                                {o.value}
+                              </option>
+                            ))}
+                            <option value={CUSTOM_TAG}>{t("tag_custom_option")}</option>
+                          </select>
+                        </div>
+                        {editTagChoice === CUSTOM_TAG && (
+                          <div style={{ display: "flex", gap: 6 }}>
+                            <input
+                              value={editRiotTag}
+                              onChange={(e) => setEditRiotTag(e.target.value)}
+                              placeholder={t("tag_placeholder")}
+                              style={{ ...styles.input, maxWidth: 90 }}
+                            />
+                            <select
+                              value={editRegion}
+                              onChange={(e) => setEditRegion(e.target.value)}
+                              style={styles.select}
+                            >
+                              {FALLBACK_REGIONS.map((r) => (
+                                <option key={r.value} value={r.value}>
+                                  {t(r.labelKey)}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button onClick={saveEdit} style={styles.smallBtn}>
+                            {t("save_btn")}
+                          </button>
+                          <button
+                            onClick={() => setEditingUsername(null)}
+                            style={styles.smallBtnGhost}
+                          >
+                            {t("cancel_btn")}
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -194,13 +286,40 @@ export default function AccountManager({
                 onChange={(e) => setNewRiotAccount(e.target.value)}
                 style={styles.input}
               />
-              <input
-                placeholder={t("tag_placeholder")}
-                value={newRiotTag}
-                onChange={(e) => setNewRiotTag(e.target.value)}
-                style={{ ...styles.input, maxWidth: 90 }}
-              />
+              <select
+                value={newTagChoice}
+                onChange={(e) => selectNewTag(e.target.value)}
+                style={{ ...styles.select, maxWidth: 100 }}
+              >
+                {TAG_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.value}
+                  </option>
+                ))}
+                <option value={CUSTOM_TAG}>{t("tag_custom_option")}</option>
+              </select>
             </div>
+            {newTagChoice === CUSTOM_TAG && (
+              <div style={{ display: "flex", gap: 8 }}>
+                <input
+                  placeholder={t("tag_placeholder")}
+                  value={newRiotTag}
+                  onChange={(e) => setNewRiotTag(e.target.value)}
+                  style={styles.input}
+                />
+                <select
+                  value={newRegion}
+                  onChange={(e) => setNewRegion(e.target.value)}
+                  style={{ ...styles.select, maxWidth: 160 }}
+                >
+                  {FALLBACK_REGIONS.map((r) => (
+                    <option key={r.value} value={r.value}>
+                      {t(r.labelKey)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div style={styles.tagHint}>
               {t("tag_hint")}
             </div>
@@ -234,17 +353,17 @@ const styles = {
   },
 
   panel: {
-    width: 420,
-    maxHeight: "80vh",
+    width: 540,
+    maxHeight: "84vh",
     overflowY: "auto",
-    borderRadius: 16,
-    padding: 20,
+    borderRadius: 20,
+    padding: 26,
     background: "linear-gradient(180deg, rgba(var(--panel-rgb),0.98), rgba(var(--panel-deep-rgb),0.99))",
     border: "1px solid rgba(var(--border-rgb),0.5)",
-    boxShadow: "0 12px 40px rgba(0,0,0,0.5)",
+    boxShadow: "0 20px 60px rgba(0,0,0,0.55)",
     display: "flex",
     flexDirection: "column",
-    gap: 12,
+    gap: 16,
     fontFamily: "Cinzel, serif",
   },
 
@@ -252,12 +371,15 @@ const styles = {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
+    paddingBottom: 12,
+    borderBottom: "1px solid rgba(var(--border-rgb),0.35)",
   },
 
   title: {
     color: "var(--accent-text)",
-    fontSize: 18,
+    fontSize: 20,
     margin: 0,
+    letterSpacing: 0.3,
   },
 
   closeBtn: {
@@ -305,8 +427,9 @@ const styles = {
     justifyContent: "space-between",
     alignItems: "center",
     gap: 10,
-    padding: "10px 12px",
-    borderRadius: 10,
+    padding: "12px 14px",
+    borderRadius: 12,
+    transition: "background 0.15s ease, border-color 0.15s ease",
   },
 
   accountInfo: {
@@ -341,8 +464,21 @@ const styles = {
 
   editRow: {
     display: "flex",
-    gap: 6,
-    alignItems: "center",
+    flexDirection: "column",
+    gap: 8,
+    marginTop: 4,
+  },
+
+  select: {
+    width: "100%",
+    padding: 10,
+    borderRadius: 10,
+    background: "rgba(var(--panel-deep-rgb),0.9)",
+    color: "var(--text-body)",
+    border: "1px solid rgba(var(--border-rgb),0.4)",
+    fontSize: 13,
+    fontFamily: "Cinzel, serif",
+    cursor: "pointer",
   },
 
   accountActions: {
@@ -405,14 +541,15 @@ const styles = {
   },
 
   primaryBtn: {
-    padding: "8px 14px",
+    padding: "10px 16px",
     borderRadius: 10,
     border: "none",
-    background: "#4f46e5",
+    background: "linear-gradient(135deg, #6366f1, #4f46e5)",
     color: "#ffffff",
     cursor: "pointer",
     fontSize: 13,
     fontWeight: 600,
+    boxShadow: "0 4px 14px rgba(79,70,229,0.35)",
   },
 
   smallBtn: {
@@ -428,4 +565,10 @@ const styles = {
   smallBtnGhost: {
     padding: "6px 10px",
     borderRadius: 8,
-    border: "1px solid rgba(var(--soft
+    border: "1px solid rgba(var(--soft-rgb),0.15)",
+    background: "transparent",
+    color: "var(--text-secondary)",
+    cursor: "pointer",
+    fontSize: 12,
+  },
+};

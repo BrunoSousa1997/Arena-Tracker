@@ -133,10 +133,28 @@ function getSortMeta(t) {
       qualifies: (c) => c.bestGameGold != null,
     },
     {
-      key: "best_multikill",
-      label: t("spotlight_best_multikill_ever"),
-      compare: (a, b) => b.bestMultikill - a.bestMultikill,
-      qualifies: (c) => c.bestMultikill >= 2,
+      key: "highest_doubles",
+      label: t("spotlight_highest_doubles"),
+      compare: (a, b) => (b.avgDoubles ?? -1) - (a.avgDoubles ?? -1),
+      qualifies: (c) => c.avgDoubles != null,
+    },
+    {
+      key: "highest_triples",
+      label: t("spotlight_highest_triples"),
+      compare: (a, b) => (b.avgTriples ?? -1) - (a.avgTriples ?? -1),
+      qualifies: (c) => c.avgTriples != null,
+    },
+    {
+      key: "best_doubles_game",
+      label: t("spotlight_best_doubles_game"),
+      compare: (a, b) => (b.bestGameDoubles ?? -1) - (a.bestGameDoubles ?? -1),
+      qualifies: (c) => c.bestGameDoubles != null,
+    },
+    {
+      key: "best_triples_game",
+      label: t("spotlight_best_triples_game"),
+      compare: (a, b) => (b.bestGameTriples ?? -1) - (a.bestGameTriples ?? -1),
+      qualifies: (c) => c.bestGameTriples != null,
     },
     { key: "name_asc", label: t("sort_name_az"), compare: (a, b) => a.name.localeCompare(b.name) },
   ];
@@ -291,6 +309,12 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
           hpSum: 0,
           hpCount: 0,
           bestGameHp: null,
+          doubleKillsSum: 0,
+          doubleKillsCount: 0,
+          bestGameDoubles: null,
+          tripleKillsSum: 0,
+          tripleKillsCount: 0,
+          bestGameTriples: null,
         };
       }
       const s = map[m.champion];
@@ -335,6 +359,16 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
         s.hpSum += m.max_hp;
         s.hpCount += 1;
         if (s.bestGameHp == null || m.max_hp > s.bestGameHp) s.bestGameHp = m.max_hp;
+      }
+      if (m.double_kills != null) {
+        s.doubleKillsSum += m.double_kills;
+        s.doubleKillsCount += 1;
+        if (s.bestGameDoubles == null || m.double_kills > s.bestGameDoubles) s.bestGameDoubles = m.double_kills;
+      }
+      if (m.triple_kills != null) {
+        s.tripleKillsSum += m.triple_kills;
+        s.tripleKillsCount += 1;
+        if (s.bestGameTriples == null || m.triple_kills > s.bestGameTriples) s.bestGameTriples = m.triple_kills;
       }
 
       (m.augments || []).forEach((a) => {
@@ -384,6 +418,8 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
       const bestHealing = bestFormatAvg(buckets, "healingSum", "healingCount");
       const bestHp = bestFormatAvg(buckets, "hpSum", "hpCount");
       const bestGold = bestFormatAvg(buckets, "goldSum", "goldCount");
+      const bestDoubles = bestFormatAvg(buckets, "doubleKillsSum", "doubleKillsCount");
+      const bestTriples = bestFormatAvg(buckets, "tripleKillsSum", "tripleKillsCount");
       // Melhor/pior KDA por formato — só usado para ordenar pelos filtros
       // "Melhor KDA"/"Pior KDA" (o KDA médio geral, mostrado sempre na
       // linha do campeão, continua a somar tudo normalmente).
@@ -412,6 +448,10 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
         healingCount: bestHealing?.count ?? s.healingCount,
         avgHp: bestHp?.avg ?? null,
         hpCount: bestHp?.count ?? s.hpCount,
+        avgDoubles: bestDoubles?.avg ?? null,
+        doubleKillsCount: bestDoubles?.count ?? s.doubleKillsCount,
+        avgTriples: bestTriples?.avg ?? null,
+        tripleKillsCount: bestTriples?.count ?? s.tripleKillsCount,
         bestKda: bestKda?.kda ?? null,
         worstKda: worstKda?.kda ?? null,
         // Os 8 lugares possíveis, sempre pela mesma ordem e sempre todos
@@ -560,6 +600,20 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
       label: t("compare_avg_gold"),
       get: (c) => c.avgGold,
       format: (v) => (v == null ? "—" : Math.round(v).toLocaleString()),
+      higherIsBetter: true,
+    },
+    {
+      key: "doubles",
+      label: t("compare_avg_doubles"),
+      get: (c) => c.avgDoubles,
+      format: (v) => (v == null ? "—" : v.toFixed(2)),
+      higherIsBetter: true,
+    },
+    {
+      key: "triples",
+      label: t("compare_avg_triples"),
+      get: (c) => c.avgTriples,
+      format: (v) => (v == null ? "—" : v.toFixed(2)),
       higherIsBetter: true,
     },
   ];
@@ -807,4 +861,962 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
                   <div style={styles.champRowName}>
                     {s.name}
                     <div style={styles.champRowGames}>
-                      {s.games} {s.games === 1 ? t("stat_games_singular") : t("stat_games").toLo
+                      {s.games} {s.games === 1 ? t("stat_games_singular") : t("stat_games").toLowerCase()}
+                    </div>
+                  </div>
+
+                  <div style={{ ...styles.champRowStat, color: "var(--accent-text)" }}>
+                    {s.winrate}% ({t("placement_first_short")})
+                  </div>
+
+                  <div style={{ ...styles.champRowStat, color: placementColor(3) }}>
+                    {s.top3Rate}% (Top 3)
+                  </div>
+
+                  {/* Lugares — sempre visíveis, sem precisar de abrir a linha,
+                      agora ao lado da winrate/Top 3 em vez de numa linha
+                      própria por baixo. Cartões a 0 ficam acinzentados (sem
+                      realce de cor); lugar em cima, nº de vezes em baixo. */}
+                  <div style={styles.placementMiniRow}>
+                    {s.placementBreakdown.map((p) => {
+                      const isZero = p.count === 0;
+                      return (
+                        <div
+                          key={p.placement}
+                          style={{
+                            ...styles.placementMiniCard,
+                            border: `1px solid ${isZero ? "rgba(var(--border-rgb),0.25)" : placementBorder(p.placement)}`,
+                            background: isZero ? "rgba(var(--panel-deep-rgb),0.4)" : placementBg(p.placement),
+                            opacity: isZero ? 0.5 : 1,
+                          }}
+                        >
+                          <div
+                            style={{
+                              ...styles.placementMiniNum,
+                              color: isZero ? "var(--text-muted)" : placementColor(p.placement),
+                            }}
+                          >
+                            {p.placement}º
+                          </div>
+                          <div
+                            style={{
+                              ...styles.placementMiniCount,
+                              color: isZero ? "var(--text-muted)" : "var(--text-body)",
+                            }}
+                          >
+                            {p.count}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div style={styles.champRowKda}>
+                    {kdaLabel(s.avgK, s.avgD, s.avgA)}
+                  </div>
+
+                  <div style={styles.expandArrow}>{isOpen ? "▲" : "▼"}</div>
+                </div>
+
+                <AnimatePresence>
+                  {isOpen && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.18 }}
+                      style={styles.expandWrap}
+                    >
+                      <div style={styles.expandSection}>
+                        <div style={styles.expandLabel}>{t("section_averages")}</div>
+                        {s.avgDamageDealt != null ||
+                        s.avgGold != null ||
+                        s.avgHealing != null ||
+                        s.avgHp != null ||
+                        s.avgDoubles != null ||
+                        s.avgTriples != null ? (
+                          <div style={styles.statGrid}>
+                            {s.avgDamageDealt != null && (
+                              <div style={styles.statItem}>
+                                <div style={styles.statValue}>{Math.round(s.avgDamageDealt).toLocaleString()}</div>
+                                <div style={styles.statLabel}>
+                                  {t("stat_damage_dealt")}
+                                  <span style={styles.statLabelCount}> · {s.damageDealtCount}{lang === "en" ? "g" : "j"}</span>
+                                </div>
+                              </div>
+                            )}
+                            {s.avgDamageTaken != null && (
+                              <div style={styles.statItem}>
+                                <div style={styles.statValue}>{Math.round(s.avgDamageTaken).toLocaleString()}</div>
+                                <div style={styles.statLabel}>
+                                  {t("stat_damage_taken")}
+                                  <span style={styles.statLabelCount}> · {s.damageTakenCount}{lang === "en" ? "g" : "j"}</span>
+                                </div>
+                              </div>
+                            )}
+                            {s.avgGold != null && (
+                              <div style={styles.statItem}>
+                                <div style={styles.statValue}>{Math.round(s.avgGold).toLocaleString()}</div>
+                                <div style={styles.statLabel}>{t("stat_gold")}</div>
+                              </div>
+                            )}
+                            {s.avgHealing != null && (
+                              <div style={styles.statItem}>
+                                <div style={styles.statValue}>{Math.round(s.avgHealing).toLocaleString()}</div>
+                                <div style={styles.statLabel}>
+                                  {t("stat_healing")}
+                                  <span style={styles.statLabelCount}> · {s.healingCount}{lang === "en" ? "g" : "j"}</span>
+                                </div>
+                              </div>
+                            )}
+                            {s.avgHp != null && (
+                              <div style={styles.statItem}>
+                                <div style={styles.statValue}>{Math.round(s.avgHp).toLocaleString()}</div>
+                                <div style={styles.statLabel}>
+                                  {t("stat_hp")}
+                                  <span style={styles.statLabelCount}> · {s.hpCount}{lang === "en" ? "g" : "j"}</span>
+                                </div>
+                              </div>
+                            )}
+                            {s.bestMultikill >= 2 && (
+                              <div style={styles.statItem}>
+                                <div style={{ ...styles.statValue, color: "var(--accent-text)" }}>
+                                  {s.bestMultikill}x
+                                </div>
+                                <div style={styles.statLabel}>{t("best_multikill")}</div>
+                              </div>
+                            )}
+                            {s.avgDoubles != null && (
+                              <div style={styles.statItem}>
+                                <div style={styles.statValue}>{s.avgDoubles.toFixed(2)}</div>
+                                <div style={styles.statLabel}>
+                                  {t("stat_doubles")}
+                                  <span style={styles.statLabelCount}> · {s.doubleKillsCount}{lang === "en" ? "g" : "j"}</span>
+                                </div>
+                              </div>
+                            )}
+                            {s.avgTriples != null && (
+                              <div style={styles.statItem}>
+                                <div style={styles.statValue}>{s.avgTriples.toFixed(2)}</div>
+                                <div style={styles.statLabel}>
+                                  {t("stat_triples")}
+                                  <span style={styles.statLabelCount}> · {s.tripleKillsCount}{lang === "en" ? "g" : "j"}</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div style={styles.placeholderText}>{t("no_placement_data_yet")}</div>
+                        )}
+                      </div>
+
+                      {(s.bestMatchups.length > 0 || s.worstMatchups.length > 0) && (
+                        <div style={styles.expandSection}>
+                          <div style={styles.expandLabel}>
+                            {t("section_matchups")}{" "}
+                            <Tooltip label={t("matchups_disclaimer")}>
+                              <span style={styles.infoDot}>ⓘ</span>
+                            </Tooltip>
+                          </div>
+                          <div style={styles.matchupsGrid}>
+                            {s.bestMatchups.length > 0 && (
+                              <div>
+                                <div style={styles.matchupSubLabel}>{t("matchups_best")}</div>
+                                <div style={styles.placementRow}>
+                                  {s.bestMatchups.map((o) => (
+                                    <Tooltip
+                                      key={o.champion}
+                                      label={`${champName(o.champion)} · ${o.wins}/${o.games} (${o.winrate}%)`}
+                                    >
+                                      <div style={{ ...styles.matchupPill, borderColor: "rgba(74,222,128,0.4)" }}>
+                                        {DRAGON && (
+                                          <img
+                                            src={`${DRAGON}/img/champion/${o.champion}.png`}
+                                            style={styles.matchupIcon}
+                                          />
+                                        )}
+                                        <span style={{ color: "var(--place-good)" }}>{o.winrate}%</span>
+                                      </div>
+                                    </Tooltip>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {s.worstMatchups.length > 0 && (
+                              <div>
+                                <div style={styles.matchupSubLabel}>{t("matchups_worst")}</div>
+                                <div style={styles.placementRow}>
+                                  {s.worstMatchups.map((o) => (
+                                    <Tooltip
+                                      key={o.champion}
+                                      label={`${champName(o.champion)} · ${o.wins}/${o.games} (${o.winrate}%)`}
+                                    >
+                                      <div style={{ ...styles.matchupPill, borderColor: "rgba(226,85,95,0.4)" }}>
+                                        {DRAGON && (
+                                          <img
+                                            src={`${DRAGON}/img/champion/${o.champion}.png`}
+                                            style={styles.matchupIcon}
+                                          />
+                                        )}
+                                        <span style={{ color: "var(--place-low)" }}>{o.winrate}%</span>
+                                      </div>
+                                    </Tooltip>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {(s.bestGameDamage != null ||
+                        s.bestGameHealing != null ||
+                        s.bestGameDamageTaken != null ||
+                        s.bestGameHp != null ||
+                        s.bestGameGold != null ||
+                        s.bestGameDoubles != null ||
+                        s.bestGameTriples != null) && (
+                        <div style={styles.expandSection}>
+                          <div style={styles.expandLabel}>{t("section_best_games")}</div>
+                          <div style={styles.statGrid}>
+                            {s.bestGameDamage != null && (
+                              <div style={styles.statItem}>
+                                <div style={{ ...styles.statValue, color: "var(--accent-text)" }}>
+                                  {Math.round(s.bestGameDamage).toLocaleString()}
+                                </div>
+                                <div style={styles.statLabel}>{t("spotlight_best_damage_game")}</div>
+                              </div>
+                            )}
+                            {s.bestGameHealing != null && (
+                              <div style={styles.statItem}>
+                                <div style={{ ...styles.statValue, color: "var(--accent-text)" }}>
+                                  {Math.round(s.bestGameHealing).toLocaleString()}
+                                </div>
+                                <div style={styles.statLabel}>{t("spotlight_best_healing_game")}</div>
+                              </div>
+                            )}
+                            {s.bestGameDamageTaken != null && (
+                              <div style={styles.statItem}>
+                                <div style={{ ...styles.statValue, color: "var(--accent-text)" }}>
+                                  {Math.round(s.bestGameDamageTaken).toLocaleString()}
+                                </div>
+                                <div style={styles.statLabel}>{t("spotlight_best_damage_taken_game")}</div>
+                              </div>
+                            )}
+                            {s.bestGameHp != null && (
+                              <div style={styles.statItem}>
+                                <div style={{ ...styles.statValue, color: "var(--accent-text)" }}>
+                                  {Math.round(s.bestGameHp).toLocaleString()}
+                                </div>
+                                <div style={styles.statLabel}>{t("spotlight_best_hp_game")}</div>
+                              </div>
+                            )}
+                            {s.bestGameGold != null && (
+                              <div style={styles.statItem}>
+                                <div style={{ ...styles.statValue, color: "var(--accent-text)" }}>
+                                  {Math.round(s.bestGameGold).toLocaleString()}
+                                </div>
+                                <div style={styles.statLabel}>{t("spotlight_best_gold_game")}</div>
+                              </div>
+                            )}
+                            {s.bestGameDoubles != null && (
+                              <div style={styles.statItem}>
+                                <div style={{ ...styles.statValue, color: "var(--accent-text)" }}>
+                                  {s.bestGameDoubles}
+                                </div>
+                                <div style={styles.statLabel}>{t("spotlight_best_doubles_game")}</div>
+                              </div>
+                            )}
+                            {s.bestGameTriples != null && (
+                              <div style={styles.statItem}>
+                                <div style={{ ...styles.statValue, color: "var(--accent-text)" }}>
+                                  {s.bestGameTriples}
+                                </div>
+                                <div style={styles.statLabel}>{t("spotlight_best_triples_game")}</div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      <div style={styles.expandSection}>
+                        <div style={styles.expandLabel}>{t("section_recent_placements")}</div>
+                        {s.recentPlacements.length ? (
+                          <div style={styles.placementRow}>
+                            {s.recentPlacements.map((p, idx) => (
+                              <Tooltip key={idx} label={new Date(p.created_at).toLocaleDateString()}>
+                                <div
+                                  style={{
+                                    ...styles.placementPill,
+                                    background: placementBg(p.placement),
+                                    color: placementColor(p.placement),
+                                    border: `1px solid ${placementBorder(p.placement)}`,
+                                  }}
+                                >
+                                  {placementText(p.placement)}
+                                </div>
+                              </Tooltip>
+                            ))}
+                          </div>
+                        ) : (
+                          <div style={styles.placeholderText}>{t("no_placement_data_yet")}</div>
+                        )}
+                      </div>
+
+                      {(s.topWinItems.length > 0 || s.topWinAugments.length > 0) && (
+                        <div style={{ ...styles.expandSection, ...styles.winningBuildSection }}>
+                          <div style={styles.expandLabel}>
+                            🏆 {t("section_winning_build")}
+                          </div>
+                          {s.topWinItems.length > 0 && (
+                            <div style={styles.placementRow}>
+                              {s.topWinItems.map((it) => {
+                                const itemName = itemsMap?.[it.id] || `Item #${it.id}`;
+                                return (
+                                  <Tooltip key={it.id} label={`${itemName} · ${it.count}x ${t("in_wins_suffix")}`}>
+                                    <div style={{ ...styles.itemPill, ...styles.winningBuildPill }}>
+                                      {DRAGON && (
+                                        <img
+                                          src={`${DRAGON}/img/item/${it.id}.png`}
+                                          style={styles.itemPillIcon}
+                                        />
+                                      )}
+                                      <span>{it.count}x</span>
+                                    </div>
+                                  </Tooltip>
+                                );
+                              })}
+                            </div>
+                          )}
+                          {s.topWinAugments.length > 0 && (
+                            <div style={{ ...styles.placementRow, marginTop: s.topWinItems.length ? 6 : 0 }}>
+                              {s.topWinAugments.map((a) => {
+                                const info = augmentsMap?.[a.id];
+                                const rarityStyle = augmentRarityStyle(info?.rarity);
+                                return (
+                                  <Tooltip
+                                    key={a.id}
+                                    label={`${info?.name || `Augment #${a.id}`} · ${a.count}x ${t("in_wins_suffix")}`}
+                                  >
+                                    <div style={{ ...styles.augmentPill, ...rarityStyle, ...styles.winningBuildPill }}>
+                                      {info?.icon && (
+                                        <img
+                                          src={info.icon}
+                                          style={styles.augmentIcon}
+                                          onError={(e) => { e.currentTarget.style.display = "none"; }}
+                                        />
+                                      )}
+                                      <span>{info?.name || `Augment #${a.id}`} · {a.count}x</span>
+                                    </div>
+                                  </Tooltip>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      <div style={styles.expandSection}>
+                        <div style={styles.expandLabel}>{t("section_top_items")}</div>
+                        {s.topItems.length ? (
+                          <div style={styles.placementRow}>
+                            {s.topItems.map((it) => {
+                              const itemName = itemsMap?.[it.id] || `Item #${it.id}`;
+                              return (
+                                <Tooltip key={it.id} label={`${itemName} · ${it.count}x`}>
+                                  <div style={styles.itemPill}>
+                                    {DRAGON && (
+                                      <img
+                                        src={`${DRAGON}/img/item/${it.id}.png`}
+                                        style={styles.itemPillIcon}
+                                      />
+                                    )}
+                                    <span>{it.count}x</span>
+                                  </div>
+                                </Tooltip>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div style={styles.placeholderText}>{t("no_build_yet")}</div>
+                        )}
+                      </div>
+
+                      <div style={styles.expandSection}>
+                        <div style={styles.expandLabel}>{t("section_top_augments")}</div>
+                        {s.topAugments.length ? (
+                          <div style={styles.placementRow}>
+                            {s.topAugments.map((a) => {
+                              const info = augmentsMap?.[a.id];
+                              const rarityStyle = augmentRarityStyle(info?.rarity);
+                              return (
+                                <Tooltip
+                                  key={a.id}
+                                  label={`${info?.name || `Augment #${a.id}`} · ${a.count}x`}
+                                >
+                                  <div style={{ ...styles.augmentPill, ...rarityStyle }}>
+                                    {info?.icon && (
+                                      <img
+                                        src={info.icon}
+                                        style={styles.augmentIcon}
+                                        onError={(e) => { e.currentTarget.style.display = "none"; }}
+                                      />
+                                    )}
+                                    <span>{info?.name || `Augment #${a.id}`} · {a.count}x</span>
+                                  </div>
+                                </Tooltip>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div style={styles.placeholderText}>{t("no_placement_data_yet")}</div>
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            );
+          })}
+        </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const styles = {
+  wrap: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 16,
+    marginTop: 12,
+  },
+
+  empty: {
+    marginTop: 20,
+    padding: 20,
+    textAlign: "center",
+    color: "var(--text-secondary)",
+    background: "rgba(var(--panel-deep-rgb),0.85)",
+    border: "1px solid rgba(var(--border-rgb),0.5)",
+    borderRadius: 14,
+  },
+
+
+  section: {
+    background:
+      "linear-gradient(180deg, rgba(var(--panel-rgb),0.92), rgba(var(--panel-deep-rgb),0.96))",
+    border: "1px solid rgba(var(--border-rgb),0.5)",
+    borderRadius: 16,
+    padding: 16,
+  },
+
+  sectionHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+
+  sectionTitle: { color: "var(--accent-text)" },
+
+  select: {
+    padding: "6px 10px",
+    borderRadius: 8,
+    border: "1px solid rgba(var(--border-rgb),0.4)",
+    background: "rgba(var(--panel-deep-rgb),0.8)",
+    color: "var(--text-body)",
+    fontSize: 12,
+  },
+
+  // Busca por nome — antes não havia forma nenhuma de ir direto a um
+  // campeão aqui, só ordenar e procurar visualmente na lista toda.
+  searchBox: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "8px 12px",
+    borderRadius: 10,
+    background: "rgba(var(--panel-deep-rgb),0.85)",
+    border: "1px solid rgba(var(--accent-rgb),0.25)",
+    marginBottom: 10,
+  },
+
+  searchIcon: {
+    fontSize: 12,
+    flexShrink: 0,
+  },
+
+  buildFilterChip: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "8px 12px",
+    borderRadius: 10,
+    background: "rgba(250,204,21,0.1)",
+    border: "1px solid rgba(250,204,21,0.4)",
+    marginBottom: 10,
+    fontSize: 12,
+    color: "var(--text-body)",
+  },
+
+  buildFilterChipIcon: {
+    width: 18,
+    height: 18,
+    borderRadius: 4,
+  },
+
+  buildFilterClear: {
+    marginLeft: "auto",
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    border: "none",
+    background: "rgba(var(--soft-rgb),0.1)",
+    color: "var(--text-secondary)",
+    cursor: "pointer",
+    fontSize: 11,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 0,
+  },
+
+  buildFilterDropdown: {
+    position: "absolute",
+    top: "calc(100% + 4px)",
+    left: 0,
+    right: 0,
+    zIndex: 20,
+    maxHeight: 220,
+    overflowY: "auto",
+    borderRadius: 10,
+    background: "rgba(var(--panel-deep-rgb),0.98)",
+    border: "1px solid rgba(var(--accent-rgb),0.3)",
+    boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+  },
+
+  buildFilterOption: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "7px 10px",
+    cursor: "pointer",
+    fontSize: 12,
+    color: "var(--text-body)",
+    borderBottom: "1px solid rgba(var(--border-rgb),0.25)",
+  },
+
+  buildFilterOptionIcon: {
+    width: 18,
+    height: 18,
+    borderRadius: 4,
+    flexShrink: 0,
+  },
+
+  buildFilterOptionName: {
+    flex: 1,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+
+  buildFilterOptionType: {
+    fontSize: 9,
+    textTransform: "uppercase",
+    color: "var(--text-muted)",
+    flexShrink: 0,
+  },
+
+  searchInput: {
+    flex: 1,
+    border: "none",
+    outline: "none",
+    background: "transparent",
+    color: "var(--text-body)",
+    fontSize: 13,
+  },
+
+  emptyInline: {
+    padding: "16px 0",
+    textAlign: "center",
+    color: "var(--text-secondary)",
+    fontSize: 12,
+  },
+
+  // Painel único para todos os filtros/ordenação (busca, build, sort) — em
+  // vez de campos soltos empilhados, ficam agrupados dentro do mesmo cartão
+  // com fundo próprio, para ler-se de imediato como "isto tudo é filtro".
+  filterToolbar: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+    padding: 12,
+    borderRadius: 14,
+    background: "rgba(var(--panel-deep-rgb),0.4)",
+    border: "1px solid rgba(var(--border-rgb),0.35)",
+    marginBottom: 14,
+  },
+
+  filterToolbarRow: {
+    display: "flex",
+    gap: 10,
+    flexWrap: "wrap",
+  },
+
+  filterToolbarLabel: {
+    fontSize: 10.5,
+    fontWeight: 700,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    color: "var(--text-muted)",
+  },
+
+  // Fileira de filtros/ordenação — espelha os cartões de destaque da Visão
+  // Geral (mesmos rótulos) para que os dois sítios falem a mesma linguagem;
+  // clicar num destaque lá seleciona automaticamente o chip equivalente cá.
+  sortChipRow: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 6,
+    marginBottom: 0,
+  },
+
+  sortChip: {
+    padding: "6px 13px",
+    borderRadius: 999,
+    border: "1px solid rgba(var(--border-rgb),0.4)",
+    background: "rgba(var(--panel-deep-rgb),0.7)",
+    color: "var(--text-secondary)",
+    cursor: "pointer",
+    fontSize: 11,
+    fontWeight: 600,
+    transition: "all 0.15s ease",
+  },
+
+  sortChipActive: {
+    background: "linear-gradient(135deg, #6366f1, #4f46e5)",
+    borderColor: "#4f46e5",
+    color: "#ffffff",
+    boxShadow: "0 3px 10px rgba(79,70,229,0.4)",
+  },
+
+  champList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+  },
+
+  // Mesma paleta do cartão de partida no Histórico (ver matchCard em
+  // MatchHistory.jsx) — antes usava um preto fixo (rgba(0,0,0,0.25)), que
+  // no tema claro ficava com um tom escuro estranho em vez de acompanhar o
+  // resto do painel.
+  champCard: {
+    borderRadius: 10,
+    background: "rgba(var(--panel-deep-rgb),0.85)",
+    border: "1px solid rgba(var(--border-rgb),0.25)",
+    overflow: "hidden",
+  },
+
+  // Fundo com um tom claro da cor de destaque — distingue visualmente a
+  // fileira clicável (que abre/fecha os detalhes) do resto do cartão. Os
+  // lugares (sempre visíveis, logo abaixo) e os detalhes (expandWrap, só
+  // quando aberto) ficam sem este fundo, precisamente para se notar a
+  // diferença entre a parte clicável e a que não é.
+  champRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    padding: "8px 12px",
+    cursor: "pointer",
+    background: "rgba(var(--accent-rgb),0.16)",
+  },
+
+  champIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    pointerEvents: "none",
+  },
+
+  champRowName: {
+    width: 130,
+    fontSize: 13,
+    color: "var(--text-body)",
+    fontWeight: 600,
+  },
+
+  champRowGames: {
+    fontSize: 10,
+    fontWeight: 500,
+    color: "var(--text-secondary)",
+    marginTop: 1,
+  },
+
+  champRowStat: {
+    width: 110,
+    fontSize: 12,
+    color: "var(--text-secondary)",
+    textAlign: "center",
+  },
+
+  // 8 cartões fixos (1º-8º), sempre pela mesma ordem, mesmo quando a
+  // contagem é 0 — ao lado da winrate/Top 3 na mesma linha, em vez de numa
+  // linha própria por baixo, e bem mais pequenos: lugar em cima, nº de vezes
+  // em baixo.
+  placementMiniRow: {
+    display: "flex",
+    gap: 3,
+    flexShrink: 0,
+  },
+
+  placementMiniCard: {
+    width: 22,
+    borderRadius: 5,
+    padding: "2px 0",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 0,
+  },
+
+  placementMiniNum: {
+    fontSize: 8.5,
+    fontWeight: 800,
+    lineHeight: 1.2,
+  },
+
+  placementMiniCount: {
+    fontSize: 11,
+    fontWeight: 700,
+    lineHeight: 1.2,
+  },
+
+  champRowKda: {
+    flex: 1,
+    fontSize: 12,
+    color: "var(--text-body)",
+    textAlign: "right",
+  },
+
+  expandArrow: {
+    fontSize: 10,
+    color: "var(--text-secondary)",
+    width: 14,
+    textAlign: "center",
+  },
+
+  expandWrap: {
+    padding: "0 12px 14px 58px",
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+  },
+
+  expandSection: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+  },
+
+  // Destaque visual próprio (fundo/borda dourados) para separar a "build
+  // vencedora" (só partidas ganhas) do resto, que mistura vitórias e
+  // derrotas — é uma recomendação, não só mais uma estatística.
+  winningBuildSection: {
+    padding: 8,
+    borderRadius: 10,
+    background: "rgba(250,204,21,0.08)",
+    border: "1px solid rgba(250,204,21,0.3)",
+  },
+
+  winningBuildPill: {
+    border: "1px solid rgba(250,204,21,0.35)",
+  },
+
+  expandLabel: {
+    fontSize: 11,
+    color: "var(--text-secondary)",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+
+  infoDot: {
+    textTransform: "none",
+    letterSpacing: 0,
+    cursor: "help",
+    opacity: 0.7,
+  },
+
+  matchupsGrid: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+  },
+
+  matchupSubLabel: {
+    fontSize: 10,
+    color: "var(--text-muted)",
+    marginBottom: 4,
+  },
+
+  matchupPill: {
+    display: "flex",
+    alignItems: "center",
+    gap: 5,
+    padding: "3px 7px 3px 3px",
+    borderRadius: 6,
+    border: "1px solid",
+    background: "rgba(var(--panel-deep-rgb),0.7)",
+    fontSize: 11,
+    fontWeight: 700,
+  },
+
+  matchupIcon: {
+    width: 18,
+    height: 18,
+    borderRadius: 4,
+  },
+
+  statGrid: {
+    display: "flex",
+    gap: 18,
+    flexWrap: "wrap",
+  },
+
+  statItem: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 2,
+  },
+
+  statValue: {
+    fontSize: 14,
+    fontWeight: 700,
+    color: "var(--text-body)",
+  },
+
+  statLabel: {
+    fontSize: 10,
+    color: "var(--text-secondary)",
+  },
+
+  // Nº de partidas por trás da média mostrada — em "todos os formatos" o
+  // valor é a melhor média entre 2v2/3v3 (ver formatStats.js), não uma média
+  // cega dos dois juntos, por isso vale a pena deixar claro a que amostra
+  // (de que formato) esse número se refere.
+  statLabelCount: {
+    color: "var(--text-muted)",
+    fontWeight: 500,
+  },
+
+  placementRow: {
+    display: "flex",
+    gap: 6,
+    flexWrap: "wrap",
+  },
+
+  placementPill: {
+    padding: "3px 8px",
+    borderRadius: 6,
+    fontSize: 11,
+    fontWeight: 700,
+  },
+
+  augmentPill: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    padding: "3px 8px",
+    borderRadius: 6,
+    background: "rgba(var(--accent-rgb),0.12)",
+    border: "1px solid rgba(var(--accent-rgb),0.25)",
+    color: "var(--accent-text)",
+    fontSize: 11,
+  },
+
+  augmentIcon: {
+    width: 18,
+    height: 18,
+    borderRadius: 4,
+  },
+
+  itemPill: {
+    display: "flex",
+    alignItems: "center",
+    gap: 5,
+    padding: "3px 7px 3px 3px",
+    borderRadius: 6,
+    background: "rgba(var(--accent-rgb),0.12)",
+    border: "1px solid rgba(var(--accent-rgb),0.25)",
+    color: "var(--accent-text)",
+    fontSize: 11,
+  },
+
+  itemPillIcon: {
+    width: 22,
+    height: 22,
+    borderRadius: 4,
+  },
+
+  placeholderText: {
+    fontSize: 12,
+    color: "var(--text-muted)",
+    fontStyle: "italic",
+  },
+
+  compareToggleBtn: {
+    padding: "6px 12px",
+    borderRadius: 8,
+    border: "1px solid rgba(var(--accent-rgb),0.35)",
+    background: "rgba(var(--accent-rgb),0.08)",
+    color: "var(--accent-text)",
+    cursor: "pointer",
+    fontSize: 12,
+  },
+
+  compareWrap: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 12,
+  },
+
+  comparePickerRow: {
+    display: "flex",
+    gap: 10,
+  },
+
+  compareSlotIcon: {
+    width: 20,
+    height: 20,
+    borderRadius: 5,
+    flexShrink: 0,
+  },
+
+  compareTable: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 2,
+  },
+
+  compareRow: {
+    display: "grid",
+    gridTemplateColumns: "1fr auto 1fr",
+    alignItems: "center",
+    gap: 10,
+    padding: "8px 4px",
+    borderBottom: "1px solid rgba(var(--border-rgb),0.25)",
+  },
+
+  compareValue: {
+    fontSize: 14,
+  },
+
+  compareLabel: {
+    fontSize: 10.5,
+    color: "var(--text-secondary)",
+    textAlign: "center",
+    whiteSpace: "nowrap",
+  },
+};

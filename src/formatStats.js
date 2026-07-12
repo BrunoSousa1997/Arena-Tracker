@@ -37,6 +37,10 @@ export function buildFormatBuckets(matches, champions) {
         hpCount: 0,
         goldSum: 0,
         goldCount: 0,
+        doubleKillsSum: 0,
+        doubleKillsCount: 0,
+        tripleKillsSum: 0,
+        tripleKillsCount: 0,
       };
     }
 
@@ -66,6 +70,14 @@ export function buildFormatBuckets(matches, champions) {
       b.goldSum += rawMatch.gold_earned;
       b.goldCount += 1;
     }
+    if (rawMatch.double_kills != null) {
+      b.doubleKillsSum += rawMatch.double_kills;
+      b.doubleKillsCount += 1;
+    }
+    if (rawMatch.triple_kills != null) {
+      b.tripleKillsSum += rawMatch.triple_kills;
+      b.tripleKillsCount += 1;
+    }
   });
 
   return map;
@@ -88,4 +100,14 @@ export function bestFormatAvg(buckets, sumKey, countKey, minCount = 2) {
 // Igual, mas para o KDA — "mode" controla se queremos o melhor ("max", para
 // o líder de melhor KDA) ou o pior ("min", para o líder de pior KDA).
 export function bestFormatKda(buckets, minGames = 2, mode = "max") {
-  let best
+  let best = null;
+  Object.values(buckets || {}).forEach((b) => {
+    if (b.games >= minGames) {
+      const kda = (b.k + b.a) / Math.max(b.d, 1);
+      if (!best || (mode === "max" ? kda > best.kda : kda < best.kda)) {
+        best = { kda, games: b.games };
+      }
+    }
+  });
+  return best;
+}

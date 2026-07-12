@@ -24,7 +24,7 @@ import { createPortal } from "react-dom";
 // que nunca sai da janela — sem isto, textos longos perto de um canto (ex: o
 // aviso legal no "ⓘ" do canto superior esquerdo) ficavam cortados fora do
 // ecrã, já que a 1ª passagem só centra sem verificar os limites horizontais.
-export default function Tooltip({ label, children, position = "top", disabled = false }) {
+export default function Tooltip({ label, children, position = "top", disabled = false, style }) {
   const [coords, setCoords] = useState(null);
   const [resolvedPosition, setResolvedPosition] = useState(position);
   const [finalStyle, setFinalStyle] = useState(null);
@@ -85,7 +85,12 @@ export default function Tooltip({ label, children, position = "top", disabled = 
   if (!label || disabled) return children;
 
   return (
-    <span ref={wrapRef} style={styles.wrap} onMouseEnter={show} onMouseLeave={hide}>
+    <span
+      ref={wrapRef}
+      style={style ? { ...styles.wrap, ...style } : styles.wrap}
+      onMouseEnter={show}
+      onMouseLeave={hide}
+    >
       {children}
       {coords &&
         createPortal(

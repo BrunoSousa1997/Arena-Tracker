@@ -34,6 +34,8 @@ alter table public.matches add column if not exists summoner1 text;      -- nome
 alter table public.matches add column if not exists summoner2 text;      -- nome do 2º feitiço de invocador
 alter table public.matches add column if not exists healing int;         -- total de cura (a si próprio + aliados)
 alter table public.matches add column if not exists max_hp int;         -- maior "vida máxima" (championStats.maxHealth) vista na partida; só Live Client Data, não vem da Riot API
+alter table public.matches add column if not exists double_kills int;    -- nº de double kills nesta partida (só Riot API)
+alter table public.matches add column if not exists triple_kills int;    -- nº de triple kills nesta partida (só Riot API)
 
 -- 4) Colegas e adversários (estilo op.gg) — lista de todos os jogadores da
 -- partida (campeão, KDA, lugar da equipa, build, augments), só disponível

@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { placementColor } from "./placement";
 import { normalizeChampionId } from "./champions";
 import { useLanguage } from "./i18n";
@@ -13,15 +13,14 @@ function kdaLabel(k, d, a) {
 // componente sempre visível, logo abaixo das tabs. "matches" já vem
 // filtrado por formato (2v2/3v3) quando aplicável — ver teamSizeFilter em
 // App.jsx — porque "top 3" e os baldes de lugar não significam o mesmo
-// num jogo de 8 equipas e num de 6.
-export default function StatsBar({ matches, teamSizeFilter, onChangeTeamSizeFilter, wins: winsList, champions }) {
+// num jogo de 8 equipas e num de 6. "compact" vem de App.jsx (um único
+// interruptor para o cabeçalho todo, ver headerCompact) — nunca esconde
+// nenhum destes números, só troca o grid por uma única linha. O filtro de
+// formato já não é renderizado aqui — mudou-se para a mesma linha das tabs
+// em App.jsx (ver navRow); "teamSizeFilter" continua a vir por prop só
+// para o cálculo de "uniqueWinChamps" abaixo.
+export default function StatsBar({ matches, teamSizeFilter, wins: winsList, champions, compact }) {
   const { t } = useLanguage();
-
-  const TEAM_SIZE_OPTIONS = [
-    { key: "all", label: t("format_all") },
-    { key: 2, label: t("format_2v2") },
-    { key: 3, label: t("format_3v3") },
-  ];
 
   const stats = useMemo(() => {
     const games = matches.length;
@@ -73,78 +72,96 @@ export default function StatsBar({ matches, teamSizeFilter, onChangeTeamSizeFilt
 
   return (
     <div style={styles.wrap}>
-      {/* Mesmo "segmented control" animado da barra de tabs (ver App.jsx) —
-          fundo próprio a toda a largura, e a opção ativa desliza de um
-          formato para o outro via layoutId partilhado, em vez de só trocar
-          de cor instantaneamente. */}
-      {onChangeTeamSizeFilter && (
-        <div style={styles.filterRow}>
-          {TEAM_SIZE_OPTIONS.map((opt) => {
-            const isActive = teamSizeFilter === opt.key;
-            return (
-              <button
-                key={opt.key}
-                onClick={() => onChangeTeamSizeFilter(opt.key)}
-                style={{
-                  ...styles.filterBtn,
-                  color: isActive ? "#ffffff" : "var(--text-secondary)",
-                }}
-              >
-                {isActive && (
-                  <motion.div
-                    layoutId="formatIndicator"
-                    style={styles.filterIndicator}
-                    transition={{ type: "spring", stiffness: 480, damping: 34 }}
-                  />
-                )}
-                <span style={styles.filterBtnLabel}>{opt.label}</span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      <div style={styles.summaryBar}>
-        <div style={styles.summaryItem}>
-          <div style={styles.summaryValue}>{stats.games}</div>
-          <div style={styles.summaryLabel}>{t("stat_games")}</div>
-        </div>
-        <div style={styles.summaryDivider} />
-        <div style={styles.summaryItem}>
-          <div style={{ ...styles.summaryValue, color: "var(--place-good)" }}>
-            {stats.wins}
-            {stats.wins > 0 && <span style={styles.summarySub}> ({stats.uniqueWinChamps} {t("champions_suffix")})</span>}
-          </div>
-          <div style={styles.summaryLabel}>{t("stat_wins_first")}</div>
-        </div>
-        <div style={styles.summaryDivider} />
-        <div style={styles.summaryItem}>
-          <div style={{ ...styles.summaryValue, color: placementColor(3) }}>{stats.top3Games}</div>
-          <div style={styles.summaryLabel}>{t("stat_wins_top3")}</div>
-        </div>
-        <div style={styles.summaryDivider} />
-        <div style={styles.summaryItem}>
-          <div style={{ ...styles.summaryValue, color: "var(--place-low)" }}>{stats.belowTop3Games}</div>
-          <div style={styles.summaryLabel}>{t("stat_losses")}</div>
-        </div>
-        <div style={styles.summaryDivider} />
-        <div style={styles.summaryItem}>
-          <div style={{ ...styles.summaryValue, color: "var(--accent-text)" }}>{stats.winrate}%</div>
-          <div style={styles.summaryLabel}>{t("stat_winrate_first")}</div>
-        </div>
-        <div style={styles.summaryDivider} />
-        <div style={styles.summaryItem}>
-          <div style={styles.summaryValue}>{stats.top3Rate}%</div>
-          <div style={styles.summaryLabel}>{t("stat_winrate_top3")}</div>
-        </div>
-        <div style={styles.summaryDivider} />
-        <div style={styles.summaryItem}>
-          <div style={styles.summaryValue}>
-            {kdaLabel(stats.avgK, stats.avgD, stats.avgA)}
-          </div>
-          <div style={styles.summaryLabel}>{t("stat_kda")}</div>
-        </div>
-      </div>
+      <AnimatePresence initial={false} mode="wait">
+        {compact ? (
+          // Resumo condensado numa única linha — cabe a mesma informação
+          // toda, só que lida da esquerda para a direita em vez de espalhada
+          // num grid com legendas por baixo de cada valor.
+          <motion.div
+            key="compact"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.15 }}
+            style={styles.compactBarWrap}
+          >
+            <div style={styles.compactBar}>
+              <span style={styles.compactItem}>
+                <b>{stats.games}</b> {t("stat_games")}
+              </span>
+              <span style={{ ...styles.compactItem, color: "var(--place-good)" }}>
+                <b>{stats.wins}</b> {t("stat_wins_first")}
+              </span>
+              <span style={{ ...styles.compactItem, color: placementColor(3) }}>
+                <b>{stats.top3Games}</b> {t("stat_wins_top3")}
+              </span>
+              <span style={{ ...styles.compactItem, color: "var(--place-low)" }}>
+                <b>{stats.belowTop3Games}</b> {t("stat_losses")}
+              </span>
+              <span style={{ ...styles.compactItem, color: "var(--accent-text)" }}>
+                <b>{stats.winrate}%</b> {t("stat_winrate_first")}
+              </span>
+              <span style={styles.compactItem}>
+                <b>{stats.top3Rate}%</b> {t("stat_winrate_top3")}
+              </span>
+              <span style={styles.compactItem}>
+                <b>{kdaLabel(stats.avgK, stats.avgD, stats.avgA)}</b> {t("stat_kda")}
+              </span>
+            </div>
+          </motion.div>
+        ) : (
+          <motion.div
+            key="full"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.15 }}
+            style={{ overflow: "hidden" }}
+          >
+            <div style={styles.summaryBar}>
+              <div style={styles.summaryItem}>
+                <div style={styles.summaryValue}>{stats.games}</div>
+                <div style={styles.summaryLabel}>{t("stat_games")}</div>
+              </div>
+              <div style={styles.summaryDivider} />
+              <div style={styles.summaryItem}>
+                <div style={{ ...styles.summaryValue, color: "var(--place-good)" }}>
+                  {stats.wins}
+                  {stats.wins > 0 && <span style={styles.summarySub}> ({stats.uniqueWinChamps} {t("champions_suffix")})</span>}
+                </div>
+                <div style={styles.summaryLabel}>{t("stat_wins_first")}</div>
+              </div>
+              <div style={styles.summaryDivider} />
+              <div style={styles.summaryItem}>
+                <div style={{ ...styles.summaryValue, color: placementColor(3) }}>{stats.top3Games}</div>
+                <div style={styles.summaryLabel}>{t("stat_wins_top3")}</div>
+              </div>
+              <div style={styles.summaryDivider} />
+              <div style={styles.summaryItem}>
+                <div style={{ ...styles.summaryValue, color: "var(--place-low)" }}>{stats.belowTop3Games}</div>
+                <div style={styles.summaryLabel}>{t("stat_losses")}</div>
+              </div>
+              <div style={styles.summaryDivider} />
+              <div style={styles.summaryItem}>
+                <div style={{ ...styles.summaryValue, color: "var(--accent-text)" }}>{stats.winrate}%</div>
+                <div style={styles.summaryLabel}>{t("stat_winrate_first")}</div>
+              </div>
+              <div style={styles.summaryDivider} />
+              <div style={styles.summaryItem}>
+                <div style={styles.summaryValue}>{stats.top3Rate}%</div>
+                <div style={styles.summaryLabel}>{t("stat_winrate_top3")}</div>
+              </div>
+              <div style={styles.summaryDivider} />
+              <div style={styles.summaryItem}>
+                <div style={styles.summaryValue}>
+                  {kdaLabel(stats.avgK, stats.avgD, stats.avgA)}
+                </div>
+                <div style={styles.summaryLabel}>{t("stat_kda")}</div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -153,31 +170,77 @@ const styles = {
   wrap: {
     display: "flex",
     flexDirection: "column",
-    gap: 8,
-    marginTop: 10,
+    gap: 6,
   },
 
-  // Mesmo "segmented control" com fundo próprio a toda a largura da barra
-  // de tabs em App.jsx — consistência visual entre os dois seletores que
-  // ficam um por cima do outro.
-  filterRow: {
+  summaryBar: {
     display: "flex",
-    gap: 4,
-    width: "100%",
-    padding: 4,
-    borderRadius: 12,
-    background: "rgba(var(--panel-deep-rgb),0.5)",
-    border: "1px solid rgba(var(--border-rgb),0.35)",
+    justifyContent: "space-between",
+    gap: 10,
+    padding: "10px 16px",
+    borderRadius: 13,
+    background:
+      "linear-gradient(180deg, rgba(var(--panel-rgb),0.92), rgba(var(--panel-deep-rgb),0.96))",
+    border: "1px solid rgba(var(--border-rgb),0.5)",
   },
 
-  // "position: relative" + flex:1 para o indicador (absolute, atrás do
-  // texto) deslizar de um formato para o outro sem afetar o layout, e para
-  // as 3 opções (Todos/2v2/3v3) se espalharem pela largura toda.
-  filterBtn: {
-    position: "relative",
+  summaryItem: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 1,
     flex: 1,
+  },
+
+  // Separador fino entre cada valor do resumo — mesma ideia do divisor da
+  // topBar (ver App.jsx), só para dar uma leitura mais organizada em vez de
+  // 7 números soltos lado a lado sem qualquer separação visual.
+  summaryDivider: {
+    width: 1,
+    alignSelf: "stretch",
+    background: "rgba(var(--border-rgb),0.35)",
+  },
+
+  summaryValue: {
+    fontSize: 16,
+    fontWeight: 700,
+    color: "var(--text-body)",
+  },
+
+  summaryLabel: {
+    fontSize: 10.5,
+    color: "var(--text-secondary)",
+    textAlign: "center",
+  },
+
+  summarySub: {
+    fontSize: 11,
+    fontWeight: 600,
+    color: "var(--text-secondary)",
+  },
+
+  // Modo colapsado: a mesma informação toda numa única linha compacta, em
+  // vez do grid com legenda por baixo de cada valor — muito menos altura,
+  // sem esconder nenhum número.
+  compactBarWrap: {
+    overflow: "hidden",
+  },
+
+  compactBar: {
     display: "flex",
-    justifyContent: "center",
-    padding: "6px 10px",
-    borderRadius: 8,
-    border: "none",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: "4px 14px",
+    padding: "8px 14px",
+    borderRadius: 12,
+    background:
+      "linear-gradient(180deg, rgba(var(--panel-rgb),0.92), rgba(var(--panel-deep-rgb),0.96))",
+    border: "1px solid rgba(var(--border-rgb),0.5)",
+    fontSize: 11.5,
+    color: "var(--text-secondary)",
+  },
+
+  compactItem: {
+    whiteSpace: "nowrap",
+  },
+};

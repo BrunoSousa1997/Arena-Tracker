@@ -291,6 +291,18 @@ function sendActiveChampion(payload) {
   }
 }
 
+// Envia o KDA e a build atuais a cada poll (de 3 em 3s) enquanto a partida
+// decorre — ao contrário de sendActiveChampion (só uma vez, no início), isto
+// repete-se a partida toda para o banner na interface poder mostrar números
+// sempre atualizados. NÃO inclui augments: a Live Client Data API da Riot
+// não os expõe (nem para a Arena nem para nenhum modo) — só ficam
+// disponíveis depois de a partida terminar e sincronizar pela Riot API.
+function sendLiveStats(payload) {
+  if (win && !win.isDestroyed()) {
+    win.webContents.send("livegame:liveStats", payload);
+  }
+}
+
 async function pollLiveGame() {
   try {
     const allData = await liveClientRequest("allgamedata");
@@ -344,9 +356,19 @@ async function pollLiveGame() {
         maxHp: liveGameMaxHp || null,
       };
 
-      if (!liveChampionAnnounced && gameMode === ARENA_GAME_MODE && me.championName) {
-        liveChampionAnnounced = true;
-        sendActiveChampion({ champion: me.championName });
+      if (gameMode === ARENA_GAME_MODE && me.championName) {
+        if (!liveChampionAnnounced) {
+          liveChampionAnnounced = true;
+          sendActiveChampion({ champion: me.championName });
+        }
+
+        // KDA + build atuais, reenviados a cada poll (ver sendLiveStats).
+        sendLiveStats({
+          kills: liveGameState.kills,
+          deaths: liveGameState.deaths,
+          assists: liveGameState.assists,
+          items: liveGameState.items,
+        });
       }
     }
 
@@ -514,6 +536,11 @@ function extractParticipantStats(match, participant, spellNames) {
     champLevel: participant.champLevel ?? null,
     gameDuration: match.info?.gameDuration ?? null,
     multikill,
+    // Contagens reais (não só a categoria máxima acima) — quantas double e
+    // triple kills aconteceram nesta partida, para destacar "mais doubles/
+    // triples numa partida" e a média por campeão (ver Overview.jsx).
+    doubleKills: participant.doubleKills ?? 0,
+    tripleKills: participant.tripleKills ?? 0,
     summoner1: spellNames[participant.summoner1Id] || null,
     summoner2: spellNames[participant.summoner2Id] || null,
     healing: participant.totalHeal ?? 0,

@@ -19,14 +19,6 @@ function formatDuration(seconds) {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-// Cada ronda da Arena é um combate 2v2 ou 3v3 — nunca há 4 ou 5 inimigos ao
-// mesmo tempo, por isso Quadra/Pentakill nunca acontecem neste modo (ao
-// contrário do Convocação da Fenda). Mesmos rótulos usados no Histórico.
-const MULTIKILL_LABELS = {
-  2: "Double Kill",
-  3: "Triple Kill",
-};
-
 const HEATMAP_WEEKS = 18;
 
 function dayKey(date) {
@@ -452,6 +444,24 @@ export default function Overview({ matches, wins, champions, DRAGON, onOpenChamp
     return top;
   }, [perChampion, perChampionByFormat]);
 
+  const highestAvgDoublesChampion = useMemo(() => {
+    let top = null;
+    perChampion.forEach((c) => {
+      const r = bestFormatAvg(perChampionByFormat[c.champion], "doubleKillsSum", "doubleKillsCount");
+      if (r && (!top || r.avg > top.avg)) top = { champion: c.champion, avg: r.avg, count: r.count };
+    });
+    return top;
+  }, [perChampion, perChampionByFormat]);
+
+  const highestAvgTriplesChampion = useMemo(() => {
+    let top = null;
+    perChampion.forEach((c) => {
+      const r = bestFormatAvg(perChampionByFormat[c.champion], "tripleKillsSum", "tripleKillsCount");
+      if (r && (!top || r.avg > top.avg)) top = { champion: c.champion, avg: r.avg, count: r.count };
+    });
+    return top;
+  }, [perChampion, perChampionByFormat]);
+
   // Recordes de UMA partida (não médias) — a partida com mais dano, mais
   // cura e mais dano sofrido de sempre, seja qual for o campeão.
   const bestSingleGameDamage = useMemo(
@@ -520,11 +530,35 @@ export default function Overview({ matches, wins, champions, DRAGON, onOpenChamp
     [matches]
   );
 
-  const bestMultikillEver = useMemo(
+  const mostDeathsGame = useMemo(
     () =>
       [...matches]
-        .filter((m) => m.multikill >= 2)
-        .sort((a, b) => b.multikill - a.multikill)[0],
+        .filter((m) => (m.deaths || 0) > 0)
+        .sort((a, b) => b.deaths - a.deaths)[0],
+    [matches]
+  );
+
+  const mostAssistsGame = useMemo(
+    () =>
+      [...matches]
+        .filter((m) => (m.assists || 0) > 0)
+        .sort((a, b) => b.assists - a.assists)[0],
+    [matches]
+  );
+
+  const bestSingleGameDoubles = useMemo(
+    () =>
+      [...matches]
+        .filter((m) => (m.double_kills || 0) > 0)
+        .sort((a, b) => b.double_kills - a.double_kills)[0],
+    [matches]
+  );
+
+  const bestSingleGameTriples = useMemo(
+    () =>
+      [...matches]
+        .filter((m) => (m.triple_kills || 0) > 0)
+        .sort((a, b) => b.triple_kills - a.triple_kills)[0],
     [matches]
   );
 
@@ -539,9 +573,1043 @@ export default function Overview({ matches, wins, champions, DRAGON, onOpenChamp
   // Estatísticas por esse mesmo critério).
   const openStats = (championId, sortKey) => onOpenChampionStats?.(championId, sortKey);
 
-  // Cada destaque mostra só o valor absoluto do lado direito (ex: "3", não
-  // "3V-0D") — o header do cartão já diz o que é a métrica, não precisa de
-  // repetir isso no valor. "sortKey" liga cada cartão ao filtro equivalente
-  // na tab Estatísticas (ver MatchReports.jsx).
-  const spotlights = [
-    topChampion && 
+  // Os destaques agrupam-se por TEMA (vitórias/lugares, combate/KDA, kills
+  // múltiplos, economia, sobrevivência/dano) em vez de por "tipo de cálculo"
+  // (média por campeão vs. recorde de uma partida só) — assim uma média e o
+  // recorde-numa-partida do MESMO assunto (ex: ouro médio + mais ouro numa
+  // partida) ficam lado a lado, em vez de espalhados por secções diferentes
+  // só por um ser média e o outro um valor único. Cada destaque mostra só o
+  // valor absoluto do lado direito (ex: "3", não "3V-0D") — o header do
+  // cartão já diz o que é a métrica. "sortKey" liga cada cartão ao filtro
+  // equivalente na tab Estatísticas (ver MatchReports.jsx).
+
+  // Tema 1 — vitórias e lugares (contagens por campeão + recordes globais de
+  // duração de partida, que também são "sobre resultado/vitória").
+  const spotlightsWinsPlacements = [
+    topChampion && {
+      label: t("spotlight_most_first"),
+      champion: topChampion.champion,
+      value: `${topChampion.wins}`,
+      color: "var(--place-good)",
+      sortKey: "most_wins",
+    },
+    mostTop3Champion && {
+      label: t("spotlight_most_top3"),
+      champion: mostTop3Champion.champion,
+      value: `${mostTop3Champion.top3}`,
+      color: placementColor(3),
+      sortKey: "most_top3_count",
+    },
+    mostGamesChampion && {
+      label: t("spotlight_most_games"),
+      champion: mostGamesChampion.champion,
+      value: `${mostGamesChampion.games}`,
+      color: "var(--text-secondary)",
+      sortKey: "games_desc",
+    },
+    mostBelowTop3Champion && {
+      label: t("spotlight_most_below_top3"),
+      champion: mostBelowTop3Champion.champion,
+      value: `${mostBelowTop3Champion.belowTop3}`,
+      color: placementColor(7),
+      sortKey: "most_below_top3",
+    },
+    mostLastPlaceChampion && {
+      label: t("spotlight_most_last"),
+      champion: mostLastPlaceChampion.champion,
+      value: `${mostLastPlaceChampion.lastPlace}`,
+      color: "var(--place-low)",
+      sortKey: "most_last",
+    },
+    fastestWin && {
+      label: t("spotlight_fastest_win"),
+      champion: normalizeChampionId(fastestWin.champion, champions),
+      value: formatDuration(fastestWin.game_duration),
+      color: "var(--place-good)",
+      sortKey: "games_desc",
+    },
+    longestGame && {
+      label: t("spotlight_longest_game"),
+      champion: normalizeChampionId(longestGame.champion, champions),
+      value: formatDuration(longestGame.game_duration),
+      color: "var(--text-secondary)",
+      sortKey: "games_desc",
+    },
+  ].filter(Boolean);
+
+  // Tema 2 — combate/KDA: KDA médio (melhor e pior) + os recordes de uma
+  // partida sobre kills/deaths/assists.
+  const spotlightsCombatKda = [
+    bestKdaChampion && {
+      label: t("spotlight_best_kda"),
+      champion: bestKdaChampion.champion,
+      value: bestKdaChampion.kda.toFixed(1),
+      color: "var(--accent-text)",
+      sampleCount: bestKdaChampion.games,
+      sortKey: "kda_desc",
+    },
+    worstKdaChampion && {
+      label: t("spotlight_worst_kda"),
+      champion: worstKdaChampion.champion,
+      value: worstKdaChampion.kda.toFixed(1),
+      color: "var(--place-low)",
+      sampleCount: worstKdaChampion.games,
+      sortKey: "worst_kda",
+    },
+    mostKillsGame && {
+      label: t("spotlight_most_kills_game"),
+      champion: normalizeChampionId(mostKillsGame.champion, champions),
+      value: `${mostKillsGame.kills}`,
+      color: "var(--accent-text)",
+      sortKey: "games_desc",
+    },
+    mostDeathsGame && {
+      label: t("spotlight_most_deaths_game"),
+      champion: normalizeChampionId(mostDeathsGame.champion, champions),
+      value: `${mostDeathsGame.deaths}`,
+      color: "var(--place-low)",
+      sortKey: "games_desc",
+    },
+    mostAssistsGame && {
+      label: t("spotlight_most_assists_game"),
+      champion: normalizeChampionId(mostAssistsGame.champion, champions),
+      value: `${mostAssistsGame.assists}`,
+      color: "var(--accent-text)",
+      sortKey: "games_desc",
+    },
+  ].filter(Boolean);
+
+  // Tema 3 — kills múltiplos: médias por campeão + recorde numa partida,
+  // double e triple kill lado a lado.
+  const spotlightsMultikills = [
+    highestAvgDoublesChampion && {
+      label: t("spotlight_highest_doubles"),
+      champion: highestAvgDoublesChampion.champion,
+      value: highestAvgDoublesChampion.avg.toFixed(2),
+      color: "var(--text-secondary)",
+      sampleCount: highestAvgDoublesChampion.count,
+      sortKey: "highest_doubles",
+    },
+    bestSingleGameDoubles && {
+      label: t("spotlight_best_doubles_game"),
+      champion: normalizeChampionId(bestSingleGameDoubles.champion, champions),
+      value: `${bestSingleGameDoubles.double_kills}`,
+      color: "var(--accent-text)",
+      sortKey: "best_doubles_game",
+    },
+    highestAvgTriplesChampion && {
+      label: t("spotlight_highest_triples"),
+      champion: highestAvgTriplesChampion.champion,
+      value: highestAvgTriplesChampion.avg.toFixed(2),
+      color: "var(--text-secondary)",
+      sampleCount: highestAvgTriplesChampion.count,
+      sortKey: "highest_triples",
+    },
+    bestSingleGameTriples && {
+      label: t("spotlight_best_triples_game"),
+      champion: normalizeChampionId(bestSingleGameTriples.champion, champions),
+      value: `${bestSingleGameTriples.triple_kills}`,
+      color: "var(--accent-text)",
+      sortKey: "best_triples_game",
+    },
+  ].filter(Boolean);
+
+  // Tema 4 — economia: ouro médio + recorde de ouro numa partida.
+  const spotlightsEconomy = [
+    highestAvgGoldChampion && {
+      label: t("spotlight_highest_gold"),
+      champion: highestAvgGoldChampion.champion,
+      value: Math.round(highestAvgGoldChampion.avg).toLocaleString(),
+      color: "var(--text-secondary)",
+      sampleCount: highestAvgGoldChampion.count,
+      sortKey: "highest_gold",
+    },
+    bestSingleGameGold && {
+      label: t("spotlight_best_gold_game"),
+      champion: normalizeChampionId(bestSingleGameGold.champion, champions),
+      value: Math.round(bestSingleGameGold.gold_earned).toLocaleString(),
+      color: "var(--accent-text)",
+      sortKey: "best_gold_game",
+    },
+  ].filter(Boolean);
+
+  // Tema 5 — sobrevivência e dano: dano dado/recebido, cura e HP máximo,
+  // médias por campeão junto do recorde de cada um numa partida só.
+  const spotlightsSurvivalDamage = [
+    highestAvgDamageChampion && {
+      label: t("spotlight_highest_damage"),
+      champion: highestAvgDamageChampion.champion,
+      value: Math.round(highestAvgDamageChampion.avg).toLocaleString(),
+      color: "var(--text-secondary)",
+      sampleCount: highestAvgDamageChampion.count,
+      sortKey: "highest_damage",
+    },
+    bestSingleGameDamage && {
+      label: t("spotlight_best_damage_game"),
+      champion: normalizeChampionId(bestSingleGameDamage.champion, champions),
+      value: Math.round(bestSingleGameDamage.damage_dealt).toLocaleString(),
+      color: "var(--accent-text)",
+      sortKey: "best_damage_game",
+    },
+    highestAvgDamageTakenChampion && {
+      label: t("spotlight_highest_damage_taken"),
+      champion: highestAvgDamageTakenChampion.champion,
+      value: Math.round(highestAvgDamageTakenChampion.avg).toLocaleString(),
+      color: "var(--text-secondary)",
+      sampleCount: highestAvgDamageTakenChampion.count,
+      sortKey: "highest_damage_taken",
+    },
+    bestSingleGameDamageTaken && {
+      label: t("spotlight_best_damage_taken_game"),
+      champion: normalizeChampionId(bestSingleGameDamageTaken.champion, champions),
+      value: Math.round(bestSingleGameDamageTaken.damage_taken).toLocaleString(),
+      color: "var(--accent-text)",
+      sortKey: "best_damage_taken_game",
+    },
+    highestAvgHealingChampion && {
+      label: t("spotlight_highest_healing"),
+      champion: highestAvgHealingChampion.champion,
+      value: Math.round(highestAvgHealingChampion.avg).toLocaleString(),
+      color: "var(--text-secondary)",
+      sampleCount: highestAvgHealingChampion.count,
+      sortKey: "highest_healing",
+    },
+    bestSingleGameHealing && {
+      label: t("spotlight_best_healing_game"),
+      champion: normalizeChampionId(bestSingleGameHealing.champion, champions),
+      value: Math.round(bestSingleGameHealing.healing).toLocaleString(),
+      color: "var(--accent-text)",
+      sortKey: "best_healing_game",
+    },
+    highestAvgHpChampion && {
+      label: t("spotlight_highest_hp"),
+      champion: highestAvgHpChampion.champion,
+      value: Math.round(highestAvgHpChampion.avg).toLocaleString(),
+      color: "var(--text-secondary)",
+      sampleCount: highestAvgHpChampion.count,
+      sortKey: "highest_hp",
+    },
+    bestSingleGameHp && {
+      label: t("spotlight_best_hp_game"),
+      champion: normalizeChampionId(bestSingleGameHp.champion, champions),
+      value: Math.round(bestSingleGameHp.max_hp).toLocaleString(),
+      color: "var(--accent-text)",
+      sortKey: "best_hp_game",
+    },
+  ].filter(Boolean);
+
+  // Grupos com título + lista, na ordem em que aparecem no ecrã — só entram
+  // no render os que tiverem pelo menos 1 cartão.
+  const spotlightGroups = [
+    { key: "wins", title: t("overview_highlights_wins"), icon: "🏆", items: spotlightsWinsPlacements },
+    { key: "combat", title: t("overview_highlights_combat"), icon: "⚔️", items: spotlightsCombatKda },
+    { key: "multikill", title: t("overview_highlights_multikill"), icon: "🗡️", items: spotlightsMultikills },
+    { key: "economy", title: t("overview_highlights_economy"), icon: "💰", items: spotlightsEconomy },
+    { key: "survival", title: t("overview_highlights_survival"), icon: "🛡️", items: spotlightsSurvivalDamage },
+  ].filter((g) => g.items.length > 0);
+
+  // Resumo rápido de carreira, sempre visível no topo — em vez de a única
+  // informação de destaque ser a barra de progresso do roster, junta-se aqui
+  // o essencial (jogos totais, taxas de Top 3/Top 1, sequência atual) para
+  // dar uma fotografia completa num único relance, antes de descer para as
+  // secções mais detalhadas. O "winrate" principal é por Top 3 (chegar ao
+  // pódio conta como bom resultado na Arena), com o 1º lugar mostrado à
+  // parte, já que são metas diferentes.
+  const totalGames = matches.length;
+  const totalWins = matches.filter((m) => m.win).length;
+  const top1RatePct = totalGames ? Math.round((totalWins / totalGames) * 100) : 0;
+  const top3RatePct = calcTop3Rate(matches);
+
+  return (
+    <div style={styles.wrap}>
+      {/* HERO — progresso do roster + estatísticas rápidas de carreira,
+          tudo num único cartão de destaque em vez de uma barra isolada. */}
+      <div style={styles.hero}>
+        <div style={styles.heroTop}>
+          <div>
+            <div style={styles.heroKicker}>{t("overview_roster_progress")}</div>
+            <div style={styles.heroBig}>{coverage}%</div>
+            <div style={styles.progressText}>
+              {wins.length} / {champions.length}
+            </div>
+          </div>
+
+          <div style={styles.heroStatsRow}>
+            <div style={styles.heroStat}>
+              <div style={styles.heroStatValue}>{totalGames}</div>
+              <div style={styles.heroStatLabel}>{t("overview_total_games")}</div>
+            </div>
+            <div style={styles.heroStatDivider} />
+            <div style={styles.heroStat}>
+              <div style={{ ...styles.heroStatValue, color: placementColor(3) }}>
+                {top3RatePct}%
+              </div>
+              <div style={styles.heroStatLabel}>{t("overview_top3_rate")}</div>
+            </div>
+            <div style={styles.heroStatDivider} />
+            <div style={styles.heroStat}>
+              <div style={{ ...styles.heroStatValue, color: "var(--place-good)" }}>
+                {top1RatePct}%
+              </div>
+              <div style={styles.heroStatLabel}>{t("overview_top1_rate")}</div>
+            </div>
+            {streaks.current > 1 && (
+              <>
+                <div style={styles.heroStatDivider} />
+                <div style={styles.heroStat}>
+                  <div
+                    style={{
+                      ...styles.heroStatValue,
+                      color: streaks.currentType === "win" ? "var(--place-good)" : "var(--place-low)",
+                    }}
+                  >
+                    {streaks.currentType === "win" ? "🔥" : "❄️"} {streaks.current}
+                  </div>
+                  <div style={styles.heroStatLabel}>
+                    {streaks.currentType === "win" ? t("streak_wins_suffix") : t("streak_losses_suffix")}
+                  </div>
+                </div>
+              </>
+            )}
+            {streaks.bestWin > 1 && (
+              <>
+                <div style={styles.heroStatDivider} />
+                <Tooltip label={t("streak_best_tooltip")}>
+                  <div style={styles.heroStat}>
+                    <div style={styles.heroStatValue}>🏆 {streaks.bestWin}</div>
+                    <div style={styles.heroStatLabel}>{t("streak_best_label")}</div>
+                  </div>
+                </Tooltip>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div style={styles.progressTrack}>
+          <motion.div
+            style={styles.progressFill}
+            initial={{ width: 0 }}
+            animate={{ width: `${coverage}%` }}
+            transition={{ duration: 0.5 }}
+          />
+        </div>
+      </div>
+
+      {/* FORMA RECENTE — a sequência atual/melhor já aparece no cartão de
+          destaque no topo, aqui fica só a fileira visual das últimas partidas. */}
+      {recentForm.length > 0 && (
+        <div style={styles.section}>
+          <h2 style={styles.sectionTitle}>📈 {t("overview_recent_form")}</h2>
+          <div style={styles.formRow}>
+            {recentForm.map((m, i) => {
+              // Se já houver o lugar exato (via Riot API) mostramos esse
+              // número; partidas antigas (só Live Client Data) mostram V/D
+              // como reserva, já que não têm o dado de lugar.
+              const hasPlacement = !!m.placement;
+              // Partidas antigas (só Live Client Data) não têm lugar exato —
+              // caem no mesmo par bom/mau usado para o resto do pódio, em
+              // vez de uma cor à parte.
+              const color = hasPlacement
+                ? placementColor(m.placement)
+                : m.win
+                ? "var(--place-good)"
+                : "var(--place-low)";
+              const label = hasPlacement ? placementText(m.placement) : m.win ? (lang === "en" ? "W" : "V") : (lang === "en" ? "L" : "D");
+              const title = hasPlacement
+                ? `${champName(m.champion)} — ${placementText(m.placement)} ${lang === "en" ? "place" : "lugar"}`
+                : `${champName(m.champion)} (${lang === "en" ? "no placement data" : "sem dado de lugar"})`;
+
+              return (
+                <Tooltip key={i} label={title}>
+                  <div
+                    style={{
+                      ...styles.formPill,
+                      background: `color-mix(in srgb, ${color} 15%, transparent)`,
+                      color,
+                      border: `1px solid color-mix(in srgb, ${color} 40%, transparent)`,
+                    }}
+                  >
+                    {label}
+                  </div>
+                </Tooltip>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ATIVIDADE + SESSÕES + PREMADE lado a lado — as três são cartões
+          curtos (a atividade tem scroll horizontal próprio, ver
+          heatmapScroll), por isso partilham a mesma fileira em vez de cada
+          uma ocupar a largura toda do ecrã (o grid volta a empilhar em
+          colunas menos largas conforme o espaço disponível, ver
+          threeColGrid). */}
+      {(matches.length > 0 || sessions.length > 0 || duoSynergy.length > 0) && (
+        <div style={styles.threeColGrid}>
+          {/* ATIVIDADE — grid de contribuições ao estilo GitHub, uma célula
+              por dia das últimas ~18 semanas, cor mais forte quanto mais
+              partidas jogadas nesse dia. */}
+          {matches.length > 0 && (
+            <div style={{ ...styles.section, ...styles.equalHeightCard }}>
+              <h2 style={styles.sectionTitle}>📅 {t("overview_activity")}</h2>
+              {/* O gráfico ocupa muito menos altura que as listas de Sessões/
+                  Premade ao lado — em vez de deixar um vazio estranho por
+                  baixo quando o cartão estica para acompanhar essas duas,
+                  centra-se verticalmente no espaço disponível. */}
+              <div style={styles.heatmapBody}>
+                <div style={styles.heatmapScroll}>
+                  <div style={styles.heatmapGrid}>
+                    {heatmapWeeks.map((week, wi) => (
+                      <div key={wi} style={styles.heatmapCol}>
+                        <div style={styles.heatmapMonthLabel}>{monthLabels[wi] || ""}</div>
+                        {week.map((day) => (
+                          <Tooltip
+                            key={day.key}
+                            label={
+                              day.future
+                                ? day.date.toLocaleDateString(lang === "en" ? "en-US" : "pt-PT")
+                                : `${day.date.toLocaleDateString(lang === "en" ? "en-US" : "pt-PT")} · ${
+                                    day.games
+                                      ? `${day.games} ${lang === "en" ? "games" : "jogos"} (${day.wins}${
+                                          lang === "en" ? "W" : "V"
+                                        })`
+                                      : lang === "en"
+                                      ? "no games"
+                                      : "sem jogos"
+                                  }`
+                            }
+                          >
+                            <div
+                              style={{
+                                ...styles.heatmapCell,
+                                background: day.future ? "transparent" : heatColor(day.games),
+                                border: day.future ? "1px dashed rgba(var(--border-rgb),0.25)" : "none",
+                              }}
+                            />
+                          </Tooltip>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div style={styles.heatmapLegend}>
+                  <span>{t("heatmap_less")}</span>
+                  {[0, 1, 2, 4].map((g) => (
+                    <div key={g} style={{ ...styles.heatmapCell, background: heatColor(g) }} />
+                  ))}
+                  <span>{t("heatmap_more")}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* SESSÕES — partidas seguidas na mesma sentada, agrupadas por um
+              gap máximo entre elas (ver SESSION_GAP_MINUTES); a Arena não dá
+              a hora de início de cada partida, só a de fim, por isso isto é
+              sempre uma aproximação. */}
+          {sessions.length > 0 && (
+            <div style={{ ...styles.section, ...styles.equalHeightCard }}>
+              <h2 style={styles.sectionTitle}>⏱️ {t("overview_sessions")}</h2>
+              <div style={styles.sessionList}>
+                {sessions.map((s, i) => (
+                  <div key={i} style={styles.sessionRow}>
+                    <div style={styles.sessionDate}>
+                      {s.start.toLocaleDateString(lang === "en" ? "en-US" : "pt-PT")}
+                      <span style={styles.sessionTime}>
+                        {" "}
+                        {s.start.toLocaleTimeString(lang === "en" ? "en-US" : "pt-PT", { hour: "2-digit", minute: "2-digit" })}
+                        –
+                        {s.end.toLocaleTimeString(lang === "en" ? "en-US" : "pt-PT", { hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                    </div>
+                    <span style={styles.sessionStat}>
+                      {s.games} {lang === "en" ? "games" : "jogos"}
+                    </span>
+                    {s.withPlacementCount > 0 ? (
+                      <>
+                        <span
+                          style={{
+                            ...styles.sessionWinrate,
+                            color: placementColor(Math.round(s.avgPlacement)),
+                          }}
+                        >
+                          {t("session_avg_placement")}: {s.avgPlacement.toFixed(1)}º
+                        </span>
+                        <span style={styles.sessionStat}>
+                          {t("session_best")}: {placementText(s.bestPlacement)}
+                        </span>
+                        <span style={styles.sessionStat}>
+                          {s.top3Count}/{s.withPlacementCount} Top3
+                        </span>
+                        <span style={styles.sessionStat}>
+                          {s.wins}{lang === "en" ? "W" : "V"} ({lang === "en" ? "1st" : "1º"})
+                        </span>
+                      </>
+                    ) : (
+                      <span
+                        style={{
+                          ...styles.sessionWinrate,
+                          color: s.wins >= s.games / 2 ? "var(--place-good)" : "var(--place-low)",
+                        }}
+                      >
+                        {s.wins}{lang === "en" ? "W" : "V"}/{s.games}
+                      </span>
+                    )}
+                    {s.bestTop3Streak > 1 && (
+                      <span style={styles.sessionStreak}>🔥 {s.bestTop3Streak}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* PREMADE — conta qualquer colega de equipa repetido, seja em
+              2v2 ou 3v3. */}
+          {duoSynergy.length > 0 && (
+            <div style={{ ...styles.section, ...styles.equalHeightCard }}>
+              <h2 style={styles.sectionTitle}>🤝 {t("overview_duo_synergy")}</h2>
+              <div style={styles.duoList}>
+                {duoSynergy.map((d) => (
+                  <div key={d.name} style={styles.duoRow}>
+                    <span style={styles.duoName}>{d.name}</span>
+                    <span style={styles.duoGames}>
+                      {d.games} {lang === "en" ? "games" : "jogos"}
+                    </span>
+                    <span style={styles.duoStat}>
+                      {d.wins}{lang === "en" ? "W" : "V"} ({d.top1Rate}%)
+                    </span>
+                    <span
+                      style={{
+                        ...styles.duoWinrate,
+                        color: d.top3Rate >= 50 ? "var(--place-good)" : "var(--place-low)",
+                      }}
+                    >
+                      {t("stat_top3_short")} {d.top3Rate}%
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* SPOTLIGHTS — cada cartão é um atalho: clicar abre logo o campeão
+          nas Estatísticas, já expandido, em vez de obrigar a ir procurá-lo.
+          Agrupados em 3 blocos (melhores médias / pontos a melhorar /
+          recordes de uma partida), cada um com o seu subtítulo, em vez de
+          uma única grelha longa e indiferenciada — assim dá para perceber
+          logo o que é cada cartão só pelo grupo em que está. */}
+      {spotlightGroups.length > 0 && (
+        <div>
+          <h2 style={styles.spotlightSectionTitle}>🏆 {t("overview_highlights")}</h2>
+
+          {spotlightGroups.map((group, gi) => (
+            <div
+              key={group.key}
+              style={{ ...styles.spotlightGroup, marginTop: gi === 0 ? 0 : 18 }}
+            >
+              <h3 style={styles.spotlightGroupTitle}>
+                {group.icon} {group.title}
+              </h3>
+              <div style={styles.spotlightRow}>
+                {group.items.map((sp) => (
+                  <div
+                    key={sp.label}
+                    className="clickableCard"
+                    style={styles.spotlightCard}
+                    onClick={() => openStats(sp.champion, sp.sortKey)}
+                    role="button"
+                    tabIndex={0}
+                  >
+                    <div style={styles.spotlightHeader}>
+                      {sp.label}
+                      {sp.sampleCount != null && (
+                        <span style={styles.spotlightSampleCount}>
+                          {" "}
+                          · {sp.sampleCount}
+                          {lang === "en" ? "g" : "j"}
+                        </span>
+                      )}
+                    </div>
+                    <div style={styles.spotlightBody}>
+                      {sp.champion ? (
+                        <Tooltip label={champName(sp.champion)}>
+                          <div style={styles.spotlightChampWrap}>
+                            {DRAGON && (
+                              <img
+                                src={`${DRAGON}/img/champion/${sp.champion}.png`}
+                                style={styles.spotlightIcon}
+                              />
+                            )}
+                            <span style={styles.spotlightChampName}>{champName(sp.champion)}</span>
+                          </div>
+                        </Tooltip>
+                      ) : (
+                        // Alguns destaques são recordes globais sem campeão associado
+                        // (ex: partida mais longa) — mantém a mesma altura de linha
+                        // do cartão em vez de encolher só por faltar o ícone.
+                        <div style={styles.spotlightChampWrap} />
+                      )}
+                      {/* O valor fica sempre na própria linha, a toda a largura do
+                          cartão, em vez de disputar espaço horizontal com o nome do
+                          campeão (era isso que cortava valores longos, ex: "Triple
+                          Kill" ou números grandes de dano/ouro em cartões estreitos). */}
+                      <div style={{ ...styles.spotlightValue, color: sp.color }} title={String(sp.value)}>
+                        {sp.value}
+                      </div>
+                    </div>
+                    <div style={styles.spotlightHint}>{t("overview_see_more")}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!matches.length && (
+        <div style={styles.empty}>{t("overview_empty")}</div>
+      )}
+    </div>
+  );
+}
+
+const styles = {
+  wrap: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 16,
+    marginTop: 12,
+  },
+
+  empty: {
+    padding: 20,
+    textAlign: "center",
+    color: "var(--text-secondary)",
+    background: "rgba(var(--panel-deep-rgb),0.85)",
+    border: "1px solid rgba(var(--border-rgb),0.5)",
+    borderRadius: 14,
+  },
+
+
+  section: {
+    background: "linear-gradient(180deg, rgba(var(--panel-rgb),0.92), rgba(var(--panel-deep-rgb),0.96))",
+    border: "1px solid rgba(var(--border-rgb),0.5)",
+    borderRadius: 16,
+    padding: 16,
+    boxShadow: "0 6px 20px rgba(0,0,0,0.16)",
+  },
+
+  sectionTitle: { marginBottom: 10, color: "var(--accent-text)" },
+
+  // Cartão de destaque no topo — junta o progresso do roster e as
+  // estatísticas rápidas de carreira (jogos, winrate, sequências) num único
+  // relance, em vez de uma barra de progresso isolada sem mais contexto.
+  hero: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 14,
+    background: "linear-gradient(135deg, rgba(var(--accent-rgb),0.14), rgba(var(--panel-deep-rgb),0.97))",
+    border: "1px solid rgba(var(--accent-rgb),0.3)",
+    borderRadius: 18,
+    padding: 20,
+    boxShadow: "0 10px 28px rgba(0,0,0,0.22)",
+  },
+
+  heroTop: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-end",
+    flexWrap: "wrap",
+    gap: 18,
+  },
+
+  heroKicker: {
+    fontSize: 11,
+    fontWeight: 700,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+    color: "var(--text-muted)",
+    marginBottom: 2,
+  },
+
+  heroBig: {
+    fontSize: 38,
+    fontWeight: 900,
+    color: "var(--accent-text)",
+    lineHeight: 1.05,
+  },
+
+  heroStatsRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 16,
+    flexWrap: "wrap",
+  },
+
+  heroStat: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 2,
+  },
+
+  heroStatDivider: {
+    width: 1,
+    alignSelf: "stretch",
+    background: "rgba(var(--border-rgb),0.35)",
+  },
+
+  heroStatValue: {
+    fontSize: 18,
+    fontWeight: 800,
+    color: "var(--text-body)",
+    whiteSpace: "nowrap",
+  },
+
+  heroStatLabel: {
+    fontSize: 10,
+    fontWeight: 600,
+    color: "var(--text-secondary)",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+    whiteSpace: "nowrap",
+  },
+
+  // Atividade, sessões e sinergia de duo lado a lado em ecrãs largos (as três
+  // cabem em cartões relativamente curtos) — volta a empilhar em menos
+  // colunas conforme o espaço disponível, sem precisar de media queries.
+  // "alignItems" fica no valor por omissão (stretch) de propósito: os três
+  // cartões esticam sempre para a altura do mais alto da fileira (normalmente
+  // Sessões, com mais linhas), em vez de cada um ficar só do tamanho do seu
+  // próprio conteúdo — era isso que fazia a Atividade (pouco conteúdo) parecer
+  // cortada/estranha ao lado de Sessões.
+  threeColGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+    gap: 16,
+  },
+
+  // Aplicado junto com "section" nos três cartões da threeColGrid — sem isto,
+  // esticar o cartão (grid stretch) só alargava a caixa exterior; o conteúdo
+  // continuava agarrado ao topo, deixando um vazio estranho por baixo em vez
+  // de ocupar o espaço extra de forma intencional.
+  equalHeightCard: {
+    display: "flex",
+    flexDirection: "column",
+  },
+
+  progressHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "baseline",
+  },
+
+  progressText: {
+    fontSize: 12,
+    color: "var(--text-secondary)",
+  },
+
+  progressTrack: {
+    height: 10,
+    borderRadius: 6,
+    background: "rgba(0,0,0,0.35)",
+    overflow: "hidden",
+    marginTop: 4,
+  },
+
+  progressFill: {
+    height: "100%",
+    background: "linear-gradient(90deg, #9aa0a6, #6366f1)",
+    borderRadius: 6,
+  },
+
+  formRow: {
+    display: "flex",
+    gap: 8,
+  },
+
+  formPill: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: 12,
+    fontWeight: 700,
+  },
+
+  sessionList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+  },
+
+  sessionRow: {
+    display: "flex",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 10,
+    padding: "8px 10px",
+    borderRadius: 10,
+    background: "rgba(var(--panel-deep-rgb),0.7)",
+    border: "1px solid rgba(var(--border-rgb),0.4)",
+  },
+
+  sessionDate: {
+    fontSize: 12.5,
+    fontWeight: 700,
+    color: "var(--text-body)",
+    flex: 1,
+    minWidth: 0,
+  },
+
+  sessionTime: {
+    fontSize: 11,
+    fontWeight: 500,
+    color: "var(--text-secondary)",
+  },
+
+  sessionStat: {
+    fontSize: 11,
+    color: "var(--text-secondary)",
+  },
+
+  sessionWinrate: {
+    fontSize: 12.5,
+    fontWeight: 800,
+    minWidth: 70,
+    textAlign: "right",
+  },
+
+  sessionStreak: {
+    fontSize: 11,
+    fontWeight: 700,
+    color: "var(--accent-text)",
+  },
+
+  duoList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+  },
+
+  duoRow: {
+    display: "flex",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 10,
+    padding: "8px 10px",
+    borderRadius: 10,
+    background: "rgba(var(--panel-deep-rgb),0.7)",
+    border: "1px solid rgba(var(--border-rgb),0.4)",
+  },
+
+  duoName: {
+    fontSize: 12.5,
+    fontWeight: 700,
+    color: "var(--text-body)",
+    flex: 1,
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+
+  duoGames: {
+    fontSize: 11,
+    color: "var(--text-secondary)",
+  },
+
+  duoStat: {
+    fontSize: 11,
+    color: "var(--text-secondary)",
+  },
+
+  duoWinrate: {
+    fontSize: 12.5,
+    fontWeight: 800,
+    minWidth: 52,
+    textAlign: "right",
+  },
+
+  // Envolve o gráfico + legenda para poder centrá-los verticalmente quando o
+  // cartão estica para acompanhar a altura de Sessões/Premade ao lado (ver
+  // equalHeightCard).
+  heatmapBody: {
+    flex: 1,
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 4,
+    padding: "12px 0",
+  },
+
+  heatmapScroll: {
+    overflowX: "auto",
+    paddingBottom: 4,
+    maxWidth: "100%",
+  },
+
+  heatmapGrid: {
+    display: "flex",
+    gap: 5,
+    width: "fit-content",
+    margin: "0 auto",
+  },
+
+  heatmapCol: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 5,
+  },
+
+  heatmapMonthLabel: {
+    fontSize: 10,
+    color: "var(--text-muted)",
+    height: 14,
+    lineHeight: "14px",
+    marginBottom: 2,
+    whiteSpace: "nowrap",
+  },
+
+  heatmapCell: {
+    width: 16,
+    height: 16,
+    borderRadius: 4,
+  },
+
+  heatmapLegend: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 14,
+    fontSize: 11,
+    color: "var(--text-muted)",
+  },
+
+  spotlightSectionTitle: {
+    marginBottom: 10,
+    color: "var(--accent-text)",
+  },
+
+  spotlightGroup: {
+    display: "flex",
+    flexDirection: "column",
+  },
+
+  // Subtítulo de cada grupo (Melhores por campeão / Pontos a melhorar /
+  // Recordes de uma partida) — mais discreto que o título principal
+  // ("🏆 Destaques" acima), só para separar visualmente os 3 blocos sem
+  // competir com ele.
+  spotlightGroupTitle: {
+    marginBottom: 8,
+    fontSize: 12.5,
+    fontWeight: 700,
+    color: "var(--text-secondary)",
+    textTransform: "uppercase",
+    letterSpacing: 0.3,
+  },
+
+  // Grelha responsiva — cada cartão nunca fica mais estreito que 172px (dava
+  // para cortar valores mais compridos, ex: "Triple Kill" ou números grandes
+  // de dano/ouro, com o mínimo antigo de 150px), e o número de colunas por
+  // linha ajusta-se sozinho à largura da janela.
+  spotlightRow: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fill, minmax(172px, 1fr))",
+    gap: 10,
+  },
+
+  spotlightCard: {
+    background: "linear-gradient(180deg, rgba(var(--panel-rgb),0.92), rgba(var(--panel-deep-rgb),0.96))",
+    border: "1px solid rgba(var(--border-rgb),0.5)",
+    borderRadius: 14,
+    overflow: "hidden",
+    cursor: "pointer",
+    transition: "border-color 0.15s ease",
+    display: "flex",
+    flexDirection: "column",
+  },
+
+  // Faixa de cabeçalho com fundo próprio, distinto do corpo do cartão.
+  spotlightHeader: {
+    padding: "7px 10px",
+    fontSize: 10.5,
+    lineHeight: 1.25,
+    color: "var(--text-secondary)",
+    background: "rgba(var(--accent-rgb),0.14)",
+    borderBottom: "1px solid rgba(var(--border-rgb),0.4)",
+    minHeight: 30,
+    display: "flex",
+    alignItems: "center",
+  },
+
+  spotlightSampleCount: {
+    color: "var(--text-muted)",
+    fontWeight: 500,
+  },
+
+  // Antes o nome do campeão e o valor competiam pela mesma linha horizontal
+  // (space-between) — em cartões estreitos ou com valores compridos (ex:
+  // "Triple Kill", números grandes de dano/ouro) o valor acabava cortado.
+  // Agora o valor fica sempre na sua própria linha, a toda a largura do
+  // cartão, por baixo do campeão.
+  spotlightBody: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+    padding: "10px 10px",
+  },
+
+  // Ícone + nome do campeão lado a lado (à esquerda) — antes só o ícone
+  // aparecia, obrigando a passar o rato por cima para saber de quem se trata.
+  spotlightChampWrap: {
+    display: "flex",
+    alignItems: "center",
+    gap: 7,
+    minWidth: 0,
+    minHeight: 24,
+  },
+
+  spotlightIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 7,
+    pointerEvents: "none",
+    flexShrink: 0,
+  },
+
+  spotlightChampName: {
+    fontSize: 11.5,
+    fontWeight: 600,
+    color: "var(--text-body)",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    minWidth: 0,
+  },
+
+  // "minWidth: 0" é o que permite o ellipsis funcionar dentro de um
+  // container flex (sem isto o texto simplesmente transbordava e ficava
+  // cortado pelo "overflow: hidden" do cartão, em vez de mostrar "...").
+  spotlightValue: {
+    fontSize: 18,
+    fontWeight: 800,
+    width: "100%",
+    minWidth: 0,
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  },
+
+  spotlightHint: {
+    padding: "0 10px 8px",
+    fontSize: 10,
+    color: "var(--accent-text)",
+    fontWeight: 600,
+  },
+};

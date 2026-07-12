@@ -29,6 +29,12 @@ contextBridge.exposeInMainWorld("electron", {
     return () => ipcRenderer.removeListener("livegame:activeChampion", listener);
   },
 
+  onLiveStats: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("livegame:liveStats", listener);
+    return () => ipcRenderer.removeListener("livegame:liveStats", listener);
+  },
+
   onQuickCheckOpen: (callback) => {
     const listener = () => callback();
     ipcRenderer.on("quickcheck:open", listener);

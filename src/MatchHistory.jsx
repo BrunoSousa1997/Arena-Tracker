@@ -512,13 +512,6 @@ export default function MatchHistory({
 
                   <div style={styles.matchChampName}>
                     {champName(m.champion)}
-                    {MULTIKILL_LABELS[m.multikill] && (
-                      <Tooltip label={MULTIKILL_LABELS[m.multikill]}>
-                        <div style={styles.multikillTag}>
-                          {MULTIKILL_LABELS[m.multikill]}
-                        </div>
-                      </Tooltip>
-                    )}
                   </div>
 
                   <Tooltip
@@ -542,11 +535,25 @@ export default function MatchHistory({
 
                   <div style={styles.matchKda}>
                     <div>
-                      {(m.kills || 0).toFixed?.(0) ?? m.kills} / {m.deaths} / {m.assists}
+                      <div>
+                        {(m.kills || 0).toFixed?.(0) ?? m.kills} / {m.deaths} / {m.assists}
+                      </div>
+                      <div style={styles.matchKdaRatio}>
+                        {kdaRatio(m.kills, m.deaths, m.assists)} KDA
+                      </div>
                     </div>
-                    <div style={styles.matchKdaRatio}>
-                      {kdaRatio(m.kills, m.deaths, m.assists)} KDA
-                    </div>
+                    {/* Double/Triple Kill como uma pequena marca logo a seguir
+                        ao KDA — antes ficava por baixo do nome do campeão,
+                        numa coluna estreita de largura fixa; aqui aproveita o
+                        espaço vazio que a coluna do KDA (flex:1) costuma
+                        deixar sobrar. */}
+                    {MULTIKILL_LABELS[m.multikill] && (
+                      <Tooltip label={MULTIKILL_LABELS[m.multikill]}>
+                        <div style={styles.multikillTag}>
+                          {MULTIKILL_LABELS[m.multikill]}
+                        </div>
+                      </Tooltip>
+                    )}
                   </div>
 
                   <div style={styles.matchTime}>
@@ -926,3 +933,355 @@ const styles = {
     border: "1px solid rgba(var(--accent-rgb),0.35)",
     background: "rgba(var(--accent-rgb),0.08)",
     color: "var(--accent-text)",
+    cursor: "pointer",
+    fontSize: 12,
+  },
+
+  matchList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+  },
+
+  matchCard: {
+    borderRadius: 10,
+    background: "rgba(var(--panel-deep-rgb),0.85)",
+    border: "1px solid rgba(var(--border-rgb),0.25)",
+    overflow: "hidden",
+  },
+
+  // Fundo com um tom claro da cor de destaque — distingue visualmente a
+  // fileira clicável (que abre/fecha os detalhes) do resto do cartão. Os
+  // detalhes (expandWrap, mais abaixo) ficam sem este fundo, precisamente
+  // para se notar a diferença entre a parte clicável e a que não é.
+  matchRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    padding: "8px 12px",
+    cursor: "pointer",
+    background: "rgba(var(--accent-rgb),0.16)",
+  },
+
+  matchIconWrap: {
+    position: "relative",
+    width: 36,
+    height: 36,
+    flexShrink: 0,
+  },
+
+  matchIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    pointerEvents: "none",
+  },
+
+  levelBadge: {
+    position: "absolute",
+    bottom: -4,
+    right: -4,
+    minWidth: 16,
+    height: 16,
+    padding: "0 3px",
+    borderRadius: 5,
+    background: "rgba(var(--panel-deep-rgb),0.95)",
+    border: "1px solid rgba(var(--border-rgb),0.5)",
+    color: "var(--text-secondary)",
+    fontSize: 9,
+    fontWeight: 700,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  spellCol: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 2,
+    flexShrink: 0,
+  },
+
+  spellIcon: {
+    width: 17,
+    height: 17,
+    borderRadius: 4,
+    border: "1px solid rgba(var(--border-rgb),0.4)",
+  },
+
+  matchChampName: {
+    width: 120,
+    fontSize: 13,
+    color: "var(--text-body)",
+    fontWeight: 600,
+  },
+
+  // Etiqueta discreta (Double/Triple Kill) — vive dentro de matchKda, que é
+  // "flex:1" e normalmente sobra muito espaço vazio à direita do KDA; fica
+  // encostada a esse espaço em vez de ocupar mais uma linha noutra coluna.
+  multikillTag: {
+    flexShrink: 0,
+    fontSize: 10,
+    fontWeight: 700,
+    color: "var(--accent-text)",
+    background: "rgba(var(--accent-rgb),0.14)",
+    border: "1px solid rgba(var(--accent-rgb),0.35)",
+    borderRadius: 999,
+    padding: "3px 8px",
+    whiteSpace: "nowrap",
+  },
+
+  // O elemento mais saliente da linha — substitui as antigas etiquetas de
+  // texto (VITÓRIA/TOP 3/DERROTA) por um selo grande só com o lugar em si.
+  placementPill: {
+    width: 46,
+    textAlign: "center",
+    fontSize: 17,
+    fontWeight: 800,
+    padding: "5px 4px",
+    borderRadius: 8,
+    flexShrink: 0,
+  },
+
+  // "flex:1" + display:flex para o KDA (à esquerda) e a etiqueta de
+  // multikill (à direita, quando existe) partilharem a mesma linha, em vez
+  // de deixarem todo o espaço sobrante da coluna por aproveitar.
+  matchKda: {
+    flex: 1,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    fontSize: 13,
+    color: "var(--text-body)",
+    fontWeight: 600,
+  },
+
+  matchKdaRatio: {
+    fontSize: 10,
+    fontWeight: 500,
+    color: "var(--text-secondary)",
+    marginTop: 1,
+  },
+
+  matchTime: {
+    fontSize: 11,
+    color: "var(--text-secondary)",
+    minWidth: 70,
+    textAlign: "right",
+  },
+
+  matchTimeAgo: {
+    color: "var(--text-muted)",
+  },
+
+  expandArrow: {
+    fontSize: 10,
+    color: "var(--text-secondary)",
+    width: 14,
+    textAlign: "center",
+  },
+
+  expandWrap: {
+    padding: "0 12px 12px 58px",
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+  },
+
+  expandSection: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 4,
+  },
+
+  expandLabel: {
+    fontSize: 11,
+    color: "var(--text-secondary)",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+
+  statGrid: {
+    display: "flex",
+    gap: 18,
+    flexWrap: "wrap",
+  },
+
+  statItem: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 2,
+  },
+
+  statValue: {
+    fontSize: 14,
+    fontWeight: 700,
+    color: "var(--text-body)",
+  },
+
+  statLabel: {
+    fontSize: 10,
+    color: "var(--text-secondary)",
+  },
+
+  itemRow: {
+    display: "flex",
+    gap: 6,
+    flexWrap: "wrap",
+  },
+
+  itemIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 6,
+    border: "1px solid rgba(var(--accent-rgb),0.25)",
+  },
+
+  augmentPill: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    padding: "3px 8px",
+    borderRadius: 6,
+    background: "rgba(var(--accent-rgb),0.12)",
+    border: "1px solid rgba(var(--accent-rgb),0.25)",
+    color: "var(--accent-text)",
+    fontSize: 11,
+  },
+
+  augmentIcon: {
+    width: 18,
+    height: 18,
+    borderRadius: 4,
+  },
+
+  // Colegas e adversários (estilo op.gg) — um cartão por equipa (agrupada
+  // por lugar final). Antes ficavam empilhadas numa só coluna (até 8
+  // cartões seguidos na Arena de 2, cada um ocupando a largura toda) — o que
+  // tornava a secção enorme. Em 2 colunas usa-se a largura disponível e
+  // corta a altura total a cerca de metade.
+  teamsGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gap: 6,
+  },
+
+  // Cartão de equipa modernizado: fundo em degradê (como o resto da app) em
+  // vez de uma cor plana, com uma barra de destaque à esquerda na cor do
+  // lugar (mesmo padrão usado no cartão da partida) em vez de contorno
+  // completo — menos "pesado" visualmente e mais consistente com o resto.
+  teamCard: {
+    borderRadius: 10,
+    padding: "6px 8px",
+    background: "linear-gradient(180deg, rgba(var(--panel-rgb),0.85), rgba(var(--panel-deep-rgb),0.9))",
+  },
+
+  teamHeader: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 5,
+  },
+
+  teamPlacementBadge: {
+    fontSize: 10.5,
+    fontWeight: 800,
+    padding: "1px 7px",
+    borderRadius: 20,
+  },
+
+  teamSelfTag: {
+    fontWeight: 700,
+    fontSize: 9.5,
+    color: "var(--accent-text)",
+    background: "rgba(var(--accent-rgb),0.14)",
+    padding: "1px 7px",
+    borderRadius: 20,
+  },
+
+  teamPlayers: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 3,
+  },
+
+  teamPlayer: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    padding: "3px 5px",
+    borderRadius: 7,
+  },
+
+  teamPlayerIcon: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    flexShrink: 0,
+    pointerEvents: "none",
+  },
+
+  // Uma única fileira que envolve (wrap): KDA, stats e build juntos — builds
+  // curtas cabem na mesma linha do KDA, só passando à linha seguinte quando
+  // o espaço já não chega, em vez de reservar sempre 2 linhas por jogador.
+  teamPlayerInfo: {
+    display: "flex",
+    alignItems: "center",
+    flexWrap: "wrap",
+    columnGap: 7,
+    rowGap: 2,
+    minWidth: 0,
+    flex: 1,
+  },
+
+  teamPlayerName: {
+    fontSize: 10.5,
+    fontWeight: 600,
+    color: "var(--text-secondary)",
+    maxWidth: 96,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    flexShrink: 1,
+  },
+
+  teamPlayerKda: {
+    fontSize: 10.5,
+    fontWeight: 700,
+    color: "var(--text-body)",
+    flexShrink: 0,
+  },
+
+  teamPlayerStat: {
+    fontSize: 9.5,
+    color: "var(--text-secondary)",
+    whiteSpace: "nowrap",
+  },
+
+  teamPlayerItemIcon: {
+    width: 14,
+    height: 14,
+    borderRadius: 3,
+    border: "1px solid rgba(var(--border-rgb),0.4)",
+  },
+
+  teamPlayerAugmentWrap: {
+    display: "inline-flex",
+    borderRadius: 4,
+    padding: 1,
+    border: "1px solid rgba(var(--border-rgb),0.4)",
+  },
+
+  teamPlayerAugmentIcon: {
+    width: 12,
+    height: 12,
+    borderRadius: 3,
+  },
+
+  placeholderText: {
+    fontSize: 12,
+    color: "var(--text-muted)",
+    fontStyle: "italic",
+  },
+};

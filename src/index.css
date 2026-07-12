@@ -262,6 +262,14 @@ select:hover {
   border-color: rgba(var(--accent-rgb), 0.5);
 }
 
+/* Botões do filtro de formato (Todos/2v2/3v3, ver App.jsx) — fundo
+   transparente por omissão, por isso o filtro global "button:hover
+   { filter: brightness(1.16) }" quase não se nota. Um fundo próprio no
+   hover deixa claro que cada opção é clicável. */
+.formatSegBtn:hover {
+  background: rgba(var(--accent-rgb), 0.14);
+}
+
 /* Fileiras clicáveis que não são <button> (a linha do Histórico/Estatísticas
    que abre os detalhes) — o "!important" é mesmo preciso aqui: o fundo é
    definido inline (cor calculada por linha) e um estilo inline sempre ganha

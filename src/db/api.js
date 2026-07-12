@@ -110,6 +110,8 @@ export async function addMatch(username, champion, kills, deaths, assists, win, 
       damage_taken: extra.damageTaken ?? null,
       gold_earned: extra.goldEarned ?? null,
       multikill: extra.multikill ?? null,
+      double_kills: extra.doubleKills ?? null,
+      triple_kills: extra.tripleKills ?? null,
       summoner1: extra.summoner1 ?? null,
       summoner2: extra.summoner2 ?? null,
       healing: extra.healing ?? null,
@@ -161,6 +163,8 @@ export async function addMatchesBulk(username, matches) {
     champ_level: m.champLevel ?? null,
     game_duration: m.gameDuration ?? null,
     multikill: m.multikill ?? null,
+    double_kills: m.doubleKills ?? null,
+    triple_kills: m.tripleKills ?? null,
     summoner1: m.summoner1 ?? null,
     summoner2: m.summoner2 ?? null,
     healing: m.healing ?? null,
@@ -189,7 +193,7 @@ export async function getMatches(username) {
     .select(
       "id, riot_match_id, champion, kills, deaths, assists, win, items, placement, augments, team_size, " +
         "damage_dealt, damage_taken, gold_earned, cs, vision_score, champ_level, game_duration, multikill, " +
-        "summoner1, summoner2, healing, max_hp, participants, created_at"
+        "double_kills, triple_kills, summoner1, summoner2, healing, max_hp, participants, created_at"
     )
     .eq("username", username)
     .order("created_at", { ascending: false });
@@ -244,6 +248,8 @@ export async function updateMatchDetails(id, details) {
       champ_level: details.champLevel ?? null,
       game_duration: details.gameDuration ?? null,
       multikill: details.multikill ?? null,
+      double_kills: details.doubleKills ?? null,
+      triple_kills: details.tripleKills ?? null,
       summoner1: details.summoner1 ?? null,
       summoner2: details.summoner2 ?? null,
       healing: details.healing ?? null,
@@ -257,31 +263,4 @@ export async function updateMatchDetails(id, details) {
   }
 
   return { success: true };
-}
-
-// ================= REMOVE =================
-export async function removeWin(username, champion) {
-  const { data, error } = await supabase
-    .from("wins")
-    .select("champions")
-    .eq("username", username)
-    .maybeSingle(); // 🔥 FIX AQUI
-
-  if (error) {
-    console.error("removeWin select error:", error);
-    return;
-  }
-
-  const current = data?.champions || [];
-
-  const updated = current.filter((c) => c !== champion);
-
-  const { error: updateError } = await supabase
-    .from("wins")
-    .update({ champions: updated })
-    .eq("username", username);
-
-  if (updateError) {
-    console.error("removeWin update error:", updateError);
-  }
 }

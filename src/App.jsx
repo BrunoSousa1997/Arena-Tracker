@@ -2,7 +2,6 @@ import React, { useEffect, useState, useMemo, useRef } from "react";
 import {
   getWins,
   addWin,
-  removeWin,
   ensureUser,
   addMatch,
   getMatches,
@@ -23,16 +22,7 @@ import Tooltip from "./Tooltip";
 import { loadAugments } from "./augments";
 import { normalizeChampionId } from "./champions";
 import { useLanguage, LANGUAGES } from "./i18n";
-
-const ROLES = [
-  "ALL",
-  "Fighter",
-  "Tank",
-  "Mage",
-  "Assassin",
-  "Marksman",
-  "Support",
-];
+import { getRoast } from "./roasts";
 
 export default function App() {
   const { t, lang, setLang } = useLanguage();
@@ -43,6 +33,16 @@ export default function App() {
     { key: "history", icon: "📜", label: t("tab_history") },
     { key: "stats", icon: "📈", label: t("tab_stats") },
     { key: "achievements", icon: "🎖️", label: t("tab_achievements") },
+  ];
+
+  // Formato (Todos/2v2/3v3) — agora ao lado das tabs, na mesma linha (ver
+  // navRow), em vez de ter linha própria só para si. Label curta no botão,
+  // texto completo (com nº de equipas) só no tooltip, para caber ao lado
+  // das 5 tabs sem apertar demasiado.
+  const FORMAT_OPTIONS = [
+    { key: "all", label: t("format_all_short"), full: t("format_all") },
+    { key: 2, label: t("format_2v2_short"), full: t("format_2v2") },
+    { key: 3, label: t("format_3v3_short"), full: t("format_3v3") },
   ];
 
   const [patch, setPatch] = useState(null);
@@ -57,8 +57,6 @@ export default function App() {
 
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-
-  const [roleFilter, setRoleFilter] = useState("ALL");
 
   // cada conta: { username, riotAccount, riotTag }
   // "username" é só a etiqueta que vês na app; "riotAccount" (+ "riotTag") é
@@ -82,10 +80,7 @@ export default function App() {
   const [teamSizeFilter, setTeamSizeFilter] = useState("all");
 
   const [showAccountManager, setShowAccountManager] = useState(false);
-  const [showManualAdd, setShowManualAdd] = useState(false);
   const [view, setView] = useState("overview");
-
-  const [hovered, setHovered] = useState(null);
 
   // Aviso do campeão em jogo (Live Client Data) — mostra logo no início da
   // partida se já há ou não vitória com esse campeão, sem o jogador ter de
@@ -192,6 +187,19 @@ export default function App() {
     localStorage.setItem("theme", theme);
   }, [theme]);
 
+  // Cabeçalho (marca/conta/sync + tabs + filtro + resumo) comprimido ou não —
+  // um único interruptor para o bloco todo (persistido, tal como o tema),
+  // em vez de cada secção ter o seu próprio botão de colapsar. Comprimir
+  // nunca esconde dados: só reduz o espaçamento e passa o resumo para a
+  // versão numa única linha (ver StatsBar).
+  const [headerCompact, setHeaderCompact] = useState(
+    () => localStorage.getItem("header-compact") === "1"
+  );
+
+  useEffect(() => {
+    localStorage.setItem("header-compact", headerCompact ? "1" : "0");
+  }, [headerCompact]);
+
   // ================= LOAD ACCOUNTS =================
   useEffect(() => {
     const saved = localStorage.getItem("riot-accounts");
@@ -202,8 +210,8 @@ export default function App() {
       // migração: versões antigas guardavam só strings, ou objetos sem riotTag
       const normalized = parsed.map((a) =>
         typeof a === "string"
-          ? { username: a, riotAccount: a, riotTag: "" }
-          : { riotTag: "", ...a }
+          ? { username: a, riotAccount: a, riotTag: "", region: "europe" }
+          : { riotTag: "", region: "europe", ...a }
       );
       setAccounts(normalized);
 
@@ -350,7 +358,7 @@ export default function App() {
           if (prev.some((a) => a.username === matchedUsername)) return prev;
           const updated = [
             ...prev,
-            { username: matchedUsername, riotAccount: baseName, riotTag: detectedTag || "" },
+            { username: matchedUsername, riotAccount: baseName, riotTag: detectedTag || "", region: "europe" },
           ];
           localStorage.setItem("riot-accounts", JSON.stringify(updated));
           return updated;
@@ -411,6 +419,18 @@ export default function App() {
         localStorage.setItem("active-account", matchedUsername);
         setActiveAccount(matchedUsername);
       }
+
+      // A partida acabou — se o banner ainda estiver aberto para este
+      // campeão, atualiza-o em vez de o deixar parado a dizer "a jogar"
+      // depois do jogo já ter terminado. A Live Client Data só dá Vitória/
+      // Derrota (1º lugar ou não); o lugar exato (2º-8º), dano, ouro e
+      // augments só ficam disponíveis depois de sincronizar com a Riot API,
+      // daí o aviso "sincroniza dentro de uns minutos" em baixo no banner.
+      setLiveChampionAlert((prev) =>
+        prev && prev.championId === championId
+          ? { ...prev, gameEnded: true, gameWon: !!didWin }
+          : prev
+      );
     });
 
     return unsubscribe;
@@ -419,7 +439,11 @@ export default function App() {
   // ================= AVISO: CAMPEÃO EM JOGO (Live Client Data) =================
   // Dispara logo no início da partida (não espera pelo fim) para dizer de
   // imediato se já há vitória com o campeão detetado — ver
-  // sendActiveChampion em electron.js.
+  // sendActiveChampion em electron.js. Também escolhe logo aqui uma frase de
+  // "roast" (ver roasts.js) consoante o nº de vitórias já registadas com
+  // esse campeão nesta conta — o nº de vitórias vem do histórico de
+  // partidas (mais fiável do que a lista "wins", que só marca se há alguma
+  // vitória, não quantas).
   useEffect(() => {
     if (!window.electron?.onActiveChampion) return;
 
@@ -432,17 +456,51 @@ export default function App() {
 
       if (!championId) return;
 
-      setLiveChampionAlert({ championId, hasWin: wins.includes(championId) });
+      const winCount = matches.filter(
+        (m) => m.win && normalizeChampionId(m.champion, champions) === championId
+      ).length;
+
+      setLiveChampionAlert({
+        championId,
+        hasWin: winCount > 0,
+        roast: getRoast(championId, winCount, lang),
+        kda: { kills: 0, deaths: 0, assists: 0 },
+        items: [],
+      });
     });
 
     return unsubscribe;
-  }, [champions, wins]);
+  }, [champions, matches, lang]);
 
-  const goToChampionInCollection = (championId, hasWin) => {
+  // KDA + build atuais — chegam à parte (ver sendLiveStats em electron.js),
+  // repetidos a cada poll (3 em 3s) enquanto a partida decorre, por isso só
+  // atualizamos os campos que mudam em vez de recriar o alerta inteiro (o
+  // que reiniciaria a animação de entrada do banner a cada poll). Não há
+  // augments aqui: a Live Client Data API da Riot não os expõe durante a
+  // partida — só ficam visíveis no Histórico/Estatísticas depois de a
+  // partida terminar e sincronizar.
+  useEffect(() => {
+    if (!window.electron?.onLiveStats) return;
+
+    const unsubscribe = window.electron.onLiveStats(({ kills, deaths, assists, items } = {}) => {
+      setLiveChampionAlert((prev) =>
+        prev
+          ? {
+              ...prev,
+              kda: { kills: kills ?? 0, deaths: deaths ?? 0, assists: assists ?? 0 },
+              items: items || [],
+            }
+          : prev
+      );
+    });
+
+    return unsubscribe;
+  }, []);
+
+  const goToChampionInCollection = (championId) => {
     const name = champions.find((c) => c.id === championId)?.name || "";
     setView("wins");
     setSearch(name);
-    if (!hasWin) setShowManualAdd(true);
     setLiveChampionAlert(null);
   };
 
@@ -519,22 +577,16 @@ export default function App() {
     return () => clearTimeout(t);
   }, [search]);
 
-  // Uma busca costuma ser para verificar UM campeão específico — abrir logo
-  // a secção "Adicionar vitória manualmente" evita um clique extra sempre
-  // que esse campeão ainda não tem vitória (fica só na lista de baixo).
-  useEffect(() => {
-    if (debouncedSearch.trim()) setShowManualAdd(true);
-  }, [debouncedSearch]);
-
   // ================= GESTÃO DE CONTAS =================
-  const createAccountFromManager = async (username, riotAccountRaw, riotTagRaw) => {
+  const createAccountFromManager = async (username, riotAccountRaw, riotTagRaw, regionRaw) => {
     const riotAccount = riotAccountRaw || username;
     const riotTag = riotTagRaw || "";
+    const region = regionRaw || "europe";
 
     const exists = accounts.some((a) => a.username === username);
     const updated = exists
       ? accounts
-      : [...accounts, { username, riotAccount, riotTag }];
+      : [...accounts, { username, riotAccount, riotTag, region }];
 
     setAccounts(updated);
     setActiveAccount(username);
@@ -545,13 +597,14 @@ export default function App() {
     await ensureUser(username);
   };
 
-  const updateRiotAccountFor = (username, { riotAccount, riotTag }) => {
+  const updateRiotAccountFor = (username, { riotAccount, riotTag, region }) => {
     const updated = accounts.map((a) =>
       a.username === username
         ? {
             ...a,
             riotAccount: riotAccount?.trim() || username,
             riotTag: riotTag?.trim() || "",
+            region: region || a.region || "europe",
           }
         : a
     );
@@ -573,12 +626,15 @@ export default function App() {
   // Sincroniza a conta ativa com a Riot API: vai buscar partidas de Arena
   // novas e grava-as automaticamente (sem pedir confirmação). Se já houve
   // uma sincronização antes, só pede à Riot partidas a partir dessa data —
-  // muito mais leve do que voltar a pedir o histórico todo de cada vez.
-  // Com forceFull=true ignora essa data de propósito (útil para recuperar
-  // partidas que por alguma razão tenham ficado em falta) — a Riot API não
-  // tem um limite artificial do nosso lado, só respeita o ritmo de pedidos
-  // que a própria API permite.
-  const syncActiveAccount = async (forceFull = false) => {
+  // muito mais leve do que voltar a pedir o histórico todo de cada vez, e
+  // sem nenhum limite artificial do nosso lado (só o ritmo de pedidos que a
+  // própria Riot API permite). Já não existe uma opção separada de
+  // "sincronizar tudo" — em vez de voltar a pedir o histórico inteiro do
+  // zero para recuperar partidas em falta, esta função encadeia sempre no
+  // fim uma passagem por enrichHistory(), que corrige/completa só as
+  // partidas já importadas que ficaram sem team_size ou sem os dados extra
+  // (dano/ouro/CS/etc.) — muito mais leve e sem repetir trabalho.
+  const syncActiveAccount = async () => {
     const account = accounts.find((a) => a.username === activeAccount);
     if (!account || !window.electron?.importRiotHistory) return;
 
@@ -592,15 +648,15 @@ export default function App() {
 
     setSyncStatus({
       status: "loading",
-      message: forceFull ? t("syncing_all") : t("syncing"),
+      message: t("syncing"),
     });
 
     try {
       const res = await window.electron.importRiotHistory({
         gameName: account.riotAccount,
         tagLine: account.riotTag,
-        region: "europe",
-        since: forceFull ? null : account.lastSyncAt || null,
+        region: account.region || "europe",
+        since: account.lastSyncAt || null,
       });
 
       if (!res.success) {
@@ -662,6 +718,11 @@ export default function App() {
       });
 
       setTimeout(() => setSyncStatus((prev) => (prev?.status === "done" ? null : prev)), 4000);
+
+      // Encadeia a correção de partidas já importadas mas incompletas — fica
+      // sem efeito nenhum (nem sequer muda o status na UI) quando não há
+      // nada para corrigir, ver early-return no início de enrichHistory.
+      await enrichHistory();
     } catch (err) {
       setSyncStatus({ status: "error", message: err?.message || String(err) });
     }
@@ -693,7 +754,12 @@ export default function App() {
     const missingDetails = matches.filter(
       (m) =>
         m.riot_match_id &&
-        (m.damage_dealt == null || m.healing == null || m.participants == null || hasIncompleteParticipants(m))
+        (m.damage_dealt == null ||
+          m.healing == null ||
+          m.participants == null ||
+          m.double_kills == null ||
+          m.triple_kills == null ||
+          hasIncompleteParticipants(m))
     );
 
     const localFix = missingTeamSize.filter((m) => m.placement === 7 || m.placement === 8);
@@ -730,7 +796,7 @@ export default function App() {
         if (window.electron?.backfillMatchDetails) {
           const res = await window.electron.backfillMatchDetails({
             matchIds: needsApi.map((m) => m.riot_match_id),
-            region: "europe",
+            region: account?.region || "europe",
             gameName: account.riotAccount,
             tagLine: account.riotTag,
           });
@@ -814,42 +880,51 @@ export default function App() {
     }, 180);
   };
 
-  // ================= ADD / REMOVE MANUAL =================
-  const handleAddWin = async (champ) => {
-    if (!activeAccount) return;
-
-    setWins((prev) => {
-      if (prev.includes(champ)) return prev; // 👈 trava duplicados instantaneamente
-      return [...prev, champ];
-    });
-
-    try {
-      await ensureUser(activeAccount);
-      await addWin(activeAccount, champ);
-    } catch (err) {
-      console.error(err);
-
-      // rollback seguro
-      setWins((prev) => prev.filter((c) => c !== champ));
-    }
-  };
-
-  const handleRemoveWin = async (champ) => {
-    if (!activeAccount) return;
-
-    setWins((prev) => prev.filter((c) => c !== champ));
-
-    try {
-      await removeWin(activeAccount, champ);
-    } catch (err) {
-      console.error(err);
-
-      // rollback
-      setWins((prev) => [...prev, champ]);
-    }
-  };
-
   const owned = useMemo(() => new Set(wins), [wins]);
+
+  // ================= REPARAR VITÓRIAS (a partir do histórico já guardado) =================
+  // A lista de vitórias (tab Coleção) fica guardada à parte do histórico de
+  // partidas — se ficar dessincronizada por algum motivo (ex: um clique
+  // indevido numa versão antiga da app que ainda permitia remover à mão),
+  // uma sincronização normal NÃO chega para a corrigir: essa só importa
+  // partidas NOVAS da Riot API e nunca volta a tocar numa partida já
+  // importada (ver getImportedMatchIds). Isto em vez disso relê o histórico
+  // que já está na BD e volta a marcar como "vitória" qualquer campeão com
+  // pelo menos uma partida ganha registada mas que não conste na lista.
+  const missingWinsChampions = useMemo(() => {
+    const won = new Set();
+    matches.forEach((m) => {
+      if (m.win) won.add(normalizeChampionId(m.champion, champions));
+    });
+    return [...won].filter((c) => !owned.has(c));
+  }, [matches, champions, owned]);
+
+  const repairWins = async () => {
+    if (!activeAccount || !missingWinsChampions.length) return;
+
+    setSyncStatus({ status: "loading", message: t("repairing_wins") });
+
+    try {
+      for (const championId of missingWinsChampions) {
+        await addWin(activeAccount, championId);
+      }
+
+      setWins((prev) => {
+        const merged = new Set(prev);
+        missingWinsChampions.forEach((c) => merged.add(c));
+        return [...merged];
+      });
+
+      setSyncStatus({
+        status: "done",
+        message: `${missingWinsChampions.length} ${t("wins_repaired")}`,
+      });
+
+      setTimeout(() => setSyncStatus((prev) => (prev?.status === "done" ? null : prev)), 4000);
+    } catch (err) {
+      setSyncStatus({ status: "error", message: err?.message || String(err) });
+    }
+  };
 
   // ================= KDA POR CAMPEÃO (só vitórias, para o tooltip) =================
   const champStats = useMemo(() => {
@@ -873,17 +948,6 @@ export default function App() {
 
   // ================= FILTER =================
   const q = debouncedSearch.toLowerCase().trim();
-
-  const filteredChampions = useMemo(() => {
-    return champions
-      .filter((c) => {
-        const name = c.name.toLowerCase();
-        const matchesSearch = q === "" || name.includes(q) || name.startsWith(q);
-        const matchesRole = roleFilter === "ALL" || c.tags.includes(roleFilter);
-        return matchesSearch && matchesRole && !owned.has(c.id);
-      })
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [debouncedSearch, champions, roleFilter, owned]);
 
   // Cartão de estado claro (tens ou não vitória) para CADA campeão que a
   // busca encontrar — antes só aparecia quando a busca apontava para um
@@ -923,7 +987,12 @@ export default function App() {
       if (!m.team_size) ids.add(m.id);
       else if (
         m.riot_match_id &&
-        (m.damage_dealt == null || m.healing == null || m.participants == null || incompleteParticipants)
+        (m.damage_dealt == null ||
+          m.healing == null ||
+          m.participants == null ||
+          m.double_kills == null ||
+          m.triple_kills == null ||
+          incompleteParticipants)
       )
         ids.add(m.id);
     });
@@ -989,19 +1058,72 @@ export default function App() {
                 style={styles.liveBannerIcon}
               />
             )}
-            <div>
+            <div style={styles.liveBannerTextWrap}>
               <div style={styles.liveBannerTitle}>
-                {!liveChampionAlert.hasWin && "🎯 "}
-                {t("playing_now")} {champions.find((c) => c.id === liveChampionAlert.championId)?.name}
+                {!liveChampionAlert.gameEnded && !liveChampionAlert.hasWin && "🎯 "}
+                {liveChampionAlert.gameEnded ? t("match_ended_with") : t("playing_now")}{" "}
+                {champions.find((c) => c.id === liveChampionAlert.championId)?.name}
               </div>
+              {/* Depois do "GameEnd" (ver onMatchResult acima), o status
+                  passa a refletir o resultado desta partida (Vitória = 1º
+                  lugar, Derrota = não-1º) em vez de continuar a dizer "a
+                  jogar" com um jogo que já acabou. A Live Client Data não dá
+                  o lugar exato (2º-8º) — só depois de sincronizar. */}
               <div
                 style={{
                   ...styles.liveBannerStatus,
-                  color: liveChampionAlert.hasWin ? "var(--place-good)" : "var(--accent-text)",
+                  color: liveChampionAlert.gameEnded
+                    ? liveChampionAlert.gameWon
+                      ? "var(--place-good)"
+                      : "var(--place-low)"
+                    : liveChampionAlert.hasWin
+                    ? "var(--place-good)"
+                    : "var(--accent-text)",
                 }}
               >
-                {liveChampionAlert.hasWin ? t("already_have_win") : t("no_win_yet_luck")}
+                {liveChampionAlert.gameEnded
+                  ? liveChampionAlert.gameWon
+                    ? t("game_ended_win")
+                    : t("game_ended_lose")
+                  : liveChampionAlert.hasWin
+                  ? t("already_have_win")
+                  : t("no_win_yet_luck")}
               </div>
+
+              {liveChampionAlert.gameEnded && (
+                <div style={styles.liveBannerSyncReminder}>{t("game_ended_sync_reminder")}</div>
+              )}
+
+              {/* KDA + build atuais (ver sendLiveStats em electron.js) — vêm da
+                  Live Client Data API, atualizados a cada poll (3 em 3s)
+                  enquanto a partida decorre. NÃO há augments aqui: essa API
+                  não os expõe durante o jogo, só depois de sincronizar. */}
+              {liveChampionAlert.kda && (
+                <div style={styles.liveBannerKda}>
+                  <span style={styles.liveBannerKdaLabel}>KDA</span>{" "}
+                  <b>{liveChampionAlert.kda.kills}</b>/<b>{liveChampionAlert.kda.deaths}</b>/
+                  <b>{liveChampionAlert.kda.assists}</b>
+                </div>
+              )}
+
+              {liveChampionAlert.items?.some((it) => it.itemID) && (
+                <div style={styles.liveBannerItemsRow}>
+                  {liveChampionAlert.items
+                    .filter((it) => it.itemID)
+                    .map((it, idx) => (
+                      <Tooltip key={idx} label={itemsMap?.[it.itemID] || `#${it.itemID}`}>
+                        <img
+                          src={`${DRAGON}/img/item/${it.itemID}.png`}
+                          style={styles.liveBannerItemIcon}
+                        />
+                      </Tooltip>
+                    ))}
+                </div>
+              )}
+
+              {liveChampionAlert.roast && (
+                <div style={styles.liveBannerRoast}>“{liveChampionAlert.roast}”</div>
+              )}
             </div>
             <button
               onPointerDown={(e) => e.stopPropagation()}
@@ -1027,7 +1149,22 @@ export default function App() {
           minHeight: 0,
         }}
       >
-        <div style={styles.topBar}>
+        {/* ================= HEADER (marca/conta/sync + tabs + filtro + resumo) =================
+            As 4 peças que antes viviam em caixas soltas (cada uma com a sua
+            própria margem/borda/sombra) passaram a viver dentro de um único
+            "cartão" (headerShell) — visual mais moderno e organizado, e sem
+            repetir a mesma borda/sombra 3-4 vezes seguidas. O botão de
+            comprimir (no cluster de ícones) controla o bloco todo: reduz
+            espaçamentos e passa o resumo para a versão numa só linha, mas
+            nunca esconde tabs, filtro ou qualquer um dos números do resumo. */}
+        <div
+          style={{
+            ...styles.headerShell,
+            gap: headerCompact ? 4 : 8,
+            padding: headerCompact ? "6px 14px 8px" : "10px 14px 12px",
+          }}
+        >
+        <div style={styles.headerRow}>
           <div style={styles.topBarLeft}>
             <div style={styles.brandBox}>
               <img src="./logo.ico" style={styles.brandLogo} />
@@ -1053,46 +1190,61 @@ export default function App() {
           <div style={styles.topBarRight}>
             {activeAccount && (
               <div style={styles.syncBox}>
-                <div style={styles.syncBtnRow}>
-                  <Tooltip label={t("sync_btn_tooltip")}>
-                    <button
-                      onClick={() => syncActiveAccount()}
-                      style={styles.syncBtn}
-                      disabled={syncStatus?.status === "loading"}
+                <div style={styles.syncTopRow}>
+                  {/* Legenda (último sync / status) agora à ESQUERDA do
+                      botão em vez de numa linha própria por baixo — mesma
+                      linha, só que o botão continua encostado ao cluster de
+                      ícones à direita. Em modo comprimido esconde-se só esta
+                      legenda quando não há nada a reportar — os dados gerais
+                      (resumo/tabs/filtro) nunca são afetados por isto.
+                      Erros/progresso continuam sempre visíveis. */}
+                  {(!headerCompact || syncStatus?.status) && (
+                    <div
+                      style={{
+                        ...styles.syncCaption,
+                        color: syncStatus?.status === "error" ? "var(--place-low)" : "var(--text-muted)",
+                      }}
                     >
-                      {syncStatus?.status === "loading" ? t("sync_btn_loading") : `⟲ ${t("sync_btn")}`}
-                    </button>
-                  </Tooltip>
-                  <Tooltip label={t("sync_all_tooltip")}>
-                    <button
-                      onClick={() => syncActiveAccount(true)}
-                      style={styles.syncAllBtn}
-                      disabled={syncStatus?.status === "loading"}
-                    >
-                      {t("sync_all_btn")}
-                    </button>
-                  </Tooltip>
-                  {missingEnrichmentCount > 0 && (
-                    <Tooltip
-                      label={t("enrich_history_tooltip").replace("{count}", missingEnrichmentCount)}
-                    >
+                      {syncStatus?.status ? syncStatus.message : `${t("last_sync")}: ${lastSyncLabel}`}
+                    </div>
+                  )}
+                  <div style={styles.syncBtnRow}>
+                    <Tooltip label={t("sync_btn_tooltip")}>
                       <button
-                        onClick={enrichHistory}
-                        style={styles.syncAllBtn}
+                        onClick={() => syncActiveAccount()}
+                        style={styles.syncBtn}
                         disabled={syncStatus?.status === "loading"}
                       >
-                        {t("enrich_btn")} ({missingEnrichmentCount})
+                        {syncStatus?.status === "loading" ? t("sync_btn_loading") : `⟲ ${t("sync_btn")}`}
                       </button>
                     </Tooltip>
-                  )}
-                </div>
-                <div
-                  style={{
-                    ...styles.syncCaption,
-                    color: syncStatus?.status === "error" ? "var(--place-low)" : "var(--text-muted)",
-                  }}
-                >
-                  {syncStatus?.status ? syncStatus.message : `${t("last_sync")}: ${lastSyncLabel}`}
+                    {missingEnrichmentCount > 0 && (
+                      <Tooltip
+                        label={t("enrich_history_tooltip").replace("{count}", missingEnrichmentCount)}
+                      >
+                        <button
+                          onClick={enrichHistory}
+                          style={styles.syncAllBtn}
+                          disabled={syncStatus?.status === "loading"}
+                        >
+                          {t("enrich_btn")} ({missingEnrichmentCount})
+                        </button>
+                      </Tooltip>
+                    )}
+                    {missingWinsChampions.length > 0 && (
+                      <Tooltip
+                        label={t("repair_wins_tooltip").replace("{count}", missingWinsChampions.length)}
+                      >
+                        <button
+                          onClick={repairWins}
+                          style={styles.syncAllBtn}
+                          disabled={syncStatus?.status === "loading"}
+                        >
+                          {t("repair_wins_btn")} ({missingWinsChampions.length})
+                        </button>
+                      </Tooltip>
+                    )}
+                  </div>
                 </div>
                 {syncStatus?.status === "loading" && (
                   <div style={styles.syncProgressTrack}>
@@ -1129,41 +1281,93 @@ export default function App() {
                   ⚙
                 </button>
               </Tooltip>
+              <div style={styles.iconClusterDivider} />
+              <Tooltip label={headerCompact ? t("stats_expand") : t("stats_collapse")}>
+                <button
+                  onClick={() => setHeaderCompact((c) => !c)}
+                  style={styles.iconClusterBtn}
+                >
+                  {headerCompact ? "⌄" : "⌃"}
+                </button>
+              </Tooltip>
             </div>
           </div>
         </div>
 
-        {/* Barra de tabs modernizada — cada botão é relativo, e a tab ativa
-            ganha um fundo próprio que "desliza" de uma tab para a outra via
-            layoutId partilhado do framer-motion (shared layout animation),
-            em vez de só trocar de cor instantaneamente. */}
+        {/* Tabs + filtro de formato na mesma "pill" — antes eram duas caixas
+            lado a lado com um espaço vazio entre elas (parecia dois
+            controlos soltos e desalinhados); agora é um único fundo/borda a
+            toda a largura, com um divisor fino a separar os dois grupos, tal
+            como o divisor marca/conta na topBar. Cada botão é relativo, e a
+            opção ativa ganha um fundo próprio que "desliza" via layoutId
+            partilhado do framer-motion, em vez de só trocar de cor
+            instantaneamente. */}
         {activeAccount && (
-          <div style={styles.tabBar}>
-            {TABS.map((tab) => {
-              const isActive = view === tab.key;
-              return (
-                <button
-                  key={tab.key}
-                  onClick={() => setView(tab.key)}
-                  style={{
-                    ...styles.tabBtn,
-                    color: isActive ? "#ffffff" : "var(--text-secondary)",
-                  }}
-                >
-                  {isActive && (
-                    <motion.div
-                      layoutId="tabIndicator"
-                      style={styles.tabIndicator}
-                      transition={{ type: "spring", stiffness: 480, damping: 34 }}
-                    />
-                  )}
-                  <span style={styles.tabBtnLabel}>
-                    <span style={styles.tabBtnIcon}>{tab.icon}</span>
-                    {tab.label}
-                  </span>
-                </button>
-              );
-            })}
+          <div style={{ ...styles.navRow, padding: headerCompact ? 2 : 3 }}>
+            <div style={styles.tabBar}>
+              {TABS.map((tab) => {
+                const isActive = view === tab.key;
+                return (
+                  <button
+                    key={tab.key}
+                    onClick={() => setView(tab.key)}
+                    style={{
+                      ...styles.tabBtn,
+                      padding: headerCompact ? "4px 16px" : "6px 16px",
+                      color: isActive ? "#ffffff" : "var(--text-secondary)",
+                    }}
+                  >
+                    {isActive && (
+                      <motion.div
+                        layoutId="tabIndicator"
+                        style={styles.tabIndicator}
+                        transition={{ type: "spring", stiffness: 480, damping: 34 }}
+                      />
+                    )}
+                    <span style={styles.tabBtnLabel}>
+                      <span style={styles.tabBtnIcon}>{tab.icon}</span>
+                      {tab.label}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div style={styles.navDivider} />
+
+            <div style={styles.formatBar}>
+              {FORMAT_OPTIONS.map((opt, i) => {
+                const isActive = teamSizeFilter === opt.key;
+                return (
+                  <React.Fragment key={opt.key}>
+                    {/* Divisória fina entre os 3 botões — antes só havia o
+                        pequeno "gap", sem nada a separar visualmente cada
+                        opção. */}
+                    {i > 0 && <div style={styles.formatBtnDivider} />}
+                    <Tooltip label={opt.full} style={styles.formatBtnWrap}>
+                      <button
+                        className="formatSegBtn"
+                        onClick={() => setTeamSizeFilter(opt.key)}
+                        style={{
+                          ...styles.formatBtn,
+                          padding: headerCompact ? "4px 10px" : "6px 10px",
+                          color: isActive ? "#ffffff" : "var(--text-secondary)",
+                        }}
+                      >
+                        {isActive && (
+                          <motion.div
+                            layoutId="formatIndicator"
+                            style={styles.formatIndicator}
+                            transition={{ type: "spring", stiffness: 480, damping: 34 }}
+                          />
+                        )}
+                        <span style={styles.formatBtnLabel}>{opt.label}</span>
+                      </button>
+                    </Tooltip>
+                  </React.Fragment>
+                );
+              })}
+            </div>
           </div>
         )}
 
@@ -1172,11 +1376,12 @@ export default function App() {
           <StatsBar
             matches={statsMatches}
             teamSizeFilter={teamSizeFilter}
-            onChangeTeamSizeFilter={setTeamSizeFilter}
             wins={wins}
             champions={champions}
+            compact={headerCompact}
           />
         )}
+        </div>
 
         {/* ================= MAIN ================= */}
         {/* Única zona da app com scroll vertical — evita que qualquer lista
@@ -1299,14 +1504,6 @@ export default function App() {
                             </div>
                           )}
                         </div>
-                        {!owned.has(champ.id) && (
-                          <button
-                            onClick={() => handleAddWin(champ.id)}
-                            style={styles.quickCheckBtn}
-                          >
-                            {t("mark_win_btn")}
-                          </button>
-                        )}
                       </div>
                     ))}
                   </div>
@@ -1329,9 +1526,6 @@ export default function App() {
                               animate={{ opacity: 1, scale: 1 }}
                               exit={{ opacity: 0, scale: 0.7 }}
                               transition={{ duration: 0.08 }}
-                              whileTap={{ scale: 0.95 }}
-                              whileHover={{ scale: 1.08 }}
-                              onClick={() => handleRemoveWin(champ)}
                               style={styles.winCard}
                             >
                               <img src={`${DRAGON}/img/champion/${champ}.png`} style={styles.icon} />
@@ -1342,65 +1536,6 @@ export default function App() {
                     </AnimatePresence>
                   </div>
                 </div>
-
-                <button onClick={() => setShowManualAdd((v) => !v)} style={styles.manualToggle}>
-                  {showManualAdd ? t("hide_champions") : t("show_manual_add")}
-                </button>
-
-                <AnimatePresence>
-                  {showManualAdd && (
-                    <motion.div
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: "auto", opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      transition={{ duration: 0.18 }}
-                      style={{ overflow: "hidden" }}
-                    >
-                      <div style={styles.cardScroll}>
-                        <h2 style={styles.sectionTitle}>{t("champions_heading")}</h2>
-                        <div style={styles.filters}>
-                          {ROLES.map((r) => (
-                            <button
-                              key={r}
-                              onClick={() => setRoleFilter(r)}
-                              style={{
-                                ...styles.filterBtn,
-                                ...(roleFilter === r ? styles.filterBtnActive : {}),
-                              }}
-                            >
-                              {r === "ALL" ? t("role_all") : r}
-                            </button>
-                          ))}
-                        </div>
-                        <div style={styles.grid} className="scrollArea">
-                          <AnimatePresence>
-                            {filteredChampions.map((c) => (
-                              <motion.div
-                                key={c.id}
-                                initial={{ opacity: 0, scale: 0.7 }}
-                                animate={{ opacity: 1, scale: 1 }}
-                                exit={{ opacity: 0, scale: 0.7 }}
-                                transition={{ duration: 0.08 }}
-                                whileHover={{ scale: 1.08 }}
-                                whileTap={{ scale: 0.95 }}
-                                onClick={() => handleAddWin(c.id)}
-                                style={{
-                                  ...styles.cardChamp,
-                                  border:
-                                    hovered === c.id
-                                      ? "1px solid rgba(var(--accent-rgb),0.5)"
-                                      : "1px solid rgba(var(--accent-rgb),0.12)",
-                                }}
-                              >
-                                <img src={`${DRAGON}/img/champion/${c.id}.png`} style={styles.icon} />
-                              </motion.div>
-                            ))}
-                          </AnimatePresence>
-                        </div>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
               </>
             )}
               </motion.div>
@@ -1516,6 +1651,65 @@ const styles = {
     marginTop: 1,
   },
 
+  // Aviso discreto (ver game_ended_sync_reminder) — só aparece depois do
+  // "GameEnd", a lembrar que o lugar exato/dano/ouro/augments só chegam
+  // depois de uma sincronização, não logo que a partida termina.
+  liveBannerSyncReminder: {
+    fontSize: 10.5,
+    color: "var(--text-muted)",
+    marginTop: 3,
+    lineHeight: 1.3,
+  },
+
+  liveBannerTextWrap: {
+    maxWidth: 300,
+  },
+
+  liveBannerKda: {
+    fontSize: 12,
+    color: "var(--text-body)",
+    marginTop: 4,
+  },
+
+  liveBannerKdaLabel: {
+    fontSize: 10,
+    fontWeight: 700,
+    color: "var(--text-muted)",
+    letterSpacing: 0.3,
+  },
+
+  liveBannerItemsRow: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 3,
+    marginTop: 4,
+  },
+
+  liveBannerItemIcon: {
+    width: 20,
+    height: 20,
+    borderRadius: 5,
+    border: "1px solid rgba(var(--border-rgb),0.4)",
+    pointerEvents: "none",
+  },
+
+  // Frase de "roast" (ver roasts.js) — é a parte divertida do banner, por
+  // isso ganha destaque próprio (chip com fundo/contorno, negrito) em vez de
+  // ser só um itálico discreto por baixo do status.
+  liveBannerRoast: {
+    display: "inline-block",
+    fontSize: 12,
+    fontStyle: "italic",
+    fontWeight: 700,
+    color: "var(--text-body)",
+    marginTop: 5,
+    lineHeight: 1.35,
+    padding: "3px 8px",
+    borderRadius: 7,
+    background: "rgba(var(--accent-rgb),0.16)",
+    border: "1px solid rgba(var(--accent-rgb),0.32)",
+  },
+
   liveBannerClose: {
     marginLeft: 6,
     width: 22,
@@ -1564,15 +1758,94 @@ const styles = {
     cursor: "help",
   },
 
-  tabBar: {
+  // Pill única que junta as tabs e o filtro de formato — antes eram duas
+  // caixas soltas lado a lado (cada uma com o seu fundo/borda), o que dava
+  // um ar desconexo e desequilibrado. Agora só esta linha tem fundo/borda;
+  // tabBar e formatBar são apenas grupos de botões lá dentro, separados por
+  // um divisor fino (ver navDivider) — a mesma "pill" contínua de ponta a
+  // ponta, tal como a barra de tabs tinha antes.
+  navRow: {
     display: "flex",
-    gap: 4,
-    marginTop: 10,
+    alignItems: "stretch",
     width: "100%",
-    padding: 4,
-    borderRadius: 14,
+    borderRadius: 13,
     background: "rgba(var(--panel-deep-rgb),0.5)",
     border: "1px solid rgba(var(--border-rgb),0.35)",
+  },
+
+  tabBar: {
+    display: "flex",
+    flex: 1,
+    gap: 4,
+  },
+
+  navDivider: {
+    width: 1,
+    alignSelf: "stretch",
+    margin: "2px 6px",
+    background: "rgba(var(--border-rgb),0.5)",
+  },
+
+  // Mesmo "segmented control" da barra de tabs, só que mais estreito (3
+  // opções curtas — Todos/2v2/3v3 — em vez de 5 tabs com texto). Largura
+  // fixa para não competir por espaço com as tabs à medida que a janela
+  // muda de tamanho.
+  formatBar: {
+    display: "flex",
+    flexShrink: 0,
+    width: 176,
+    gap: 4,
+  },
+
+  // O Tooltip embrulha cada botão num <span display:inline-flex> — sem isto,
+  // esse wrapper fica só do tamanho do conteúdo (flex:0 1 auto por omissão)
+  // e o "flex:1" do próprio botão não tem efeito nenhum, porque quem é
+  // esticado pelo formatBar é o wrapper, não o botão lá dentro. Resultado:
+  // os 3 botões ficavam encolhidos à esquerda, com espaço vazio à direita.
+  formatBtnWrap: {
+    flex: 1,
+    display: "flex",
+  },
+
+  // Divisória fina entre os 3 botões (Todos/2v2/3v3) — antes só havia o
+  // "gap" do formatBar, sem nada a separar visualmente cada opção.
+  formatBtnDivider: {
+    width: 1,
+    alignSelf: "stretch",
+    background: "rgba(var(--border-rgb),0.35)",
+  },
+
+  // ".formatSegBtn:hover" (ver index.css) dá um fundo visível ao passar o
+  // rato — o filtro global "button:hover { filter: brightness(1.16) }" quase
+  // não se nota aqui porque o fundo destes botões é transparente.
+  formatBtn: {
+    position: "relative",
+    flex: 1,
+    display: "flex",
+    justifyContent: "center",
+    padding: "6px 10px",
+    borderRadius: 9,
+    border: "none",
+    background: "transparent",
+    cursor: "pointer",
+    fontSize: 11.5,
+    fontWeight: 700,
+    transition: "color 0.15s ease, background-color 0.15s ease",
+  },
+
+  formatIndicator: {
+    position: "absolute",
+    inset: 0,
+    borderRadius: 8,
+    background: "linear-gradient(135deg, #6366f1, #4f46e5)",
+    boxShadow: "0 3px 12px rgba(79,70,229,0.45)",
+    zIndex: 0,
+  },
+
+  formatBtnLabel: {
+    position: "relative",
+    zIndex: 1,
+    whiteSpace: "nowrap",
   },
 
   // Cada botão é "position: relative" para o indicador (absolute, atrás do
@@ -1585,8 +1858,8 @@ const styles = {
     flex: 1,
     display: "flex",
     justifyContent: "center",
-    padding: "8px 16px",
-    borderRadius: 10,
+    padding: "6px 16px",
+    borderRadius: 9,
     border: "none",
     background: "transparent",
     cursor: "pointer",
@@ -1620,21 +1893,29 @@ const styles = {
 
   title: { color: "var(--accent-text)", fontSize: 34 },
 
-  // Header modernizado: fundo em duas camadas com um brilho subtil no topo,
-  // divisor vertical entre marca/conta, e um "cluster" de ícones agrupado à
-  // direita em vez de botões soltos — melhor aproveitamento do espaço
-  // horizontal e uma hierarquia visual mais clara entre marca, conta,
-  // sincronização e preferências.
-  topBar: {
+  // Cartão único do cabeçalho — marca/conta/sync, tabs, filtro e resumo
+  // vivem todos aqui dentro (ver App.jsx), em vez de 3-4 caixas soltas cada
+  // uma com a sua própria margem/borda/sombra repetida. "gap" faz o ritmo
+  // vertical entre secções; cada secção interior (headerRow/tabBar/StatsBar)
+  // já não precisa da sua própria margem de topo.
+  headerShell: {
     display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: "9px 16px",
+    flexDirection: "column",
+    gap: 8,
+    marginTop: 8,
+    padding: "10px 14px 12px",
     borderRadius: 16,
-    marginTop: 10,
     background: "linear-gradient(180deg, rgba(var(--panel-rgb),0.95), rgba(var(--panel-deep-rgb),0.97))",
     border: "1px solid rgba(var(--border-rgb),0.5)",
     boxShadow: "0 1px 0 rgba(255,255,255,0.04) inset, 0 6px 18px rgba(0,0,0,0.18)",
+  },
+
+  // Linha de topo (marca/conta à esquerda, sync/preferências à direita) —
+  // já sem fundo/borda própria, porque agora vive dentro do headerShell.
+  headerRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
 
   topBarDivider: {
@@ -1668,7 +1949,10 @@ const styles = {
 
   accountName: { color: "var(--accent-text)", fontWeight: 600, fontSize: 13 },
 
-  syncCaption: { fontSize: 10, color: "var(--text-muted)", marginTop: 2 },
+  // Sem "marginTop" — já não fica numa linha própria por baixo do botão,
+  // vive ao lado dele agora (ver syncTopRow). "whiteSpace: nowrap" evita que
+  // quebre a meio e desalinhe a linha com o botão.
+  syncCaption: { fontSize: 10, color: "var(--text-muted)", whiteSpace: "nowrap" },
 
   // Cluster único (3 botões visualmente unidos, com divisores finos) em vez
   // de 3 cartões soltos com espaço entre eles — sinaliza que são um grupo
@@ -1701,8 +1985,15 @@ const styles = {
     display: "flex",
     flexDirection: "column",
     alignItems: "flex-end",
-    gap: 2,
-    minWidth: 160,
+    gap: 4,
+  },
+
+  // Legenda (último sync/status) + botões na mesma linha — antes a legenda
+  // vivia numa linha própria por baixo do botão (ver syncCaption).
+  syncTopRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
   },
 
   syncBtnRow: { display: "flex", gap: 6 },
@@ -1759,4 +2050,121 @@ const styles = {
 
   sectionTitle: { marginBottom: 12, color: "var(--accent-text)" },
 
-  primaryBtn: 
+  primaryBtn: {
+    padding: "10px 14px",
+    borderRadius: 10,
+    border: "none",
+    background: "#4f46e5",
+    color: "#ffffff",
+    cursor: "pointer",
+  },
+
+  globalSearch: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    padding: "10px 12px",
+    borderRadius: 12,
+    background: "rgba(var(--panel-deep-rgb),0.85)",
+    border: "1px solid rgba(var(--accent-rgb),0.25)",
+    marginTop: 12,
+    marginBottom: 16,
+  },
+
+  globalSearchInput: {
+    width: "100%",
+    border: "none",
+    outline: "none",
+    background: "transparent",
+    color: "var(--text-body)",
+  },
+
+  shortcutHint: {
+    fontSize: 10,
+    color: "var(--text-muted)",
+    border: "1px solid rgba(var(--border-rgb),0.4)",
+    borderRadius: 6,
+    padding: "2px 6px",
+    whiteSpace: "nowrap",
+    flexShrink: 0,
+  },
+
+  // Envolve um cartão de estado por cada campeão que a busca encontrar —
+  // antes só existia um cartão (só aparecia com uma correspondência exata),
+  // agora é uma lista para buscas mais genéricas (ex: "vi") continuarem a
+  // mostrar o estado de cada campeão apanhado, incluindo o que se procurava.
+  quickCheckList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+    marginBottom: 16,
+  },
+
+  quickCheck: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    padding: "10px 14px",
+    borderRadius: 12,
+    background: "linear-gradient(180deg, rgba(var(--panel-rgb),0.92), rgba(var(--panel-deep-rgb),0.96))",
+    border: "1px solid rgba(var(--accent-rgb),0.4)",
+  },
+
+  quickCheckIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    pointerEvents: "none",
+  },
+
+  quickCheckInfo: {
+    flex: 1,
+  },
+
+  quickCheckName: {
+    fontSize: 14,
+    fontWeight: 700,
+    color: "var(--text-body)",
+  },
+
+  quickCheckStatus: {
+    fontSize: 12,
+    fontWeight: 600,
+    marginTop: 1,
+  },
+
+  grid: {
+    padding: "3px",
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fill, minmax(54px, 1fr))",
+    gap: 10,
+    marginTop: 12,
+    maxHeight: "26vh",
+  },
+
+  winCard: {
+    borderRadius: 12,
+    padding: 3,
+    border: "1px solid rgba(var(--accent-rgb),0.4)",
+    background: "rgba(var(--accent-rgb),0.12)",
+  },
+
+  icon: { width: 48, height: 48, borderRadius: 10, pointerEvents: "none" },
+
+  emptyState: {
+    marginTop: 40,
+    padding: 30,
+    borderRadius: 16,
+    background: "linear-gradient(180deg, rgba(var(--panel-rgb),0.92), rgba(var(--panel-deep-rgb),0.96))",
+    border: "1px solid rgba(var(--border-rgb),0.5)",
+    textAlign: "center",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 12,
+  },
+
+  emptyStateTitle: { fontSize: 18, color: "var(--accent-text)", fontWeight: 700 },
+
+  emptyStateText: { fontSize: 13, color: "var(--text-secondary)", maxWidth: 420 },
+};

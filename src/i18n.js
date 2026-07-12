@@ -27,12 +27,14 @@ const DICTIONARY = {
     pt: "Sincronizar com a Riot API (só partidas novas desde a última vez)",
     en: "Sync with the Riot API (only new matches since last time)",
   },
-  sync_all_btn: { pt: "↺ Tudo", en: "↺ All" },
-  sync_all_tooltip: {
-    pt: "Sincronizar tudo — ignora a última data e volta a verificar o histórico completo (recupera partidas em falta)",
-    en: "Sync everything — ignores the last date and re-checks the full history (recovers missing matches)",
-  },
   enrich_btn: { pt: "🩹 Enriquecer histórico", en: "🩹 Enrich history" },
+  repair_wins_btn: { pt: "🏆 Reparar vitórias", en: "🏆 Repair wins" },
+  repair_wins_tooltip: {
+    pt: "{count} campeão(ões) têm partidas ganhas no histórico mas não constam na tua lista de vitórias — corrige isso a partir dos dados já guardados",
+    en: "{count} champion(s) have won matches in your history but aren't in your wins list — fixes this from the data already saved",
+  },
+  repairing_wins: { pt: "A reparar vitórias…", en: "Repairing wins…" },
+  wins_repaired: { pt: "vitória(s) recuperada(s).", en: "win(s) recovered." },
   last_sync: { pt: "Última sincronização", en: "Last sync" },
   never: { pt: "nunca", en: "never" },
 
@@ -40,10 +42,15 @@ const DICTIONARY = {
   format_all: { pt: "Todos os formatos", en: "All formats" },
   format_2v2: { pt: "2v2 (8 equipas)", en: "2v2 (8 teams)" },
   format_3v3: { pt: "3v3 (6 equipas)", en: "3v3 (6 teams)" },
+  // Versões curtas — usadas no seletor de formato quando este partilha a
+  // linha com as tabs (ver App.jsx); o texto completo acima passa a viver
+  // no tooltip de cada botão.
+  format_all_short: { pt: "Todos", en: "All" },
+  format_2v2_short: { pt: "2v2", en: "2v2" },
+  format_3v3_short: { pt: "3v3", en: "3v3" },
   stat_games: { pt: "Jogos", en: "Games" },
   stat_games_singular: { pt: "jogo", en: "game" },
   placement_first_short: { pt: "1º", en: "1st" },
-  role_all: { pt: "Todos", en: "All" },
   stat_wins_first: { pt: "Vitórias (1º)", en: "Wins (1st)" },
   stat_wins_top3: { pt: "Vitórias (Top 3)", en: "Wins (Top 3)" },
   stat_losses: { pt: "Derrotas (abaixo do Top 3)", en: "Losses (below Top 3)" },
@@ -51,6 +58,8 @@ const DICTIONARY = {
   stat_winrate_top3: { pt: "Winrate (Top 3)", en: "Winrate (Top 3)" },
   stat_kda: { pt: "KDA médio", en: "Average KDA" },
   champions_suffix: { pt: "campeões", en: "champions" },
+  stats_collapse: { pt: "Comprimir cabeçalho", en: "Compress header" },
+  stats_expand: { pt: "Expandir cabeçalho", en: "Expand header" },
 
   // ================= VISÃO GERAL =================
   overview_roster_progress: { pt: "Progresso do roster", en: "Roster progress" },
@@ -127,7 +136,26 @@ const DICTIONARY = {
   spotlight_fastest_win: { pt: "Vitória mais rápida", en: "Fastest win" },
   spotlight_longest_game: { pt: "Partida mais longa", en: "Longest game" },
   spotlight_most_kills_game: { pt: "Mais kills numa partida", en: "Most kills in a game" },
-  spotlight_best_multikill_ever: { pt: "Melhor multikill de sempre", en: "Best multikill ever" },
+  spotlight_highest_doubles: { pt: "Maior média de double kills", en: "Highest average double kills" },
+  spotlight_highest_triples: { pt: "Maior média de triple kills", en: "Highest average triple kills" },
+  spotlight_best_doubles_game: { pt: "Mais double kills numa partida", en: "Most double kills in a game" },
+  spotlight_best_triples_game: { pt: "Mais triple kills numa partida", en: "Most triple kills in a game" },
+  spotlight_most_deaths_game: { pt: "Mais mortes numa partida", en: "Most deaths in a game" },
+  spotlight_most_assists_game: { pt: "Mais assists numa partida", en: "Most assists in a game" },
+  // Subtítulos dos 3 grupos de destaques (ver Overview.jsx) — em vez de uma
+  // grelha só com tudo misturado, cada grupo diz logo que tipo de cartão é.
+  // Agrupados por tema (não por "média vs. recorde de partida") — cada
+  // subtítulo mistura de propósito a média por campeão com o recorde numa
+  // partida do mesmo assunto (ver Overview.jsx).
+  overview_highlights_wins: { pt: "Vitórias & Lugares", en: "Wins & Placements" },
+  overview_highlights_combat: { pt: "Combate & KDA", en: "Combat & KDA" },
+  overview_highlights_multikill: { pt: "Kills múltiplos", en: "Multikills" },
+  overview_highlights_economy: { pt: "Economia", en: "Economy" },
+  overview_highlights_survival: { pt: "Sobrevivência & Dano", en: "Survival & Damage" },
+  stat_doubles: { pt: "Double kills (média)", en: "Double kills (avg)" },
+  stat_triples: { pt: "Triple kills (média)", en: "Triple kills (avg)" },
+  compare_avg_doubles: { pt: "Média de double kills", en: "Average double kills" },
+  compare_avg_triples: { pt: "Média de triple kills", en: "Average triple kills" },
 
   // ================= HISTÓRICO =================
   history_empty: {
@@ -247,11 +275,7 @@ const DICTIONARY = {
   },
   already_have_win: { pt: "✅ Já tens vitória", en: "✅ Already have a win" },
   no_win_yet: { pt: "🆕 Ainda não tens vitória", en: "🆕 No win yet" },
-  mark_win_btn: { pt: "+ Marcar vitória", en: "+ Mark win" },
   your_victories: { pt: "As tuas vitórias", en: "Your victories" },
-  champions_heading: { pt: "Campeões", en: "Champions" },
-  hide_champions: { pt: "▲ Esconder campeões", en: "▲ Hide champions" },
-  show_manual_add: { pt: "▼ Adicionar vitória manualmente", en: "▼ Add a win manually" },
   no_active_account: { pt: "Sem conta ativa", en: "No active account" },
   no_active_account_text: {
     pt: "Cria uma conta ou deteta a que já usas no League para começar a seguir as tuas partidas de Arena.",
@@ -261,4 +285,118 @@ const DICTIONARY = {
   // ================= APP (topo, sincronização, mensagens) =================
   language_label: { pt: "Idioma", en: "Language" },
   riot_disclaimer: {
-    pt: "Arena Tracker não é endossada pela Riot Games e não reflete as opiniões da Riot Games ou de quem esteja oficialmente envolvido na produção ou gestão das propriedades da Riot Games. Riot Games e as propriedade
+    pt: "Arena Tracker não é endossada pela Riot Games e não reflete as opiniões da Riot Games ou de quem esteja oficialmente envolvido na produção ou gestão das propriedades da Riot Games. Riot Games e as propriedades associadas são marcas comerciais ou registadas da Riot Games, Inc.",
+    en: "Arena Tracker isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties. Riot Games and all associated properties are trademarks or registered trademarks of Riot Games, Inc.",
+  },
+  no_riot_tag: {
+    pt: 'Define a tag Riot (ex: EUW) para "{name}" antes de sincronizar.',
+    en: 'Set the Riot tag (e.g. EUW) for "{name}" before syncing.',
+  },
+  syncing: { pt: "A sincronizar…", en: "Syncing…" },
+  missing_api_key: { pt: "Falta a RIOT_API_KEY no ficheiro .env.", en: "Missing RIOT_API_KEY in the .env file." },
+  unknown_error: { pt: "Erro desconhecido.", en: "Unknown error." },
+  save_matches_error: {
+    pt: 'Não foi possível guardar as partidas: {error}. Corre de novo o supabase_matches_table.sql no SQL Editor do Supabase (adiciona colunas novas em segurança) e, se o erro persistir, força também um "reload schema" em Settings → API.',
+    en: 'Could not save the matches: {error}. Re-run supabase_matches_table.sql in the Supabase SQL Editor (safely adds new columns) and, if the error persists, also force a "reload schema" in Settings → API.',
+  },
+  matches_imported: { pt: "partida(s) nova(s) importada(s).", en: "new match(es) imported." },
+  already_up_to_date: { pt: "Já estava tudo atualizado.", en: "Already up to date." },
+  enriching_history: { pt: "A enriquecer histórico…", en: "Enriching history…" },
+  define_riot_tag_enrich: {
+    pt: 'Define a tag Riot para "{name}" para enriquecer estas partidas via Riot API.',
+    en: 'Set the Riot tag for "{name}" to enrich these matches via the Riot API.',
+  },
+  matches_enriched: { pt: "partida(s) enriquecida(s).", en: "match(es) enriched." },
+  not_enough_recovered: { pt: "sem dados suficientes para recuperar.", en: "not enough data to recover." },
+  not_enough_data_at_all: {
+    pt: "Sem dados suficientes para recuperar essas partidas (sem lugar 7º/8º nem histórico da Riot API).",
+    en: "Not enough data to recover these matches (no 7th/8th placement or Riot API history).",
+  },
+  playing_now: { pt: "A jogar:", en: "Playing:" },
+  match_ended_with: { pt: "Partida:", en: "Match:" },
+  // Sem o "boa sorte" — já não fazia sentido logo a seguir a um roast
+  // (ver roasts.js) que é o oposto de encorajador.
+  no_win_yet_luck: { pt: "🆕 Ainda não tens vitória com este campeão", en: "🆕 No win yet with this champion" },
+  // Banner ao vivo depois do "GameEnd" — a Live Client Data só distingue
+  // Vitória (1º lugar) de Derrota, nunca o lugar exato (2º-8º); esse só
+  // aparece depois de sincronizar com a Riot API (ver aviso abaixo).
+  game_ended_win: { pt: "🏆 Partida terminada — 1º lugar!", en: "🏆 Game over — 1st place!" },
+  game_ended_lose: { pt: "🏁 Partida terminada — sem ser 1º lugar", en: "🏁 Game over — not 1st place" },
+  game_ended_sync_reminder: {
+    pt: "Sincroniza dentro de uns minutos para veres o lugar exato, dano, ouro e augments.",
+    en: "Sync again in a few minutes to see the exact placement, damage, gold, and augments.",
+  },
+  no_kda_data_yet: { pt: "Sem dados de KDA ainda", en: "No KDA data yet" },
+  wins_count_kda: { pt: "vitória(s) · KDA médio", en: "win(s) · average KDA" },
+  enrich_history_tooltip: {
+    pt: '{count} partida(s) sem formato e/ou sem estatísticas detalhadas (dano/ouro/CS/colegas/adversários/etc.) — "Sincronizar tudo" não corrige partidas já importadas, é por isso que este botão existe.',
+    en: '{count} match(es) missing format and/or detailed stats (damage/gold/CS/teammates/opponents/etc.) — "Sync all" does not fix already-imported matches, which is why this button exists.',
+  },
+
+  // ================= GESTÃO DE CONTAS =================
+  manage_accounts_title: { pt: "Gerir contas", en: "Manage accounts" },
+  no_accounts_hint: {
+    pt: "Ainda não tens nenhuma conta. Cria uma abaixo — a conta sincroniza sozinha na primeira partida de Arena que jogares com a app aberta.",
+    en: "You don't have any accounts yet. Create one below — it syncs automatically on the first Arena match you play with the app open.",
+  },
+  active_pill: { pt: "ativa", en: "active" },
+  riot_label: { pt: "Riot:", en: "Riot:" },
+  no_tag: { pt: "(sem tag)", en: "(no tag)" },
+  riot_name_placeholder: { pt: "Nome Riot (antes do #)", en: "Riot name (before the #)" },
+  tag_placeholder: { pt: "Tag (ex: EUW)", en: "Tag (e.g. EUW)" },
+  tag_custom_option: { pt: "Outra (introduzir manualmente)", en: "Other (enter manually)" },
+  region_europe: { pt: "Europa (EUW, EUNE, TR, RU)", en: "Europe (EUW, EUNE, TR, RU)" },
+  region_americas: { pt: "Américas (NA, BR, LAN, LAS, OCE)", en: "Americas (NA, BR, LAN, LAS, OCE)" },
+  region_asia: { pt: "Ásia (KR, JP)", en: "Asia (KR, JP)" },
+  region_sea: { pt: "Sudeste Asiático (PH, SG, TH, TW, VN)", en: "SEA (PH, SG, TH, TW, VN)" },
+  save_btn: { pt: "Guardar", en: "Save" },
+  cancel_btn: { pt: "Cancelar", en: "Cancel" },
+  use_btn: { pt: "Usar", en: "Use" },
+  edit_riot_account_tooltip: { pt: "Editar conta Riot", en: "Edit Riot account" },
+  remove_btn: { pt: "Remover", en: "Remove" },
+  new_account_btn: { pt: "+ Nova conta", en: "+ New account" },
+  app_name_placeholder: { pt: "Nome na app (etiqueta)", en: "Name in the app (label)" },
+  riot_account_sync_placeholder: { pt: "Conta Riot p/ sincronizar (opcional)", en: "Riot account to sync (optional)" },
+  tag_hint: {
+    pt: 'A tag é necessária só para sincronizar o histórico via Riot API (botão "Sincronizar" no ecrã principal).',
+    en: 'The tag is only needed to sync history via the Riot API (the "Sync" button on the main screen).',
+  },
+  create_btn: { pt: "Criar", en: "Create" },
+  confirm_remove_account: {
+    pt: 'Remover "{name}" da lista? O histórico guardado não é apagado.',
+    en: 'Remove "{name}" from the list? Saved history is not deleted.',
+  },
+};
+
+export function translate(lang, key) {
+  return DICTIONARY[key]?.[lang] ?? DICTIONARY[key]?.pt ?? key;
+}
+
+const LanguageContext = createContext(null);
+
+export function LanguageProvider({ children }) {
+  const [lang, setLang] = useState(() => localStorage.getItem("language") || "pt");
+
+  useEffect(() => {
+    localStorage.setItem("language", lang);
+  }, [lang]);
+
+  const t = (key) => translate(lang, key);
+
+  // Nota: este ficheiro é .js (não .jsx) de propósito — para não depender de
+  // configuração extra do esbuild/Vite para JSX em ficheiros .js, o elemento
+  // é criado diretamente com createElement em vez de sintaxe JSX.
+  return createElement(LanguageContext.Provider, { value: { lang, setLang, t } }, children);
+}
+
+// Usar dentro de qualquer componente para aceder a { lang, setLang, t }.
+export function useLanguage() {
+  const ctx = useContext(LanguageContext);
+  if (!ctx) {
+    // Fallback defensivo (ex: componente renderizado fora do provider em
+    // testes) — nunca deve acontecer na app normal, já que o provider
+    // envolve tudo em main.jsx.
+    return { lang: "pt", setLang: () => {}, t: (key) => translate("pt", key) };
+  }
+  return ctx;
+}
