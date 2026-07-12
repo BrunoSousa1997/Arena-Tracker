@@ -458,16 +458,16 @@ ipcMain.handle("export:saveFile", async (_event, { defaultName, content }) => {
 // 2) Proxy (Cloudflare Worker, ver riot-proxy/worker.js) — usado sempre que
 //    NÃO existe chave local. É o caminho para os amigos: instalam a app e
 //    já funciona, sem precisarem de nenhuma chave nem ficheiro .env. A
-//    chave real vive só no Worker (variável de ambiente encriptada, nunca
-//    no repositório); quando expira (a cada 24h, é assim que a Riot faz as
-//    chaves gratuitas), atualiza-se num único sítio e já funciona para
-//    todos os que já têm a app instalada — sem reenviar nada a ninguém.
+//    chave real (Production API Key) vive só no Worker (variável de
+//    ambiente encriptada, nunca no repositório) — se um dia precisares de a
+//    trocar, atualiza-se num único sítio e já funciona para todos os que
+//    já têm a app instalada, sem reenviar nada a ninguém.
 const RIOT_API_KEY = process.env.RIOT_API_KEY || null;
 
 // URL público do Worker — não é secreto (a chave fica só do lado do
 // Worker), por isso pode ficar aqui no código normalmente. Substitui pelo
 // teu depois de fazeres o deploy (ver riot-proxy/INSTRUCOES.md).
-const RIOT_PROXY_BASE_URL = "https://SUBSTITUI-PELO-TEU-WORKER.workers.dev";
+const RIOT_PROXY_BASE_URL = "https://arena-tracker-proxy.bruno-sousa-1997.workers.dev";
 
 function riotApiAvailable() {
   return Boolean(RIOT_API_KEY) || !RIOT_PROXY_BASE_URL.includes("SUBSTITUI-PELO-TEU-WORKER");
