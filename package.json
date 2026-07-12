@@ -48,18 +48,11 @@
     "node_modules/**"
   ],
 
-  "extraResources": [
-    {
-      "from": "assets",
-      "to": "assets"
-    }
-  ],
-
-  "icon": "assets/logo.ico",
+  "icon": "public/logo.ico",
 
   "win": {
     "target": "nsis",
-    "icon": "assets/logo.ico"
+    "icon": "public/logo.ico"
   },
 
   "nsis": {
