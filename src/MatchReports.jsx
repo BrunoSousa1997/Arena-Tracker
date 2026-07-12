@@ -26,6 +26,34 @@ function avgOf(sum, count) {
   return count ? sum / count : null;
 }
 
+// Acessor + formatação do valor exato de cada critério de ordenação — usado
+// para mostrar, já na própria linha (sem precisar de abrir o campeão), o
+// valor pelo qual se está a ordenar. "games_desc"/"winrate_desc"/"top3_desc"
+// e "name_asc" ficam de fora de propósito: já têm coluna própria sempre
+// visível (ou, no caso do nome, não têm valor numérico nenhum para mostrar).
+const SORT_ROW_VALUE = {
+  kda_desc: { get: (c) => c.bestKda, format: (v) => v.toFixed(1) },
+  worst_kda: { get: (c) => c.worstKda, format: (v) => v.toFixed(1) },
+  most_wins: { get: (c) => c.wins, format: (v) => `${v}` },
+  most_top3_count: { get: (c) => c.top3, format: (v) => `${v}` },
+  most_below_top3: { get: (c) => c.belowTop3, format: (v) => `${v}` },
+  most_last: { get: (c) => c.lastPlace, format: (v) => `${v}` },
+  highest_damage: { get: (c) => c.avgDamageDealt, format: (v) => Math.round(v).toLocaleString() },
+  highest_healing: { get: (c) => c.avgHealing, format: (v) => Math.round(v).toLocaleString() },
+  highest_damage_taken: { get: (c) => c.avgDamageTaken, format: (v) => Math.round(v).toLocaleString() },
+  highest_hp: { get: (c) => c.avgHp, format: (v) => Math.round(v).toLocaleString() },
+  highest_gold: { get: (c) => c.avgGold, format: (v) => Math.round(v).toLocaleString() },
+  best_damage_game: { get: (c) => c.bestGameDamage, format: (v) => Math.round(v).toLocaleString() },
+  best_healing_game: { get: (c) => c.bestGameHealing, format: (v) => Math.round(v).toLocaleString() },
+  best_damage_taken_game: { get: (c) => c.bestGameDamageTaken, format: (v) => Math.round(v).toLocaleString() },
+  best_hp_game: { get: (c) => c.bestGameHp, format: (v) => Math.round(v).toLocaleString() },
+  best_gold_game: { get: (c) => c.bestGameGold, format: (v) => Math.round(v).toLocaleString() },
+  highest_doubles: { get: (c) => c.avgDoubles, format: (v) => v.toFixed(2) },
+  highest_triples: { get: (c) => c.avgTriples, format: (v) => v.toFixed(2) },
+  best_doubles_game: { get: (c) => c.bestGameDoubles, format: (v) => `${v}` },
+  best_triples_game: { get: (c) => c.bestGameTriples, format: (v) => `${v}` },
+};
+
 // Cada opção liga um critério (compare) a um requisito mínimo opcional
 // (qualifies) — sem "qualifies", mostra sempre todos os campeões; com ele,
 // campeões que não têm dados suficientes para aquele critério (ex: menos de
@@ -840,6 +868,13 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
           {sortedChampions.map((s) => {
             const isOpen = expanded === s.champion;
 
+            // Valor do critério de ordenação ativo para este campeão — ver
+            // SORT_ROW_VALUE. Fica "null" para os critérios que já têm
+            // coluna própria (jogos/winrate/Top 3) ou não têm valor (nome).
+            const sortValueDef = SORT_ROW_VALUE[sortBy];
+            const sortValueRaw = sortValueDef ? sortValueDef.get(s) : null;
+            const showSortValue = sortValueDef && sortValueRaw != null;
+
             return (
               <div
                 key={s.champion}
@@ -909,6 +944,22 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
                         </div>
                       );
                     })}
+                  </div>
+
+                  {/* Preenche o espaço que sobra na linha com o valor exato
+                      do critério pelo qual se está a ordenar (dano médio,
+                      melhor/pior KDA, mais vitórias, etc.) — antes só dava
+                      para ver isto abrindo o campeão. Fica vazio (mas ocupa
+                      o espaço, para o KDA/seta não saltarem de posição)
+                      quando o critério já tem coluna própria (jogos/winrate/
+                      Top 3) ou não tem valor nenhum (nome). */}
+                  <div style={styles.champRowSortValue}>
+                    {showSortValue && (
+                      <>
+                        <span style={styles.champRowSortValueLabel}>{activeSortMeta.label}</span>
+                        <span style={styles.champRowSortValueNum}>{sortValueDef.format(sortValueRaw)}</span>
+                      </>
+                    )}
                   </div>
 
                   <div style={styles.champRowKda}>
@@ -1594,11 +1645,42 @@ const styles = {
     lineHeight: 1.2,
   },
 
+  // Deixou de ter "flex:1" — esse papel (ocupar o espaço livre da linha)
+  // passou para champRowSortValue, mais à esquerda, para não ficar tudo
+  // encostado ao KDA/seta do lado direito.
   champRowKda: {
-    flex: 1,
+    width: 100,
+    flexShrink: 0,
     fontSize: 12,
     color: "var(--text-body)",
     textAlign: "right",
+  },
+
+  // Espaço antes reservado (e vazio) para o KDA médio esticar — agora mostra
+  // o valor do critério de ordenação ativo (ver SORT_ROW_VALUE), para se ver
+  // logo, sem abrir o campeão, o número exato pelo qual a lista está
+  // ordenada. Continua sempre presente (mesmo vazio) para o KDA e a seta não
+  // saltarem de posição consoante o critério.
+  champRowSortValue: {
+    flex: 1,
+    minWidth: 0,
+    display: "flex",
+    alignItems: "baseline",
+    gap: 6,
+    overflow: "hidden",
+  },
+
+  champRowSortValueLabel: {
+    fontSize: 11,
+    color: "var(--text-secondary)",
+    whiteSpace: "nowrap",
+  },
+
+  champRowSortValueNum: {
+    fontSize: 13,
+    fontWeight: 700,
+    color: "var(--accent-text)",
+    whiteSpace: "nowrap",
   },
 
   expandArrow: {
