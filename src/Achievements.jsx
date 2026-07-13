@@ -175,8 +175,23 @@ export default function Achievements({ matches, champions, wins, DRAGON }) {
     return { totalBadges: total, unlockedBadges: unlocked };
   }, [categories, booleanAchievements]);
 
+  // As conquistas mais perto de subir de nível — só as de escada (não as
+  // booleanas, que são sim/não e não têm "progresso" a mostrar) e só as que
+  // ainda têm um próximo nível por desbloquear (exclui as já no máximo).
+  const closestToUnlock = useMemo(() => {
+    return categories
+      .map((cat) => {
+        const nextTier = cat.tiers.find((tr) => cat.value < tr);
+        if (nextTier == null) return null;
+        return { ...cat, nextTier, progressPct: Math.min(100, Math.round((cat.value / nextTier) * 100)) };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.progressPct - a.progressPct)
+      .slice(0, 3);
+  }, [categories]);
+
   if (!matches.length) {
-    return <div style={styles.empty}>{t("history_empty")}</div>;
+    return <div style={styles.empty}>{t("achv_empty")}</div>;
   }
 
   return (
@@ -197,6 +212,41 @@ export default function Achievements({ matches, champions, wins, DRAGON }) {
           </div>
         </div>
       </div>
+
+      {/* Perto de desbloquear — antes a página era só uma parede plana de
+          ~70 badges sem nenhuma indicação de onde focar; isto dá aos 3
+          níveis mais próximos um destaque logo no topo. */}
+      {closestToUnlock.length > 0 && (
+        <div style={styles.section}>
+          <div style={styles.sectionHeader}>
+            <span style={styles.sectionIcon}>🎯</span>
+            <h3 style={styles.sectionTitle}>{t("achv_closest_title")}</h3>
+          </div>
+          <div style={styles.badgeRow}>
+            {closestToUnlock.map((cat) => (
+              <Tooltip
+                key={cat.id}
+                label={`${cat.title} · ${formatValue(cat.value, cat.unit)}/${formatValue(cat.nextTier, cat.unit)}`}
+              >
+                <div
+                  style={{
+                    ...styles.badge,
+                    opacity: 0.9,
+                    borderColor: "rgba(250,204,21,0.55)",
+                    background: "rgba(var(--panel-deep-rgb),0.6)",
+                  }}
+                >
+                  <span style={styles.badgeIcon}>{cat.icon}</span>
+                  <span style={styles.badgeTier}>{formatValue(cat.nextTier, cat.unit)}</span>
+                  <div style={styles.badgeTrack}>
+                    <div style={{ ...styles.badgeFill, width: `${cat.progressPct}%` }} />
+                  </div>
+                </div>
+              </Tooltip>
+            ))}
+          </div>
+        </div>
+      )}
 
       {categories.map((cat) => (
         <div key={cat.id} style={styles.section}>
@@ -290,7 +340,7 @@ const styles = {
     color: "var(--text-secondary)",
     background: "rgba(var(--panel-deep-rgb),0.85)",
     border: "1px solid rgba(var(--border-rgb),0.5)",
-    borderRadius: 14,
+    borderRadius: "var(--radius-xl)",
   },
 
   header: {
@@ -300,7 +350,7 @@ const styles = {
     gap: 16,
     background: "linear-gradient(180deg, rgba(var(--panel-rgb),0.92), rgba(var(--panel-deep-rgb),0.96))",
     border: "1px solid rgba(var(--border-rgb),0.5)",
-    borderRadius: 16,
+    borderRadius: "var(--radius-2xl)",
     padding: 16,
   },
 
@@ -340,7 +390,7 @@ const styles = {
   section: {
     background: "linear-gradient(180deg, rgba(var(--panel-rgb),0.92), rgba(var(--panel-deep-rgb),0.96))",
     border: "1px solid rgba(var(--border-rgb),0.5)",
-    borderRadius: 16,
+    borderRadius: "var(--radius-2xl)",
     padding: 16,
   },
 
@@ -382,7 +432,7 @@ const styles = {
     alignItems: "center",
     gap: 3,
     padding: "8px 6px",
-    borderRadius: 10,
+    borderRadius: "var(--radius-lg)",
     border: "1px solid",
     transition: "opacity 0.15s ease",
   },
@@ -420,7 +470,7 @@ const styles = {
     alignItems: "center",
     gap: 4,
     padding: "10px 8px",
-    borderRadius: 10,
+    borderRadius: "var(--radius-lg)",
     border: "1px solid",
     transition: "opacity 0.15s ease",
   },

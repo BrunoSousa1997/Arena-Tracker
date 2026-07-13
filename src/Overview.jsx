@@ -1141,6 +1141,11 @@ export default function Overview({ matches, wins, champions, DRAGON, onOpenChamp
                     onClick={() => openStats(sp.champion, sp.sortKey)}
                     role="button"
                     tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key !== "Enter" && e.key !== " ") return;
+                      e.preventDefault();
+                      openStats(sp.champion, sp.sortKey);
+                    }}
                   >
                     <div style={styles.spotlightHeader}>
                       {sp.label}
@@ -1209,14 +1214,14 @@ const styles = {
     color: "var(--text-secondary)",
     background: "rgba(var(--panel-deep-rgb),0.85)",
     border: "1px solid rgba(var(--border-rgb),0.5)",
-    borderRadius: 14,
+    borderRadius: "var(--radius-xl)",
   },
 
 
   section: {
     background: "linear-gradient(180deg, rgba(var(--panel-rgb),0.92), rgba(var(--panel-deep-rgb),0.96))",
     border: "1px solid rgba(var(--border-rgb),0.5)",
-    borderRadius: 16,
+    borderRadius: "var(--radius-2xl)",
     padding: 16,
     boxShadow: "0 6px 20px rgba(0,0,0,0.16)",
   },
@@ -1332,7 +1337,7 @@ const styles = {
 
   progressTrack: {
     height: 10,
-    borderRadius: 6,
+    borderRadius: "var(--radius-sm)",
     background: "rgba(0,0,0,0.35)",
     overflow: "hidden",
     marginTop: 4,
@@ -1340,8 +1345,8 @@ const styles = {
 
   progressFill: {
     height: "100%",
-    background: "linear-gradient(90deg, #9aa0a6, #a855f7)",
-    borderRadius: 6,
+    background: "linear-gradient(90deg, #9aa0a6, var(--accent-solid-light))",
+    borderRadius: "var(--radius-sm)",
   },
 
   formRow: {
@@ -1352,7 +1357,7 @@ const styles = {
   formPill: {
     width: 28,
     height: 28,
-    borderRadius: 8,
+    borderRadius: "var(--radius-md)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -1372,7 +1377,7 @@ const styles = {
     flexWrap: "wrap",
     gap: 10,
     padding: "8px 10px",
-    borderRadius: 10,
+    borderRadius: "var(--radius-lg)",
     background: "rgba(var(--panel-deep-rgb),0.7)",
     border: "1px solid rgba(var(--border-rgb),0.4)",
   },
@@ -1421,7 +1426,7 @@ const styles = {
     flexWrap: "wrap",
     gap: 10,
     padding: "8px 10px",
-    borderRadius: 10,
+    borderRadius: "var(--radius-lg)",
     background: "rgba(var(--panel-deep-rgb),0.7)",
     border: "1px solid rgba(var(--border-rgb),0.4)",
   },
@@ -1498,7 +1503,7 @@ const styles = {
   heatmapCell: {
     width: 16,
     height: 16,
-    borderRadius: 4,
+    borderRadius: "var(--radius-xs)",
   },
 
   heatmapLegend: {
@@ -1546,7 +1551,7 @@ const styles = {
   spotlightCard: {
     background: "linear-gradient(180deg, rgba(var(--panel-rgb),0.92), rgba(var(--panel-deep-rgb),0.96))",
     border: "1px solid rgba(var(--border-rgb),0.5)",
-    borderRadius: 14,
+    borderRadius: "var(--radius-xl)",
     overflow: "hidden",
     cursor: "pointer",
     transition: "border-color 0.15s ease",

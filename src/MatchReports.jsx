@@ -673,7 +673,11 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
                 { champ: compareA, query: compareQueryA, setQuery: setCompareQueryA, options: compareOptionsA, setId: setCompareAId },
                 { champ: compareB, query: compareQueryB, setQuery: setCompareQueryB, options: compareOptionsB, setId: setCompareBId },
               ].map((slot, idx) => (
-                <div key={idx} style={{ ...styles.searchBox, position: "relative", flex: 1, marginBottom: 0 }}>
+                <div key={idx} style={styles.compareSlotCol}>
+                  <div style={styles.filterToolbarLabel}>
+                    {idx === 0 ? t("compare_slot_a_label") : t("compare_slot_b_label")}
+                  </div>
+                  <div style={{ ...styles.searchBox, position: "relative", marginBottom: 0 }}>
                   {slot.champ && DRAGON && (
                     <img
                       src={`${DRAGON}/img/champion/${slot.champ.champion}.png`}
@@ -701,6 +705,14 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
                             slot.setId(c.champion);
                             slot.setQuery("");
                           }}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => {
+                            if (e.key !== "Enter" && e.key !== " ") return;
+                            e.preventDefault();
+                            slot.setId(c.champion);
+                            slot.setQuery("");
+                          }}
                         >
                           {DRAGON && (
                             <img
@@ -713,6 +725,7 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
                       ))}
                     </div>
                   )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -785,63 +798,76 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
             {/* Filtro por build — restringe tudo (leaderboard, médias,
                 matchups) às partidas em que um augment/item específico foi
                 levado, ex: "só quero ver como me saio quando levo este
-                augment". */}
-            {buildFilter ? (
-              <div style={{ ...styles.buildFilterChip, flex: 1, marginBottom: 0 }}>
-                {buildFilter.type === "augment" && buildFilter.icon && (
-                  <img src={buildFilter.icon} style={styles.buildFilterChipIcon} />
-                )}
-                {buildFilter.type === "item" && DRAGON && (
-                  <img src={`${DRAGON}/img/item/${buildFilter.id}.png`} style={styles.buildFilterChipIcon} />
-                )}
-                <span>{t("filtered_by_build")}: {buildFilter.name}</span>
-                <button
-                  onClick={() => {
-                    setBuildFilter(null);
-                    setBuildFilterQuery("");
-                  }}
-                  style={styles.buildFilterClear}
-                >
-                  ✕
-                </button>
-              </div>
-            ) : (
-              <div style={{ ...styles.searchBox, position: "relative", flex: 1, marginBottom: 0 }}>
-                <span style={styles.searchIcon}>🧩</span>
-                <input
-                  value={buildFilterQuery}
-                  onChange={(e) => setBuildFilterQuery(e.target.value)}
-                  placeholder={t("build_filter_placeholder")}
-                  style={styles.searchInput}
-                />
-                {buildFilterMatches.length > 0 && (
-                  <div style={styles.buildFilterDropdown}>
-                    {buildFilterMatches.map((o) => (
-                      <div
-                        key={`${o.type}-${o.id}`}
-                        className="clickableRow"
-                        style={styles.buildFilterOption}
-                        onClick={() => {
-                          setBuildFilter(o);
-                          setBuildFilterQuery("");
-                        }}
-                      >
-                        {o.type === "augment" && o.icon && (
-                          <img src={o.icon} style={styles.buildFilterOptionIcon} />
-                        )}
-                        {o.type === "item" && DRAGON && (
-                          <img src={`${DRAGON}/img/item/${o.id}.png`} style={styles.buildFilterOptionIcon} />
-                        )}
-                        <span style={styles.buildFilterOptionName}>{o.name}</span>
-                        <span style={styles.buildFilterOptionType}>
-                          {o.type === "augment" ? t("augment_label") : t("item_label")}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+                augment". Etiqueta fixa por cima (mesmo com o filtro já
+                aplicado) para não se confundir com a busca de campeão ao
+                lado, que tem o mesmo aspeto. */}
+            <div style={{ ...styles.compareSlotCol, flex: 1 }}>
+              <div style={styles.filterToolbarLabel}>{t("build_filter_label")}</div>
+              {buildFilter ? (
+                <div style={{ ...styles.buildFilterChip, marginBottom: 0 }}>
+                  {buildFilter.type === "augment" && buildFilter.icon && (
+                    <img src={buildFilter.icon} style={styles.buildFilterChipIcon} />
+                  )}
+                  {buildFilter.type === "item" && DRAGON && (
+                    <img src={`${DRAGON}/img/item/${buildFilter.id}.png`} style={styles.buildFilterChipIcon} />
+                  )}
+                  <span>{t("filtered_by_build")}: {buildFilter.name}</span>
+                  <button
+                    onClick={() => {
+                      setBuildFilter(null);
+                      setBuildFilterQuery("");
+                    }}
+                    style={styles.buildFilterClear}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ) : (
+                <div style={{ ...styles.searchBox, position: "relative", marginBottom: 0 }}>
+                  <span style={styles.searchIcon}>🧩</span>
+                  <input
+                    value={buildFilterQuery}
+                    onChange={(e) => setBuildFilterQuery(e.target.value)}
+                    placeholder={t("build_filter_placeholder")}
+                    style={styles.searchInput}
+                  />
+                  {buildFilterMatches.length > 0 && (
+                    <div style={styles.buildFilterDropdown}>
+                      {buildFilterMatches.map((o) => (
+                        <div
+                          key={`${o.type}-${o.id}`}
+                          className="clickableRow"
+                          style={styles.buildFilterOption}
+                          onClick={() => {
+                            setBuildFilter(o);
+                            setBuildFilterQuery("");
+                          }}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => {
+                            if (e.key !== "Enter" && e.key !== " ") return;
+                            e.preventDefault();
+                            setBuildFilter(o);
+                            setBuildFilterQuery("");
+                          }}
+                        >
+                          {o.type === "augment" && o.icon && (
+                            <img src={o.icon} style={styles.buildFilterOptionIcon} />
+                          )}
+                          {o.type === "item" && DRAGON && (
+                            <img src={`${DRAGON}/img/item/${o.id}.png`} style={styles.buildFilterOptionIcon} />
+                          )}
+                          <span style={styles.buildFilterOptionName}>{o.name}</span>
+                          <span style={styles.buildFilterOptionType}>
+                            {o.type === "augment" ? t("augment_label") : t("item_label")}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
           <div style={styles.filterToolbarLabel}>{t("filter_group_sort")}</div>
@@ -885,6 +911,14 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
                   className="clickableRow"
                   style={styles.champRow}
                   onClick={() => setExpanded(isOpen ? null : s.champion)}
+                  role="button"
+                  tabIndex={0}
+                  aria-expanded={isOpen}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter" && e.key !== " ") return;
+                    e.preventDefault();
+                    setExpanded(isOpen ? null : s.champion);
+                  }}
                 >
                   {DRAGON && (
                     <img
@@ -900,7 +934,7 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
                     </div>
                   </div>
 
-                  <div style={{ ...styles.champRowStat, color: "var(--accent-text)" }}>
+                  <div style={{ ...styles.champRowStatPrimary, color: "var(--accent-text)" }}>
                     {s.winrate}% ({t("placement_first_short")})
                   </div>
 
@@ -1351,7 +1385,7 @@ const styles = {
     color: "var(--text-secondary)",
     background: "rgba(var(--panel-deep-rgb),0.85)",
     border: "1px solid rgba(var(--border-rgb),0.5)",
-    borderRadius: 14,
+    borderRadius: "var(--radius-xl)",
   },
 
 
@@ -1359,7 +1393,7 @@ const styles = {
     background:
       "linear-gradient(180deg, rgba(var(--panel-rgb),0.92), rgba(var(--panel-deep-rgb),0.96))",
     border: "1px solid rgba(var(--border-rgb),0.5)",
-    borderRadius: 16,
+    borderRadius: "var(--radius-2xl)",
     padding: 16,
   },
 
@@ -1374,7 +1408,7 @@ const styles = {
 
   select: {
     padding: "6px 10px",
-    borderRadius: 8,
+    borderRadius: "var(--radius-md)",
     border: "1px solid rgba(var(--border-rgb),0.4)",
     background: "rgba(var(--panel-deep-rgb),0.8)",
     color: "var(--text-body)",
@@ -1388,7 +1422,7 @@ const styles = {
     alignItems: "center",
     gap: 8,
     padding: "8px 12px",
-    borderRadius: 10,
+    borderRadius: "var(--radius-lg)",
     background: "rgba(var(--panel-deep-rgb),0.85)",
     border: "1px solid rgba(var(--accent-rgb),0.25)",
     marginBottom: 10,
@@ -1404,7 +1438,7 @@ const styles = {
     alignItems: "center",
     gap: 8,
     padding: "8px 12px",
-    borderRadius: 10,
+    borderRadius: "var(--radius-lg)",
     background: "rgba(250,204,21,0.1)",
     border: "1px solid rgba(250,204,21,0.4)",
     marginBottom: 10,
@@ -1415,14 +1449,14 @@ const styles = {
   buildFilterChipIcon: {
     width: 18,
     height: 18,
-    borderRadius: 4,
+    borderRadius: "var(--radius-xs)",
   },
 
   buildFilterClear: {
     marginLeft: "auto",
     width: 20,
     height: 20,
-    borderRadius: 6,
+    borderRadius: "var(--radius-sm)",
     border: "none",
     background: "rgba(var(--soft-rgb),0.1)",
     color: "var(--text-secondary)",
@@ -1442,7 +1476,7 @@ const styles = {
     zIndex: 20,
     maxHeight: 220,
     overflowY: "auto",
-    borderRadius: 10,
+    borderRadius: "var(--radius-lg)",
     background: "rgba(var(--panel-deep-rgb),0.98)",
     border: "1px solid rgba(var(--accent-rgb),0.3)",
     boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
@@ -1462,7 +1496,7 @@ const styles = {
   buildFilterOptionIcon: {
     width: 18,
     height: 18,
-    borderRadius: 4,
+    borderRadius: "var(--radius-xs)",
     flexShrink: 0,
   },
 
@@ -1504,7 +1538,7 @@ const styles = {
     flexDirection: "column",
     gap: 10,
     padding: 12,
-    borderRadius: 14,
+    borderRadius: "var(--radius-xl)",
     background: "rgba(var(--panel-deep-rgb),0.4)",
     border: "1px solid rgba(var(--border-rgb),0.35)",
     marginBottom: 14,
@@ -1536,7 +1570,7 @@ const styles = {
 
   sortChip: {
     padding: "6px 13px",
-    borderRadius: 999,
+    borderRadius: "var(--radius-pill)",
     border: "1px solid rgba(var(--border-rgb),0.4)",
     background: "rgba(var(--panel-deep-rgb),0.7)",
     color: "var(--text-secondary)",
@@ -1547,9 +1581,9 @@ const styles = {
   },
 
   sortChipActive: {
-    background: "linear-gradient(135deg, #a855f7, #7c3aed)",
-    borderColor: "#7c3aed",
-    color: "#ffffff",
+    background: "var(--accent-gradient)",
+    borderColor: "var(--accent-solid)",
+    color: "var(--accent-solid-text)",
     boxShadow: "0 3px 10px rgba(79,70,229,0.4)",
   },
 
@@ -1564,7 +1598,7 @@ const styles = {
   // no tema claro ficava com um tom escuro estranho em vez de acompanhar o
   // resto do painel.
   champCard: {
-    borderRadius: 10,
+    borderRadius: "var(--radius-lg)",
     background: "rgba(var(--panel-deep-rgb),0.85)",
     border: "1px solid rgba(var(--border-rgb),0.25)",
     overflow: "hidden",
@@ -1587,7 +1621,7 @@ const styles = {
   champIcon: {
     width: 36,
     height: 36,
-    borderRadius: 8,
+    borderRadius: "var(--radius-md)",
     pointerEvents: "none",
   },
 
@@ -1609,6 +1643,16 @@ const styles = {
     width: 110,
     fontSize: 12,
     color: "var(--text-secondary)",
+    textAlign: "center",
+  },
+
+  // Winrate é a métrica mais importante da linha ("como me saio com este
+  // campeão?") mas antes tinha o mesmo peso visual que Top 3/KDA — só a cor
+  // (accent) a distinguia. Maior e mais pesada para saltar à vista primeiro.
+  champRowStatPrimary: {
+    width: 110,
+    fontSize: 15,
+    fontWeight: 800,
     textAlign: "center",
   },
 
@@ -1708,7 +1752,7 @@ const styles = {
   // derrotas — é uma recomendação, não só mais uma estatística.
   winningBuildSection: {
     padding: 8,
-    borderRadius: 10,
+    borderRadius: "var(--radius-lg)",
     background: "rgba(250,204,21,0.08)",
     border: "1px solid rgba(250,204,21,0.3)",
   },
@@ -1748,7 +1792,7 @@ const styles = {
     alignItems: "center",
     gap: 5,
     padding: "3px 7px 3px 3px",
-    borderRadius: 6,
+    borderRadius: "var(--radius-sm)",
     border: "1px solid",
     background: "rgba(var(--panel-deep-rgb),0.7)",
     fontSize: 11,
@@ -1758,7 +1802,7 @@ const styles = {
   matchupIcon: {
     width: 18,
     height: 18,
-    borderRadius: 4,
+    borderRadius: "var(--radius-xs)",
   },
 
   statGrid: {
@@ -1801,7 +1845,7 @@ const styles = {
 
   placementPill: {
     padding: "3px 8px",
-    borderRadius: 6,
+    borderRadius: "var(--radius-sm)",
     fontSize: 11,
     fontWeight: 700,
   },
@@ -1811,7 +1855,7 @@ const styles = {
     alignItems: "center",
     gap: 6,
     padding: "3px 8px",
-    borderRadius: 6,
+    borderRadius: "var(--radius-sm)",
     background: "rgba(var(--accent-rgb),0.12)",
     border: "1px solid rgba(var(--accent-rgb),0.25)",
     color: "var(--accent-text)",
@@ -1821,7 +1865,7 @@ const styles = {
   augmentIcon: {
     width: 18,
     height: 18,
-    borderRadius: 4,
+    borderRadius: "var(--radius-xs)",
   },
 
   itemPill: {
@@ -1829,7 +1873,7 @@ const styles = {
     alignItems: "center",
     gap: 5,
     padding: "3px 7px 3px 3px",
-    borderRadius: 6,
+    borderRadius: "var(--radius-sm)",
     background: "rgba(var(--accent-rgb),0.12)",
     border: "1px solid rgba(var(--accent-rgb),0.25)",
     color: "var(--accent-text)",
@@ -1839,7 +1883,7 @@ const styles = {
   itemPillIcon: {
     width: 22,
     height: 22,
-    borderRadius: 4,
+    borderRadius: "var(--radius-xs)",
   },
 
   placeholderText: {
@@ -1850,7 +1894,7 @@ const styles = {
 
   compareToggleBtn: {
     padding: "6px 12px",
-    borderRadius: 8,
+    borderRadius: "var(--radius-md)",
     border: "1px solid rgba(var(--accent-rgb),0.35)",
     background: "rgba(var(--accent-rgb),0.08)",
     color: "var(--accent-text)",
@@ -1867,6 +1911,17 @@ const styles = {
   comparePickerRow: {
     display: "flex",
     gap: 10,
+  },
+
+  // Antes as duas caixas de comparação só se distinguiam pelo campeão já
+  // escolhido lá dentro — sem nada escolhido eram indistinguíveis (mesmo
+  // placeholder nas duas). Esta etiqueta por cima (reaproveita
+  // filterToolbarLabel) resolve isso.
+  compareSlotCol: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 4,
+    flex: 1,
   },
 
   compareSlotIcon: {

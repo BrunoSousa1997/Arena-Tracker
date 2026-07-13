@@ -18,9 +18,25 @@ const DICTIONARY = {
 
   // ================= TOPO / CONTA =================
   no_account: { pt: "Sem conta", en: "No account" },
+  cold_loading: { pt: "A carregar dados do patch…", en: "Loading patch data…" },
   theme_to_light: { pt: "Mudar para tema claro", en: "Switch to light theme" },
   theme_to_dark: { pt: "Mudar para tema escuro", en: "Switch to dark theme" },
   manage_accounts: { pt: "Gerir contas", en: "Manage accounts" },
+  switch_account_tooltip: { pt: "Trocar de conta / gerir contas", en: "Switch account / manage accounts" },
+  open_settings: { pt: "Definições", en: "Settings" },
+  settings_title: { pt: "Definições", en: "Settings" },
+  settings_tab_general: { pt: "Geral", en: "General" },
+  settings_tab_accounts: { pt: "Contas", en: "Accounts" },
+  settings_theme_label: { pt: "Tema", en: "Theme" },
+  settings_theme_dark: { pt: "Escuro", en: "Dark" },
+  settings_theme_light: { pt: "Claro", en: "Light" },
+  settings_header_label: { pt: "Cabeçalho", en: "Header" },
+  settings_header_compact_opt: { pt: "Compacto", en: "Compact" },
+  settings_header_expanded_opt: { pt: "Expandido", en: "Expanded" },
+  settings_general_hint: {
+    pt: "Preferências rápidas — para gerir contas, usa a aba \"Contas\".",
+    en: "Quick preferences — to manage accounts, use the \"Accounts\" tab.",
+  },
   sync_btn: { pt: "Sincronizar", en: "Sync" },
   sync_btn_loading: { pt: "A sincronizar…", en: "Syncing…" },
   sync_btn_tooltip: {
@@ -77,6 +93,11 @@ const DICTIONARY = {
   achv_unlocked: { pt: "Conquistado", en: "Unlocked" },
   achv_locked: { pt: "Por conquistar", en: "Locked" },
   achv_page_title: { pt: "Conquistas", en: "Achievements" },
+  achv_empty: {
+    pt: "Ainda sem conquistas para mostrar. Joga uma Arena com a app aberta — os teus marcos começam a aparecer aqui.",
+    en: "No achievements to show yet. Play an Arena match with the app open — your milestones start showing up here.",
+  },
+  achv_closest_title: { pt: "Quase lá", en: "Almost there" },
   achv_cat_wins: { pt: "Vitórias totais", en: "Total wins" },
   achv_cat_games: { pt: "Partidas jogadas", en: "Games played" },
   achv_cat_coverage: { pt: "Cobertura do roster", en: "Roster coverage" },
@@ -175,6 +196,8 @@ const DICTIONARY = {
   filter_group_format: { pt: "Formato", en: "Format" },
   filter_group_sort: { pt: "Ordenar por", en: "Sort by" },
   search_champion_placeholder: { pt: "Procurar campeão...", en: "Search champion..." },
+  compare_slot_a_label: { pt: "Comparar A", en: "Compare A" },
+  compare_slot_b_label: { pt: "Comparar B", en: "Compare B" },
   no_filtered_results: {
     pt: "Nenhuma partida corresponde aos filtros atuais.",
     en: "No matches fit the current filters.",
@@ -192,6 +215,8 @@ const DICTIONARY = {
   export_btn: { pt: "⇩ Exportar (formato Riot)", en: "⇩ Export (Riot format)" },
   export_csv_btn: { pt: "⇩ Exportar (CSV)", en: "⇩ Export (CSV)" },
   exporting: { pt: "A exportar...", en: "Exporting..." },
+  export_success: { pt: "Histórico exportado para", en: "History exported to" },
+  export_error: { pt: "Erro ao exportar", en: "Export error" },
   section_stats: { pt: "Estatísticas", en: "Stats" },
   section_build: { pt: "Build", en: "Build" },
   section_augments: { pt: "Augments", en: "Augments" },
@@ -247,6 +272,7 @@ const DICTIONARY = {
   matchups_best: { pt: "Melhor desempenho contra", en: "Best performance against" },
   matchups_worst: { pt: "Pior desempenho contra", en: "Worst performance against" },
   build_filter_placeholder: { pt: "Filtrar por augment ou item...", en: "Filter by augment or item..." },
+  build_filter_label: { pt: "Filtrar build", en: "Filter build" },
   filtered_by_build: { pt: "Filtrado por", en: "Filtered by" },
   augment_label: { pt: "Augment", en: "Augment" },
   item_label: { pt: "Item", en: "Item" },
@@ -275,7 +301,10 @@ const DICTIONARY = {
   },
   already_have_win: { pt: "✅ Já tens vitória", en: "✅ Already have a win" },
   no_win_yet: { pt: "🆕 Ainda não tens vitória", en: "🆕 No win yet" },
-  your_victories: { pt: "As tuas vitórias", en: "Your victories" },
+  your_victories: { pt: "Coleção", en: "Collection" },
+  collection_filter_won: { pt: "Com vitória", en: "With a win" },
+  collection_filter_unowned: { pt: "Sem vitória", en: "No win yet" },
+  collection_filter_all: { pt: "Todos", en: "All" },
   no_active_account: { pt: "Sem conta ativa", en: "No active account" },
   no_active_account_text: {
     pt: "Cria uma conta ou deteta a que já usas no League para começar a seguir as tuas partidas de Arena.",
@@ -300,8 +329,26 @@ const DICTIONARY = {
     en: 'Could not save the matches: {error}. Re-run supabase_matches_table.sql in the Supabase SQL Editor (safely adds new columns) and, if the error persists, also force a "reload schema" in Settings → API.',
   },
   matches_imported: { pt: "partida(s) nova(s) importada(s).", en: "new match(es) imported." },
+  matches_from_cache: {
+    pt: "sem pedir à Riot API, dados de um amigo",
+    en: "without querying the Riot API, from a friend's data",
+  },
   already_up_to_date: { pt: "Já estava tudo atualizado.", en: "Already up to date." },
   enriching_history: { pt: "A enriquecer histórico…", en: "Enriching history…" },
+  repairing_all_history: {
+    pt: "A reparar todo o histórico (a verificar diretamente na Riot API)…",
+    en: "Repairing your whole history (checking directly with the Riot API)…",
+  },
+  repair_all_btn: { pt: "🛠 Reparar dados", en: "🛠 Repair data" },
+  repair_all_tooltip: {
+    pt: "Volta a pedir TODAS as tuas partidas diretamente à Riot API, sem usar dados partilhados por outros users — repõe valores corretos caso algo tenha ficado errado (ex: double/triple kills a 0 por engano). Usa mais pedidos e pode demorar.",
+    en: "Re-fetches ALL your matches directly from the Riot API, without using data shared by other users — restores correct values if something went wrong (e.g. double/triple kills wrongly at 0). Uses more requests and may take a while.",
+  },
+  repair_all_confirm_title: { pt: "Reparar todo o histórico?", en: "Repair your whole history?" },
+  repair_all_confirm_message: {
+    pt: "Isto volta a pedir cada partida já importada diretamente à Riot API (ignora dados partilhados por outros users) para repor valores corretos. Pode demorar bastante e gasta mais pedidos do que uma sincronização normal. Só precisas de fazer isto uma vez.",
+    en: "This re-fetches every already-imported match directly from the Riot API (ignoring data shared by other users) to restore correct values. It can take a while and uses more requests than a normal sync. You should only need to do this once.",
+  },
   define_riot_tag_enrich: {
     pt: 'Define a tag Riot para "{name}" para enriquecer estas partidas via Riot API.',
     en: 'Set the Riot tag for "{name}" to enrich these matches via the Riot API.',
@@ -334,7 +381,6 @@ const DICTIONARY = {
   },
 
   // ================= GESTÃO DE CONTAS =================
-  manage_accounts_title: { pt: "Gerir contas", en: "Manage accounts" },
   no_accounts_hint: {
     pt: "Ainda não tens nenhuma conta. Cria uma abaixo — a conta sincroniza sozinha na primeira partida de Arena que jogares com a app aberta.",
     en: "You don't have any accounts yet. Create one below — it syncs automatically on the first Arena match you play with the app open.",

@@ -4,6 +4,7 @@ import { placementColor, placementBg, placementBorder } from "./placement";
 import { augmentRarityStyle } from "./augments";
 import { useLanguage } from "./i18n";
 import Tooltip from "./Tooltip";
+import Toast from "./Toast";
 
 function timeAgo(iso, lang) {
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -299,6 +300,7 @@ export default function MatchHistory({
   const [sortBy, setSortBy] = useState("date_desc");
   const [expanded, setExpanded] = useState(null);
   const [exporting, setExporting] = useState(false);
+  const [toast, setToast] = useState(null);
 
   const handleExport = async () => {
     if (!window.electron?.exportFile) return;
@@ -312,9 +314,9 @@ export default function MatchHistory({
       const res = await window.electron.exportFile({ defaultName, content });
 
       if (res.success) {
-        alert(`${lang === "en" ? "History exported to" : "Histórico exportado para"}:\n${res.path}`);
+        setToast({ kind: "success", message: `${t("export_success")}:\n${res.path}` });
       } else if (res.error) {
-        alert(`${lang === "en" ? "Export error" : "Erro ao exportar"}: ${res.error}`);
+        setToast({ kind: "error", message: `${t("export_error")}: ${res.error}` });
       }
     } finally {
       setExporting(false);
@@ -334,9 +336,9 @@ export default function MatchHistory({
       const res = await window.electron.exportFile({ defaultName, content });
 
       if (res.success) {
-        alert(`${lang === "en" ? "History exported to" : "Histórico exportado para"}:\n${res.path}`);
+        setToast({ kind: "success", message: `${t("export_success")}:\n${res.path}` });
       } else if (res.error) {
-        alert(`${lang === "en" ? "Export error" : "Erro ao exportar"}: ${res.error}`);
+        setToast({ kind: "error", message: `${t("export_error")}: ${res.error}` });
       }
     } finally {
       setExportingCsv(false);
@@ -485,6 +487,14 @@ export default function MatchHistory({
                   className="clickableRow"
                   style={styles.matchRow}
                   onClick={() => setExpanded(isOpen ? null : rowKey)}
+                  role="button"
+                  tabIndex={0}
+                  aria-expanded={isOpen}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter" && e.key !== " ") return;
+                    e.preventDefault();
+                    setExpanded(isOpen ? null : rowKey);
+                  }}
                 >
                   <div style={styles.matchIconWrap}>
                     {DRAGON && (
@@ -575,7 +585,15 @@ export default function MatchHistory({
                       transition={{ duration: 0.18 }}
                       style={styles.expandWrap}
                     >
-                      <div style={styles.expandSection}>
+                    {/* Stats/Build/Augments lado a lado numa única linha (em
+                        vez de empilhados numa coluna estreita, que sobrava
+                        vazia ao lado de Colegas/Adversários e obrigava mais
+                        scroll do que o conteúdo precisa) — cada secção usa o
+                        espaço horizontal que tiver, e só empilha (flexWrap)
+                        em janelas mesmo estreitas. Colegas/Adversários fica
+                        numa linha própria por baixo, a usar a largura toda. */}
+                    <div style={styles.expandTopRow}>
+                      <div style={styles.expandRowSection}>
                         <div style={styles.expandLabel}>{t("section_stats")}</div>
                         {m.damage_dealt != null || m.gold_earned != null || m.healing != null || m.max_hp != null ? (
                           <div style={styles.statGrid}>
@@ -615,7 +633,7 @@ export default function MatchHistory({
                         )}
                       </div>
 
-                      <div style={styles.expandSection}>
+                      <div style={styles.expandRowSection}>
                         <div style={styles.expandLabel}>{t("section_build")}</div>
                         {m.items?.length ? (
                           <div style={styles.itemRow}>
@@ -637,7 +655,7 @@ export default function MatchHistory({
                         )}
                       </div>
 
-                      <div style={styles.expandSection}>
+                      <div style={styles.expandRowSection}>
                         <div style={styles.expandLabel}>{t("section_augments")}</div>
                         {m.augments?.length ? (
                           <div style={styles.itemRow}>
@@ -670,8 +688,9 @@ export default function MatchHistory({
                           <div style={styles.placeholderText}>{t("available_after_riot_link")}</div>
                         )}
                       </div>
+                    </div>
 
-                      <div style={styles.expandSection}>
+                    <div style={styles.expandSection}>
                         <div style={styles.expandLabel}>{t("section_teammates_opponents")}</div>
                         {m.participants?.length ? (
                           <div style={styles.teamsGrid}>
@@ -717,75 +736,111 @@ export default function MatchHistory({
                                             />
                                           )}
                                         </Tooltip>
-                                        {/* Uma única fileira que envolve (wrap) tudo — KDA, stats
-                                            e build — em vez de duas linhas fixas por jogador; builds
-                                            curtas ficam na mesma linha do KDA, só passa para a linha
-                                            de baixo quando o espaço mesmo não chega. */}
+                                        {/* Nome e KDA em colunas próprias do grid (ver teamPlayer) —
+                                            começam sempre na mesma posição em todas as linhas, em vez
+                                            de dependerem do que vinha antes numa fileira em flex. */}
+                                        {p.name ? (
+                                          <Tooltip label={p.name}>
+                                            <span style={styles.teamPlayerName}>{p.name}</span>
+                                          </Tooltip>
+                                        ) : (
+                                          <span />
+                                        )}
+                                        <span style={styles.teamPlayerKda}>
+                                          {p.kills}/{p.deaths}/{p.assists}
+                                        </span>
+                                        {/* Stats/multikills/build/augments continuam numa fileira
+                                            que envolve (wrap) — a última coluna do grid, flexível.
+                                            Cada tipo vive no seu próprio grupo (fundo/gap próprios)
+                                            em vez de tudo solto ao mesmo nível — lê-se como blocos
+                                            distintos (combate / build / augments), não uma míscelânea. */}
                                         <div style={styles.teamPlayerInfo}>
-                                          {/* Nome visível em vez de só no tooltip do ícone — antes só
-                                              dava para saber quem era passando o rato campeão a
-                                              campeão; agora dá para reconhecer de imediato um
-                                              colega/adversário recorrente. */}
-                                          {p.name && (
-                                            <span style={styles.teamPlayerName} title={p.name}>
-                                              {p.name}
-                                            </span>
-                                          )}
-                                          <span style={styles.teamPlayerKda}>
-                                            {p.kills}/{p.deaths}/{p.assists}
-                                          </span>
-                                          {!!p.damageDealt && (
-                                            <Tooltip label={t("stat_damage_dealt")}>
-                                              <span style={styles.teamPlayerStat}>⚔ {formatCompact(p.damageDealt)}</span>
-                                            </Tooltip>
-                                          )}
-                                          {!!p.damageTaken && (
-                                            <Tooltip label={t("stat_damage_taken")}>
-                                              <span style={styles.teamPlayerStat}>🛡 {formatCompact(p.damageTaken)}</span>
-                                            </Tooltip>
-                                          )}
-                                          {!!p.goldEarned && (
-                                            <Tooltip label={t("stat_gold")}>
-                                              <span style={styles.teamPlayerStat}>🪙 {formatCompact(p.goldEarned)}</span>
-                                            </Tooltip>
-                                          )}
-                                          {!!p.healing && (
-                                            <Tooltip label={t("stat_healing")}>
-                                              <span style={styles.teamPlayerStat}>✚ {formatCompact(p.healing)}</span>
-                                            </Tooltip>
-                                          )}
-                                          {p.items?.map((itemId, i2) => (
-                                            <Tooltip key={`i-${i2}`} label={itemsMap?.[itemId] || `Item #${itemId}`}>
-                                              <img
-                                                src={`${DRAGON}/img/item/${itemId}.png`}
-                                                style={styles.teamPlayerItemIcon}
-                                              />
-                                            </Tooltip>
-                                          ))}
-                                          {p.augments?.map((augId, i3) => {
-                                            const info = augmentsMap?.[augId];
-                                            const needsDarkIcon = theme === "light" && m.team_size === 3;
-                                            const rarityStyle = augmentRarityStyle(info?.rarity);
-                                            return (
-                                              <Tooltip
-                                                key={`a-${i3}`}
-                                                label={info?.name || `Augment #${augId}`}
-                                              >
-                                                {info?.icon && (
-                                                  <span style={{ ...styles.teamPlayerAugmentWrap, ...rarityStyle }}>
-                                                    <img
-                                                      src={info.icon}
-                                                      style={{
-                                                        ...styles.teamPlayerAugmentIcon,
-                                                        filter: needsDarkIcon ? "brightness(0.35)" : "none",
-                                                      }}
-                                                      onError={(e) => { e.currentTarget.style.display = "none"; }}
-                                                    />
+                                          {(!!p.doubleKills || !!p.tripleKills) && (
+                                            <div style={styles.multikillGroup}>
+                                              {!!p.doubleKills && (
+                                                <Tooltip
+                                                  label={`${MULTIKILL_LABELS[2]}${p.doubleKills > 1 ? ` ×${p.doubleKills}` : ""}`}
+                                                >
+                                                  <span style={styles.multikillBadgeSmall}>
+                                                    DK{p.doubleKills > 1 ? `×${p.doubleKills}` : ""}
                                                   </span>
-                                                )}
-                                              </Tooltip>
-                                            );
-                                          })}
+                                                </Tooltip>
+                                              )}
+                                              {!!p.tripleKills && (
+                                                <Tooltip
+                                                  label={`${MULTIKILL_LABELS[3]}${p.tripleKills > 1 ? ` ×${p.tripleKills}` : ""}`}
+                                                >
+                                                  <span style={{ ...styles.multikillBadgeSmall, ...styles.multikillBadgeTriple }}>
+                                                    TK{p.tripleKills > 1 ? `×${p.tripleKills}` : ""}
+                                                  </span>
+                                                </Tooltip>
+                                              )}
+                                            </div>
+                                          )}
+                                          {(!!p.damageDealt || !!p.damageTaken || !!p.goldEarned || !!p.healing) && (
+                                            <div style={styles.teamPlayerStatsGroup}>
+                                              {!!p.damageDealt && (
+                                                <Tooltip label={t("stat_damage_dealt")}>
+                                                  <span style={styles.teamPlayerStat}>⚔ {formatCompact(p.damageDealt)}</span>
+                                                </Tooltip>
+                                              )}
+                                              {!!p.damageTaken && (
+                                                <Tooltip label={t("stat_damage_taken")}>
+                                                  <span style={styles.teamPlayerStat}>🛡 {formatCompact(p.damageTaken)}</span>
+                                                </Tooltip>
+                                              )}
+                                              {!!p.goldEarned && (
+                                                <Tooltip label={t("stat_gold")}>
+                                                  <span style={styles.teamPlayerStat}>🪙 {formatCompact(p.goldEarned)}</span>
+                                                </Tooltip>
+                                              )}
+                                              {!!p.healing && (
+                                                <Tooltip label={t("stat_healing")}>
+                                                  <span style={styles.teamPlayerStat}>✚ {formatCompact(p.healing)}</span>
+                                                </Tooltip>
+                                              )}
+                                            </div>
+                                          )}
+                                          {!!p.items?.length && (
+                                            <div style={styles.teamPlayerItemsGroup}>
+                                              {p.items.map((itemId, i2) => (
+                                                <Tooltip key={`i-${i2}`} label={itemsMap?.[itemId] || `Item #${itemId}`}>
+                                                  <img
+                                                    src={`${DRAGON}/img/item/${itemId}.png`}
+                                                    style={styles.teamPlayerItemIcon}
+                                                  />
+                                                </Tooltip>
+                                              ))}
+                                            </div>
+                                          )}
+                                          {!!p.augments?.length && (
+                                            <div style={styles.teamPlayerAugmentsGroup}>
+                                              {p.augments.map((augId, i3) => {
+                                                const info = augmentsMap?.[augId];
+                                                const needsDarkIcon = theme === "light" && m.team_size === 3;
+                                                const rarityStyle = augmentRarityStyle(info?.rarity);
+                                                return (
+                                                  <Tooltip
+                                                    key={`a-${i3}`}
+                                                    label={info?.name || `Augment #${augId}`}
+                                                  >
+                                                    {info?.icon && (
+                                                      <span style={{ ...styles.teamPlayerAugmentWrap, ...rarityStyle }}>
+                                                        <img
+                                                          src={info.icon}
+                                                          style={{
+                                                            ...styles.teamPlayerAugmentIcon,
+                                                            filter: needsDarkIcon ? "brightness(0.35)" : "none",
+                                                          }}
+                                                          onError={(e) => { e.currentTarget.style.display = "none"; }}
+                                                        />
+                                                      </span>
+                                                    )}
+                                                  </Tooltip>
+                                                );
+                                              })}
+                                            </div>
+                                          )}
                                         </div>
                                       </div>
                                     ))}
@@ -807,6 +862,10 @@ export default function MatchHistory({
         </AnimatePresence>
       </div>
       )}
+
+      {toast && (
+        <Toast kind={toast.kind} message={toast.message} onDismiss={() => setToast(null)} />
+      )}
     </div>
   );
 }
@@ -826,7 +885,7 @@ const styles = {
     color: "var(--text-secondary)",
     background: "rgba(var(--panel-deep-rgb),0.85)",
     border: "1px solid rgba(var(--border-rgb),0.5)",
-    borderRadius: 14,
+    borderRadius: "var(--radius-xl)",
   },
 
   searchRow: {
@@ -841,7 +900,7 @@ const styles = {
     alignItems: "center",
     gap: 8,
     padding: "8px 12px",
-    borderRadius: 10,
+    borderRadius: "var(--radius-lg)",
     background: "rgba(var(--panel-deep-rgb),0.85)",
     border: "1px solid rgba(var(--accent-rgb),0.25)",
   },
@@ -869,7 +928,7 @@ const styles = {
     flexDirection: "column",
     gap: 12,
     padding: 12,
-    borderRadius: 14,
+    borderRadius: "var(--radius-xl)",
     background: "rgba(var(--panel-deep-rgb),0.4)",
     border: "1px solid rgba(var(--border-rgb),0.35)",
   },
@@ -904,7 +963,7 @@ const styles = {
 
   chip: {
     padding: "6px 13px",
-    borderRadius: 999,
+    borderRadius: "var(--radius-pill)",
     border: "1px solid rgba(var(--border-rgb),0.4)",
     background: "rgba(var(--panel-deep-rgb),0.7)",
     color: "var(--text-secondary)",
@@ -915,9 +974,9 @@ const styles = {
   },
 
   chipActive: {
-    background: "linear-gradient(135deg, #a855f7, #7c3aed)",
-    borderColor: "#7c3aed",
-    color: "#ffffff",
+    background: "var(--accent-gradient)",
+    borderColor: "var(--accent-solid)",
+    color: "var(--accent-solid-text)",
     boxShadow: "0 3px 10px rgba(79,70,229,0.4)",
   },
 
@@ -929,7 +988,7 @@ const styles = {
 
   exportBtn: {
     padding: "6px 10px",
-    borderRadius: 8,
+    borderRadius: "var(--radius-md)",
     border: "1px solid rgba(var(--accent-rgb),0.35)",
     background: "rgba(var(--accent-rgb),0.08)",
     color: "var(--accent-text)",
@@ -944,7 +1003,7 @@ const styles = {
   },
 
   matchCard: {
-    borderRadius: 10,
+    borderRadius: "var(--radius-lg)",
     background: "rgba(var(--panel-deep-rgb),0.85)",
     border: "1px solid rgba(var(--border-rgb),0.25)",
     overflow: "hidden",
@@ -973,7 +1032,7 @@ const styles = {
   matchIcon: {
     width: 36,
     height: 36,
-    borderRadius: 8,
+    borderRadius: "var(--radius-md)",
     pointerEvents: "none",
   },
 
@@ -1005,7 +1064,7 @@ const styles = {
   spellIcon: {
     width: 17,
     height: 17,
-    borderRadius: 4,
+    borderRadius: "var(--radius-xs)",
     border: "1px solid rgba(var(--border-rgb),0.4)",
   },
 
@@ -1026,7 +1085,7 @@ const styles = {
     color: "var(--accent-text)",
     background: "rgba(var(--accent-rgb),0.14)",
     border: "1px solid rgba(var(--accent-rgb),0.35)",
-    borderRadius: 999,
+    borderRadius: "var(--radius-pill)",
     padding: "3px 8px",
     whiteSpace: "nowrap",
   },
@@ -1039,7 +1098,7 @@ const styles = {
     fontSize: 17,
     fontWeight: 800,
     padding: "5px 4px",
-    borderRadius: 8,
+    borderRadius: "var(--radius-md)",
     flexShrink: 0,
   },
 
@@ -1089,6 +1148,27 @@ const styles = {
     gap: 10,
   },
 
+  // Stats/Build/Augments lado a lado na mesma linha (cada um até 3 colunas
+  // numa janela larga) em vez de empilhados — só caem para baixo (flexWrap)
+  // quando a janela é mesmo estreita para os três caberem lado a lado.
+  expandTopRow: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 24,
+    alignItems: "flex-start",
+  },
+
+  // Usado pelas 3 secções da expandTopRow (Stats/Build/Augments) — cada uma
+  // é um item da linha (flex-basis + minWidth) que por dentro continua em
+  // coluna (label por cima do conteúdo).
+  expandRowSection: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 4,
+    flex: "1 1 200px",
+    minWidth: 180,
+  },
+
   expandSection: {
     display: "flex",
     flexDirection: "column",
@@ -1134,7 +1214,7 @@ const styles = {
   itemIcon: {
     width: 28,
     height: 28,
-    borderRadius: 6,
+    borderRadius: "var(--radius-sm)",
     border: "1px solid rgba(var(--accent-rgb),0.25)",
   },
 
@@ -1143,7 +1223,7 @@ const styles = {
     alignItems: "center",
     gap: 6,
     padding: "3px 8px",
-    borderRadius: 6,
+    borderRadius: "var(--radius-sm)",
     background: "rgba(var(--accent-rgb),0.12)",
     border: "1px solid rgba(var(--accent-rgb),0.25)",
     color: "var(--accent-text)",
@@ -1153,18 +1233,24 @@ const styles = {
   augmentIcon: {
     width: 18,
     height: 18,
-    borderRadius: 4,
+    borderRadius: "var(--radius-xs)",
   },
 
   // Colegas e adversários (estilo op.gg) — um cartão por equipa (agrupada
   // por lugar final). Antes ficavam empilhadas numa só coluna (até 8
   // cartões seguidos na Arena de 2, cada um ocupando a largura toda) — o que
-  // tornava a secção enorme. Em 2 colunas usa-se a largura disponível e
-  // corta a altura total a cerca de metade.
+  // tornava a secção enorme. auto-fit deixa entrar mais colunas conforme o
+  // espaço disponível (fixo em 2 antes, mesmo com a coluna agora bem mais
+  // larga em ecrãs grandes — sobrava espaço por usar).
+  // Fixo em 3 colunas (não auto-fit) — com minmax, cartões estreitos
+  // deixavam pouco espaço à coluna de stats/build/augments de cada jogador,
+  // que ia quebrando linha (parecia empilhado na vertical em vez de uma
+  // fileira horizontal). Com sempre 3 por linha, cada cartão fica bem mais
+  // largo e essa fileira cabe sem quebrar.
   teamsGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-    gap: 6,
+    gridTemplateColumns: "repeat(2, 1fr)",
+    gap: 8,
   },
 
   // Cartão de equipa modernizado: fundo em degradê (como o resto da app) em
@@ -1172,7 +1258,7 @@ const styles = {
   // lugar (mesmo padrão usado no cartão da partida) em vez de contorno
   // completo — menos "pesado" visualmente e mais consistente com o resto.
   teamCard: {
-    borderRadius: 10,
+    borderRadius: "var(--radius-lg)",
     padding: "6px 8px",
     background: "linear-gradient(180deg, rgba(var(--panel-rgb),0.85), rgba(var(--panel-deep-rgb),0.9))",
   },
@@ -1185,7 +1271,7 @@ const styles = {
   },
 
   teamPlacementBadge: {
-    fontSize: 10.5,
+    fontSize: 11.5,
     fontWeight: 800,
     padding: "1px 7px",
     borderRadius: 20,
@@ -1193,7 +1279,7 @@ const styles = {
 
   teamSelfTag: {
     fontWeight: 700,
-    fontSize: 9.5,
+    fontSize: 10.5,
     color: "var(--accent-text)",
     background: "rgba(var(--accent-rgb),0.14)",
     padding: "1px 7px",
@@ -1206,57 +1292,99 @@ const styles = {
     gap: 3,
   },
 
+  // Grid de colunas fixas (ícone/nome/KDA) + uma última coluna flexível
+  // (stats/build/augments) — antes era tudo em flex/wrap, o que fazia cada
+  // jogador alinhar num sítio diferente consoante o tamanho do nome (nada
+  // ficava por baixo de nada). Em grid, nome/KDA começam sempre na mesma
+  // posição em todas as linhas de todos os cartões, como uma tabela.
   teamPlayer: {
-    display: "flex",
+    display: "grid",
+    gridTemplateColumns: "24px 100px 46px 1fr",
     alignItems: "center",
-    gap: 6,
+    columnGap: 8,
     padding: "3px 5px",
     borderRadius: 7,
   },
 
   teamPlayerIcon: {
-    width: 22,
-    height: 22,
-    borderRadius: 6,
-    flexShrink: 0,
+    width: 24,
+    height: 24,
+    borderRadius: "var(--radius-sm)",
     pointerEvents: "none",
   },
 
-  // Uma única fileira que envolve (wrap): KDA, stats e build juntos — builds
-  // curtas cabem na mesma linha do KDA, só passando à linha seguinte quando
-  // o espaço já não chega, em vez de reservar sempre 2 linhas por jogador.
+  // Continua a envolver (wrap) KDA/stats/build/augments dentro da sua
+  // coluna — só o alinhamento com o resto da linha é que agora vem do grid
+  // do pai, não de flex a espremer tudo numa fileira só.
   teamPlayerInfo: {
     display: "flex",
     alignItems: "center",
     flexWrap: "wrap",
-    columnGap: 7,
-    rowGap: 2,
+    columnGap: 6,
+    rowGap: 3,
     minWidth: 0,
-    flex: 1,
+  },
+
+  // Grupo do dano/ouro/cura — antes eram spans soltos ao mesmo nível dos
+  // outros grupos (multikills/build/augments); agrupados assim lêem-se como
+  // um bloco de combate só seu, com o mesmo gap apertado que items/augments.
+  teamPlayerStatsGroup: {
+    display: "flex",
+    alignItems: "center",
+    gap: 5,
+  },
+
+  multikillGroup: {
+    display: "flex",
+    gap: 3,
+  },
+
+  multikillBadgeSmall: {
+    fontSize: 9.5,
+    fontWeight: 800,
+    padding: "1px 5px",
+    borderRadius: "var(--radius-xs)",
+    background: "rgba(var(--accent-rgb),0.18)",
+    color: "var(--accent-text)",
+    whiteSpace: "nowrap",
+  },
+
+  // Triple Kill é bem mais raro que Double na Arena — cor de destaque
+  // própria (dourado, mesma linguagem das conquistas especiais) para saltar
+  // mais à vista do que um double kill comum.
+  multikillBadgeTriple: {
+    background: "rgba(250,204,21,0.2)",
+    color: "#eab308",
   },
 
   teamPlayerName: {
-    fontSize: 10.5,
+    fontSize: 11.5,
     fontWeight: 600,
     color: "var(--text-secondary)",
-    maxWidth: 96,
+    width: "100%",
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
-    flexShrink: 1,
   },
 
   teamPlayerKda: {
-    fontSize: 10.5,
+    fontSize: 11.5,
     fontWeight: 700,
     color: "var(--text-body)",
-    flexShrink: 0,
   },
 
   teamPlayerStat: {
-    fontSize: 9.5,
+    fontSize: 10.5,
     color: "var(--text-secondary)",
     whiteSpace: "nowrap",
+  },
+
+  // Grupos próprios para items/augments (gap bem mais apertado entre si do
+  // que o resto da fileira) — lêem-se como um "bloco" de build/augments,
+  // não como itens soltos espaçados igual às stats de texto ao lado.
+  teamPlayerItemsGroup: {
+    display: "flex",
+    gap: 2,
   },
 
   teamPlayerItemIcon: {
@@ -1266,9 +1394,14 @@ const styles = {
     border: "1px solid rgba(var(--border-rgb),0.4)",
   },
 
+  teamPlayerAugmentsGroup: {
+    display: "flex",
+    gap: 2,
+  },
+
   teamPlayerAugmentWrap: {
     display: "inline-flex",
-    borderRadius: 4,
+    borderRadius: "var(--radius-xs)",
     padding: 1,
     border: "1px solid rgba(var(--border-rgb),0.4)",
   },

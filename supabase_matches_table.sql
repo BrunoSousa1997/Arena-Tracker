@@ -47,6 +47,17 @@ create unique index if not exists idx_matches_riot_match_id
   on public.matches (username, riot_match_id)
   where riot_match_id is not null;
 
+-- 5) Cache partilhada entre users: uma partida de Arena tem sempre vários
+-- jogadores reais (16-18), por isso se um amigo já importou uma partida,
+-- os dados de "participants" já servem para qualquer outro user que também
+-- lá tenha jogado — poupa pedidos à Riot API (ver getMatchCacheByIds em
+-- src/db/api.js). O índice acima é por (username, riot_match_id); este é
+-- só por riot_match_id (sem filtrar por username), para essa consulta
+-- entre users ser rápida.
+create index if not exists idx_matches_riot_match_id_shared
+  on public.matches (riot_match_id)
+  where riot_match_id is not null and participants is not null;
+
 alter table public.matches enable row level security;
 
 drop policy if exists "Allow anon read/write matches" on public.matches;

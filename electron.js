@@ -560,6 +560,35 @@ function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// Processa uma lista com um nº fixo de "trabalhadores" em paralelo, em vez
+// de um item de cada vez (lento, sobretudo num resync completo com muitas
+// partidas) OU todos ao mesmo tempo (arriscado — esta key é partilhada por
+// vários users ao mesmo tempo, cada um com o seu próprio processo, sem
+// nenhuma coordenação entre eles; um pedido só nosso já paginado é uma
+// coisa, uma rajada de centenas em simultâneo é outra). Cada trabalhador
+// continua a esperar "wait(150)" entre os SEUS próprios pedidos — com
+// CONCURRENCY=5 isso dá um ritmo agregado de ~30/s, bem abaixo mesmo do
+// limite mais apertado da Riot (match-v5: 2000/10s) e ainda com margem para
+// outros users a sincronizar ao mesmo tempo. Erros de um item nunca param
+// os outros — ficam simplesmente de fora do resultado (undefined).
+const FETCH_CONCURRENCY = 5;
+
+async function processWithConcurrency(items, concurrency, handler) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const current = nextIndex++;
+      results[current] = await handler(items[current], current);
+    }
+  }
+
+  const workerCount = Math.min(concurrency, items.length);
+  await Promise.all(Array.from({ length: workerCount }, worker));
+  return results;
+}
+
 // Estatísticas extra ao estilo op.gg extraídas de uma partida da Match-V5
 // API para um participante específico — partilhado entre a importação
 // normal (riotapi:importHistory) e o backfill de partidas antigas
@@ -598,7 +627,16 @@ function extractParticipantStats(match, participant, spellNames) {
 // Guardamos uma versão resumida de cada um (campeão, KDA, lugar da equipa,
 // build, augments) — agrupar por "placement" no ecrã já separa naturalmente
 // cada equipa (colegas partilham sempre o mesmo lugar final na Arena).
-function extractAllParticipants(match, puuid) {
+//
+// "spellNames" agora é obrigatório (antes só existia para o próprio
+// jogador, via extractParticipantStats): esta lista passou a ser também a
+// CACHE partilhada entre users (ver getMatchCacheByIds em src/db/api.js) —
+// se um amigo já importou esta mesma partida, reaproveitamos os dados dele
+// aqui guardados em vez de voltar a pedir a partida à Riot API. Para isso
+// funcionar para qualquer participante (não só quem sincronizou primeiro),
+// todos os campos que uma importação normal guardaria têm de estar aqui,
+// não só um subconjunto.
+function extractAllParticipants(match, puuid, spellNames) {
   return (match.info?.participants || []).map((p) => ({
     champion: p.championName,
     name: p.riotIdGameName || p.summonerName || null,
@@ -619,11 +657,29 @@ function extractAllParticipants(match, puuid) {
     damageTaken: p.totalDamageTaken ?? 0,
     goldEarned: p.goldEarned ?? 0,
     healing: p.totalHeal ?? 0,
+    cs: (p.totalMinionsKilled ?? 0) + (p.neutralMinionsKilled ?? 0),
+    visionScore: p.visionScore ?? 0,
+    champLevel: p.champLevel ?? null,
+    summoner1: spellNames?.[p.summoner1Id] || null,
+    summoner2: spellNames?.[p.summoner2Id] || null,
+    // Contagens reais (não só a categoria máxima) — para mostrar na lista de
+    // colegas/adversários quantos double/triple kills cada um fez, não só
+    // se fez algum (ver doubleKills/tripleKills em extractParticipantStats,
+    // já usados para o próprio jogador; agora também por participante).
+    doubleKills: p.doubleKills ?? 0,
+    tripleKills: p.tripleKills ?? 0,
     isSelf: p.puuid === puuid,
   }));
 }
 
-ipcMain.handle("riotapi:importHistory", async (_event, { gameName, tagLine, region, since }) => {
+// Separado em dois pedidos (antes era um handler só, "riotapi:importHistory")
+// — listar ids é barato (1 pedido por 100 partidas), mas ir buscar os
+// detalhes de cada partida é o que consome o limite da key partilhada. Ao
+// separar, o renderer consegue, entre os dois passos, verificar quais ids
+// já têm dados de um amigo em cache na Supabase (ver getMatchCacheByIds em
+// src/db/api.js) e só pedir aqui os que faltam mesmo — ver syncActiveAccount
+// em App.jsx.
+ipcMain.handle("riotapi:listMatchIds", async (_event, { gameName, tagLine, region, since }) => {
   if (!riotApiAvailable()) {
     return { success: false, error: "missing-api-key" };
   }
@@ -637,7 +693,7 @@ ipcMain.handle("riotapi:importHistory", async (_event, { gameName, tagLine, regi
   // (startTime, em segundos) para só trazer partidas novas — muito menos
   // pedidos numa sincronização do dia a dia do que voltar a pedir tudo. Para
   // uma sincronização completa (recuperar partidas em falta), o renderer
-  // envia "since: null" de propósito, ignorando a última data guardada.
+  // envia "since: null" de propósito, ignorando a última data conhecida.
   const startTimeParam = since ? `&startTime=${Math.floor(since / 1000)}` : "";
 
   // Sem limite artificial de partidas: paginamos até a própria Riot API
@@ -654,7 +710,6 @@ ipcMain.handle("riotapi:importHistory", async (_event, { gameName, tagLine, regi
     );
 
     const puuid = account.puuid;
-
     const ids = [];
 
     // Sem filtro de "queue" — ver nota acima. Pedimos o histórico recente
@@ -674,54 +729,77 @@ ipcMain.handle("riotapi:importHistory", async (_event, { gameName, tagLine, regi
       await wait(150);
     }
 
-    const results = [];
+    return { success: true, puuid, ids };
+  } catch (err) {
+    return { success: false, error: err?.message || String(err) };
+  }
+});
 
-    for (const matchId of ids) {
-      await wait(150); // respeita o limite de pedidos por segundo da key pessoal
+// Segunda metade do antigo "riotapi:importHistory" — recebe já uma lista
+// concreta de ids a resolver (o renderer só manda aqui os que NÃO encontrou
+// em cache partilhada) e o puuid já resolvido por "riotapi:listMatchIds",
+// para não repetir esse pedido.
+// Uma partida por vez (usado dentro do pool de concorrência abaixo) — devolve
+// null se não for Arena, se o jogador não constar, ou se o pedido falhar
+// (nunca lança, para nunca travar os outros trabalhadores do pool).
+async function fetchOneMatchDetail(host, matchId, puuid, spellNames) {
+  try {
+    await wait(150); // respeita o ritmo por trabalhador, ver processWithConcurrency
+    const match = await riotApiRequest(host, `/lol/match/v5/matches/${matchId}`);
+    // Só nos interessa a Arena — descartamos aqui qualquer outro modo
+    // (ranked, ARAM, etc.) que venha no histórico geral sem filtro de queue.
+    if (match.info?.gameMode !== ARENA_GAME_MODE) return null;
 
-      try {
-        const match = await riotApiRequest(host, `/lol/match/v5/matches/${matchId}`);
-        // Só nos interessa a Arena — descartamos aqui qualquer outro modo
-        // (ranked, ARAM, etc.) que venha no histórico geral sem filtro de queue.
-        if (match.info?.gameMode !== ARENA_GAME_MODE) continue;
+    const participant = match.info?.participants?.find((p) => p.puuid === puuid);
+    if (!participant) return null;
 
-        const participant = match.info?.participants?.find((p) => p.puuid === puuid);
-        if (!participant) continue;
+    const items = [0, 1, 2, 3, 4, 5, 6]
+      .map((i) => participant[`item${i}`])
+      .filter((id) => id && id !== 0)
+      .map((id) => ({ itemID: id, count: 1 }));
 
-        const items = [0, 1, 2, 3, 4, 5, 6]
-          .map((i) => participant[`item${i}`])
-          .filter((id) => id && id !== 0)
-          .map((id) => ({ itemID: id, count: 1 }));
+    const augments = [1, 2, 3, 4]
+      .map((i) => participant[`playerAugment${i}`])
+      .filter((a) => a && a !== 0);
 
-        const augments = [1, 2, 3, 4]
-          .map((i) => participant[`playerAugment${i}`])
-          .filter((a) => a && a !== 0);
+    // Na Arena só conta como vitória ficar em 1º lugar — o campo "win"
+    // da Riot API nem sempre reflete isso com fiabilidade, por isso
+    // usamos sempre o "placement" como fonte da verdade.
+    return {
+      matchId,
+      champion: participant.championName,
+      kills: participant.kills ?? 0,
+      deaths: participant.deaths ?? 0,
+      assists: participant.assists ?? 0,
+      win: participant.placement === 1,
+      placement: participant.placement ?? null,
+      augments,
+      items,
+      gameEndTimestamp: match.info?.gameEndTimestamp || match.info?.gameCreation || Date.now(),
+      ...extractParticipantStats(match, participant, spellNames),
+      participants: extractAllParticipants(match, puuid, spellNames),
+    };
+  } catch (err) {
+    console.warn("[riotapi] falhou partida", matchId, err?.message || err);
+    return null;
+  }
+}
 
-        const spellNames = await getSummonerSpellNameMap();
+ipcMain.handle("riotapi:fetchMatchDetails", async (_event, { matchIds, puuid, region }) => {
+  if (!riotApiAvailable()) {
+    return { success: false, error: "missing-api-key" };
+  }
 
-        // Na Arena só conta como vitória ficar em 1º lugar — o campo "win"
-        // da Riot API nem sempre reflete isso com fiabilidade, por isso
-        // usamos sempre o "placement" como fonte da verdade.
-        results.push({
-          matchId,
-          champion: participant.championName,
-          kills: participant.kills ?? 0,
-          deaths: participant.deaths ?? 0,
-          assists: participant.assists ?? 0,
-          win: participant.placement === 1,
-          placement: participant.placement ?? null,
-          augments,
-          items,
-          gameEndTimestamp: match.info?.gameEndTimestamp || match.info?.gameCreation || Date.now(),
-          ...extractParticipantStats(match, participant, spellNames),
-          participants: extractAllParticipants(match, puuid),
-        });
-      } catch (err) {
-        console.warn("[riotapi] falhou partida", matchId, err?.message || err);
-      }
-    }
+  const host = `${region || "europe"}.api.riotgames.com`;
 
-    return { success: true, matches: results };
+  try {
+    const spellNames = await getSummonerSpellNameMap();
+
+    const results = await processWithConcurrency(matchIds || [], FETCH_CONCURRENCY, (matchId) =>
+      fetchOneMatchDetail(host, matchId, puuid, spellNames)
+    );
+
+    return { success: true, matches: results.filter(Boolean) };
   } catch (err) {
     return { success: false, error: err?.message || String(err) };
   }
@@ -735,13 +813,30 @@ ipcMain.handle("riotapi:importHistory", async (_event, { gameName, tagLine, regi
 // em db/api.js). Este handler existe só para essas: volta a consultar a
 // Riot API pelas partidas indicadas e devolve todos os campos extra, para o
 // renderer fazer um UPDATE nas linhas já existentes (nunca um INSERT novo).
+async function fetchOneBackfillDetail(host, matchId, puuid, spellNames) {
+  try {
+    await wait(150); // respeita o ritmo por trabalhador, ver processWithConcurrency
+    const match = await riotApiRequest(host, `/lol/match/v5/matches/${matchId}`);
+    const participant = match.info?.participants?.find((p) => p.puuid === puuid);
+    if (!participant) return null;
+
+    return {
+      matchId,
+      ...extractParticipantStats(match, participant, spellNames),
+      participants: extractAllParticipants(match, puuid, spellNames),
+    };
+  } catch (err) {
+    console.warn("[riotapi] falhou backfill de detalhes", matchId, err?.message || err);
+    return null;
+  }
+}
+
 ipcMain.handle("riotapi:backfillMatchDetails", async (_event, { matchIds, region, gameName, tagLine }) => {
   if (!riotApiAvailable()) {
     return { success: false, error: "missing-api-key" };
   }
 
   const host = `${region || "europe"}.api.riotgames.com`;
-  const results = [];
 
   try {
     const account = await riotApiRequest(
@@ -751,25 +846,11 @@ ipcMain.handle("riotapi:backfillMatchDetails", async (_event, { matchIds, region
     const puuid = account.puuid;
     const spellNames = await getSummonerSpellNameMap();
 
-    for (const matchId of matchIds || []) {
-      await wait(150); // respeita o limite de pedidos por segundo da key pessoal
+    const results = await processWithConcurrency(matchIds || [], FETCH_CONCURRENCY, (matchId) =>
+      fetchOneBackfillDetail(host, matchId, puuid, spellNames)
+    );
 
-      try {
-        const match = await riotApiRequest(host, `/lol/match/v5/matches/${matchId}`);
-        const participant = match.info?.participants?.find((p) => p.puuid === puuid);
-        if (!participant) continue;
-
-        results.push({
-          matchId,
-          ...extractParticipantStats(match, participant, spellNames),
-          participants: extractAllParticipants(match, puuid),
-        });
-      } catch (err) {
-        console.warn("[riotapi] falhou backfill de detalhes", matchId, err?.message || err);
-      }
-    }
-
-    return { success: true, results };
+    return { success: true, results: results.filter(Boolean) };
   } catch (err) {
     return { success: false, error: err?.message || String(err) };
   }

@@ -61,7 +61,7 @@ const styles = {
     alignItems: "center",
     gap: 10,
     padding: "8px 12px",
-    borderRadius: 10,
+    borderRadius: "var(--radius-lg)",
     background: "linear-gradient(180deg, rgba(var(--panel-rgb),0.96), rgba(var(--panel-deep-rgb),0.98))",
     border: "1px solid rgba(var(--accent-rgb),0.35)",
     color: "var(--accent-text)",
@@ -76,10 +76,10 @@ const styles = {
 
   btn: {
     padding: "5px 10px",
-    borderRadius: 8,
+    borderRadius: "var(--radius-md)",
     border: "none",
-    background: "#7c3aed",
-    color: "#ffffff",
+    background: "var(--accent-solid)",
+    color: "var(--accent-solid-text)",
     cursor: "pointer",
     fontSize: 12,
     fontWeight: 600,

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Tooltip from "./Tooltip";
+import ConfirmDialog from "./ConfirmDialog";
 import { useLanguage } from "./i18n";
 
 // Tags mais comuns da Riot (o servidor de origem já vem embutido nelas) —
@@ -44,7 +45,6 @@ function regionForTag(tag) {
 export default function AccountManager({
   accounts,
   activeAccount,
-  onClose,
   onSwitch,
   onCreate,
   onUpdateRiotAccount,
@@ -105,41 +105,24 @@ export default function AccountManager({
     setShowCreate(false);
   };
 
+  const [pendingDelete, setPendingDelete] = useState(null);
+
   const handleDelete = (username) => {
-    if (!window.confirm(t("confirm_remove_account").replace("{name}", username))) {
-      return;
-    }
-    onDelete(username);
+    setPendingDelete(username);
+  };
+
+  const confirmDelete = () => {
+    onDelete(pendingDelete);
+    setPendingDelete(null);
   };
 
   return (
-    <motion.div
-      style={styles.backdrop}
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      onClick={onClose}
-    >
-      <motion.div
-        style={styles.panel}
-        initial={{ opacity: 0, scale: 0.94, y: 10 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.96, y: 6 }}
-        transition={{ duration: 0.16 }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div style={styles.header}>
-          <h2 style={styles.title}>{t("manage_accounts_title")}</h2>
-          <button onClick={onClose} style={styles.closeBtn}>
-            ✕
-          </button>
+    <div style={styles.section}>
+      {accounts.length === 0 && (
+        <div style={styles.emptyHint}>
+          {t("no_accounts_hint")}
         </div>
-
-        {accounts.length === 0 && (
-          <div style={styles.emptyHint}>
-            {t("no_accounts_hint")}
-          </div>
-        )}
+      )}
 
         {/* LISTA DE CONTAS */}
         <div style={styles.accountList} className="scrollArea">
@@ -335,72 +318,30 @@ export default function AccountManager({
             </div>
           </div>
         )}
-      </motion.div>
-    </motion.div>
+
+      {pendingDelete && (
+        <ConfirmDialog
+          message={t("confirm_remove_account").replace("{name}", pendingDelete)}
+          danger
+          confirmLabel={t("remove_btn")}
+          onConfirm={confirmDelete}
+          onCancel={() => setPendingDelete(null)}
+        />
+      )}
+    </div>
   );
 }
 
 const styles = {
-  backdrop: {
-    position: "fixed",
-    inset: 0,
-    background: "rgba(0,0,0,0.55)",
-    backdropFilter: "blur(3px)",
-    zIndex: 99997,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  panel: {
-    width: 540,
-    maxHeight: "84vh",
-    overflowY: "auto",
-    borderRadius: 20,
-    padding: 26,
-    background: "linear-gradient(180deg, rgba(var(--panel-rgb),0.98), rgba(var(--panel-deep-rgb),0.99))",
-    border: "1px solid rgba(var(--border-rgb),0.5)",
-    boxShadow: "0 20px 60px rgba(0,0,0,0.55)",
+  section: {
     display: "flex",
     flexDirection: "column",
     gap: 16,
-    fontFamily: "Cinzel, serif",
-  },
-
-  header: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingBottom: 12,
-    borderBottom: "1px solid rgba(var(--border-rgb),0.35)",
-  },
-
-  title: {
-    color: "var(--accent-text)",
-    fontSize: 20,
-    margin: 0,
-    letterSpacing: 0.3,
-  },
-
-  closeBtn: {
-    width: 26,
-    height: 26,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 8,
-    border: "none",
-    background: "rgba(var(--soft-rgb),0.08)",
-    color: "var(--accent-text)",
-    cursor: "pointer",
-    fontSize: 13,
-    lineHeight: 1,
-    padding: 0,
   },
 
   linkBtn: {
     padding: "10px 14px",
-    borderRadius: 10,
+    borderRadius: "var(--radius-lg)",
     border: "1px solid rgba(var(--accent-rgb),0.35)",
     background: "rgba(var(--accent-rgb),0.08)",
     color: "var(--accent-text)",
@@ -452,9 +393,9 @@ const styles = {
     fontSize: 10,
     fontWeight: 600,
     padding: "2px 6px",
-    borderRadius: 6,
-    background: "#7c3aed",
-    color: "#ffffff",
+    borderRadius: "var(--radius-sm)",
+    background: "var(--accent-solid)",
+    color: "var(--accent-solid-text)",
   },
 
   accountRiot: {
@@ -472,7 +413,7 @@ const styles = {
   select: {
     width: "100%",
     padding: 10,
-    borderRadius: 10,
+    borderRadius: "var(--radius-lg)",
     background: "rgba(var(--panel-deep-rgb),0.9)",
     color: "var(--text-body)",
     border: "1px solid rgba(var(--border-rgb),0.4)",
@@ -489,7 +430,7 @@ const styles = {
   iconBtn: {
     width: 28,
     height: 28,
-    borderRadius: 8,
+    borderRadius: "var(--radius-md)",
     border: "1px solid rgba(var(--accent-rgb),0.25)",
     background: "rgba(var(--panel-deep-rgb),0.85)",
     color: "var(--accent-text)",
@@ -500,7 +441,7 @@ const styles = {
   iconBtnDanger: {
     width: 28,
     height: 28,
-    borderRadius: 8,
+    borderRadius: "var(--radius-md)",
     border: "1px solid rgba(226,85,95,0.35)",
     background: "rgba(226,85,95,0.1)",
     color: "#e2555f",
@@ -510,7 +451,7 @@ const styles = {
 
   newAccountBtn: {
     padding: "10px 14px",
-    borderRadius: 10,
+    borderRadius: "var(--radius-lg)",
     border: "1px dashed rgba(var(--accent-rgb),0.35)",
     background: "transparent",
     color: "var(--accent-text)",
@@ -533,7 +474,7 @@ const styles = {
   input: {
     flex: 1,
     padding: 10,
-    borderRadius: 10,
+    borderRadius: "var(--radius-lg)",
     background: "rgba(var(--panel-deep-rgb),0.9)",
     color: "var(--text-body)",
     border: "1px solid rgba(var(--border-rgb),0.4)",
@@ -542,10 +483,10 @@ const styles = {
 
   primaryBtn: {
     padding: "10px 16px",
-    borderRadius: 10,
+    borderRadius: "var(--radius-lg)",
     border: "none",
-    background: "linear-gradient(135deg, #a855f7, #7c3aed)",
-    color: "#ffffff",
+    background: "var(--accent-gradient)",
+    color: "var(--accent-solid-text)",
     cursor: "pointer",
     fontSize: 13,
     fontWeight: 600,
@@ -554,7 +495,7 @@ const styles = {
 
   smallBtn: {
     padding: "6px 10px",
-    borderRadius: 8,
+    borderRadius: "var(--radius-md)",
     border: "1px solid rgba(var(--accent-rgb),0.25)",
     background: "rgba(var(--panel-deep-rgb),0.85)",
     color: "var(--accent-text)",
@@ -564,7 +505,7 @@ const styles = {
 
   smallBtnGhost: {
     padding: "6px 10px",
-    borderRadius: 8,
+    borderRadius: "var(--radius-md)",
     border: "1px solid rgba(var(--soft-rgb),0.15)",
     background: "transparent",
     color: "var(--text-secondary)",

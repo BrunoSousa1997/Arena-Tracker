@@ -9,6 +9,9 @@ import {
   addMatchesBulk,
   updateTeamSizeForIds,
   updateMatchDetails,
+  getMatchCacheByIds,
+  buildMatchFromCache,
+  buildBackfillDetailsFromCache,
 } from "./db/api";
 import { motion, AnimatePresence } from "framer-motion";
 import UpdateNotifier from "./UpdateNotifier";
@@ -16,9 +19,10 @@ import Overview from "./Overview";
 import MatchHistory from "./MatchHistory";
 import MatchReports from "./MatchReports";
 import Achievements from "./Achievements";
-import AccountManager from "./AccountManager";
+import Settings from "./Settings";
 import StatsBar from "./StatsBar";
 import Tooltip from "./Tooltip";
+import ConfirmDialog from "./ConfirmDialog";
 import { loadAugments } from "./augments";
 import { normalizeChampionId } from "./champions";
 import { useLanguage, LANGUAGES } from "./i18n";
@@ -46,6 +50,11 @@ export default function App() {
   ];
 
   const [patch, setPatch] = useState(null);
+  // Se o pedido do patch falhar ou demorar demasiado, deixamos de bloquear a
+  // app — sem isto, sem internet no arranque prendia o utilizador atrás de
+  // um ecrã de loading para sempre (as imagens de campeão/item já lidavam
+  // bem com DRAGON=null antes; só o loading inicial é que faltava).
+  const [patchFailed, setPatchFailed] = useState(false);
   const [champions, setChampions] = useState([]);
   const [augmentsMap, setAugmentsMap] = useState({});
   const [summonerSpellsMap, setSummonerSpellsMap] = useState({});
@@ -57,6 +66,10 @@ export default function App() {
 
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  // Filtro da tab Coleção: "won" (só os que já tens vitória, comportamento
+  // de sempre), "unowned" (só os que faltam) ou "all" (todos, com um marker
+  // nos que já tens).
+  const [collectionFilter, setCollectionFilter] = useState("won");
 
   // cada conta: { username, riotAccount, riotTag }
   // "username" é só a etiqueta que vês na app; "riotAccount" (+ "riotTag") é
@@ -68,6 +81,10 @@ export default function App() {
   // Sincronização com a Riot API para a conta ativa: null = inativo,
   // { status: "loading"|"done"|"error", message }
   const [syncStatus, setSyncStatus] = useState(null);
+  // Confirmação antes de "Reparar dados" (enrichHistory em modo force) —
+  // gasta mais pedidos do que o normal e reescreve dados já guardados, por
+  // isso pede confirmação em vez de disparar logo ao clicar.
+  const [showRepairAllConfirm, setShowRepairAllConfirm] = useState(false);
 
   const [wins, setWins] = useState([]);
   const [matches, setMatches] = useState([]);
@@ -79,7 +96,12 @@ export default function App() {
   // "all" = sem filtro, 2 = equipas de 2 (8 equipas), 3 = equipas de 3 (6 equipas).
   const [teamSizeFilter, setTeamSizeFilter] = useState("all");
 
-  const [showAccountManager, setShowAccountManager] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [settingsTab, setSettingsTab] = useState("general");
+  const openSettings = (tab = "general") => {
+    setSettingsTab(tab);
+    setShowSettings(true);
+  };
   const [view, setView] = useState("overview");
 
   // Aviso do campeão em jogo (Live Client Data) — mostra logo no início da
@@ -215,9 +237,9 @@ export default function App() {
       );
       setAccounts(normalized);
 
-      if (normalized.length === 0) setShowAccountManager(true);
+      if (normalized.length === 0) openSettings("accounts");
     } else {
-      setShowAccountManager(true);
+      openSettings("accounts");
     }
 
     if (active) setActiveAccount(active);
@@ -225,14 +247,28 @@ export default function App() {
 
   // ================= PATCH =================
   useEffect(() => {
+    let cancelled = false;
+
     async function loadPatch() {
-      const res = await fetch(
-        "https://ddragon.leagueoflegends.com/api/versions.json"
-      );
-      const versions = await res.json();
-      setPatch(versions[0]);
+      try {
+        const res = await fetch(
+          "https://ddragon.leagueoflegends.com/api/versions.json"
+        );
+        const versions = await res.json();
+        if (!cancelled) setPatch(versions[0]);
+      } catch {
+        if (!cancelled) setPatchFailed(true);
+      }
     }
     loadPatch();
+
+    // Rede lenta/pendurada sem lançar erro nenhum — ao fim de 6s desistimos
+    // de bloquear a app na mesma, mesmo sem resposta.
+    const timeout = setTimeout(() => setPatchFailed(true), 6000);
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+    };
   }, []);
 
   const DRAGON = patch
@@ -613,15 +649,17 @@ export default function App() {
     localStorage.setItem("riot-accounts", JSON.stringify(updated));
   };
 
-  const updateLastSyncFor = (username, timestamp) => {
-    setAccounts((prev) => {
-      const updated = prev.map((a) =>
-        a.username === username ? { ...a, lastSyncAt: timestamp } : a
-      );
-      localStorage.setItem("riot-accounts", JSON.stringify(updated));
-      return updated;
-    });
-  };
+  // Marca de "desde quando sincronizar" — antes vinha de "lastSyncAt" só no
+  // localStorage (por conta), que se perdia ao limpar dados locais ou
+  // trocar de PC, obrigando a um resync completo (não incorreto, só mais
+  // pesado do que precisava). Agora deriva sempre da partida mais recente
+  // já guardada na BD para esta conta — a mesma fonte que "matches" (ver
+  // getMatches), por isso reflete sempre o estado real já sincronizado,
+  // nunca um valor local que possa ter ficado para trás.
+  const latestMatchTimestamp = useMemo(() => {
+    if (!matches.length) return null;
+    return Math.max(...matches.map((m) => new Date(m.created_at).getTime()));
+  }, [matches]);
 
   // Sincroniza a conta ativa com a Riot API: vai buscar partidas de Arena
   // novas e grava-as automaticamente (sem pedir confirmação). Se já houve
@@ -636,7 +674,7 @@ export default function App() {
   // (dano/ouro/CS/etc.) — muito mais leve e sem repetir trabalho.
   const syncActiveAccount = async () => {
     const account = accounts.find((a) => a.username === activeAccount);
-    if (!account || !window.electron?.importRiotHistory) return;
+    if (!account || !window.electron?.listMatchIds || !window.electron?.fetchMatchDetails) return;
 
     if (!account.riotTag) {
       setSyncStatus({
@@ -652,24 +690,60 @@ export default function App() {
     });
 
     try {
-      const res = await window.electron.importRiotHistory({
+      // 1) Só a lista de ids — barato, 1 pedido por cada 100 partidas.
+      const listRes = await window.electron.listMatchIds({
         gameName: account.riotAccount,
         tagLine: account.riotTag,
         region: account.region || "europe",
-        since: account.lastSyncAt || null,
+        since: latestMatchTimestamp || null,
       });
 
-      if (!res.success) {
+      if (!listRes.success) {
         const msg =
-          res.error === "missing-api-key"
+          listRes.error === "missing-api-key"
             ? t("missing_api_key")
-            : res.error || t("unknown_error");
+            : listRes.error || t("unknown_error");
         setSyncStatus({ status: "error", message: msg });
         return;
       }
 
       const existingIds = await getImportedMatchIds(account.username);
-      const normalized = res.matches.map((m) => ({
+      const candidateIds = listRes.ids.filter((id) => !existingIds.has(id));
+
+      // 2) Antes de gastar pedidos à Riot API pelos detalhes de cada
+      // partida, vê se algum amigo já a importou — a Arena tem sempre
+      // vários jogadores reais (16-18), por isso os dados que ele já
+      // guardou servem também para nós (ver getMatchCacheByIds).
+      const cacheMap = await getMatchCacheByIds(candidateIds, account.username);
+
+      const cachedMatches = [];
+      const idsNeedingApi = [];
+      candidateIds.forEach((id) => {
+        const cached = cacheMap.get(id);
+        const fromCache = cached ? buildMatchFromCache(id, cached, account.riotAccount) : null;
+        if (fromCache) cachedMatches.push(fromCache);
+        else idsNeedingApi.push(id);
+      });
+
+      // 3) Só pede à Riot API os ids que sobraram (sem cache partilhada).
+      const detailsRes = idsNeedingApi.length
+        ? await window.electron.fetchMatchDetails({
+            matchIds: idsNeedingApi,
+            puuid: listRes.puuid,
+            region: account.region || "europe",
+          })
+        : { success: true, matches: [] };
+
+      if (!detailsRes.success) {
+        const msg =
+          detailsRes.error === "missing-api-key"
+            ? t("missing_api_key")
+            : detailsRes.error || t("unknown_error");
+        setSyncStatus({ status: "error", message: msg });
+        return;
+      }
+
+      const normalized = [...cachedMatches, ...detailsRes.matches].map((m) => ({
         ...m,
         champion: normalizeChampionId(m.champion, champions),
       }));
@@ -689,31 +763,26 @@ export default function App() {
         if (m.win) await addWin(account.username, m.champion);
       }
 
-      // Guardamos a data do jogo mais recente que a Riot API devolveu, não a
-      // hora em que a sincronização correu — os jogos por vezes demoram
-      // alguns minutos a aparecer na API depois de terminarem, e se
-      // marcássemos "agora" como referência, um jogo ainda não propagado
-      // nesse instante ficava para sempre fora do intervalo pedido na
-      // próxima sincronização. Se não vier nenhuma partida, não avançamos a
-      // data — fica tudo como estava.
-      const latestGameTimestamp = res.matches.length
-        ? Math.max(...res.matches.map((m) => m.gameEndTimestamp || 0))
-        : null;
-
-      if (latestGameTimestamp) {
-        updateLastSyncFor(account.username, latestGameTimestamp);
-      }
-
+      // "latestMatchTimestamp" (usado no próximo "since") recalcula-se
+      // sozinho a partir de "matches" assim que o setMatches abaixo correr —
+      // não precisa de nenhuma marca própria a guardar aqui. "created_at"
+      // já vem do fim de jogo (gameEndTimestamp), não da hora da
+      // sincronização — os jogos por vezes demoram alguns minutos a
+      // aparecer na API depois de terminarem, e usar a hora "agora" como
+      // referência deixaria sempre um jogo ainda não propagado de fora do
+      // intervalo pedido na próxima sincronização.
       if (account.username === activeAccount) {
         getWins(activeAccount).then((d) => setWins(d || []));
         getMatches(activeAccount).then((d) => setMatches(d || []));
       }
 
+      const cacheHits = cachedMatches.filter((m) => !existingIds.has(m.matchId)).length;
       setSyncStatus({
         status: "done",
         message:
           result.inserted > 0
-            ? `${result.inserted} ${t("matches_imported")}`
+            ? `${result.inserted} ${t("matches_imported")}` +
+              (cacheHits > 0 ? ` (${cacheHits} ${t("matches_from_cache")})` : "")
             : t("already_up_to_date"),
       });
 
@@ -739,10 +808,19 @@ export default function App() {
   // existe no formato de 8 equipas, dá para saber o team_size sem API);
   // 2) para o resto, com riot_match_id, voltamos a consultar a Riot API e
   // fazemos UPDATE na linha já existente (nunca um INSERT novo).
-  const enrichHistory = async () => {
+  // "force" ignora por completo qualquer deteção de "o que precisa de
+  // correção" e a cache partilhada — reconsulta a Riot API para TODAS as
+  // partidas com riot_match_id, para repor valores corretos independente-
+  // mente da causa. Existe por causa de um bug já corrigido em
+  // getMatchCacheByIds (a cache podia usar-se a si própria — uma partida
+  // tua já incompleta — como se fosse "de outro user", escrevendo de volta
+  // double_kills/triple_kills a 0 por cima de um valor já correto). Como
+  // 0 não é "null", isso não fica marcado como "por corrigir" pela deteção
+  // normal — só um "force" (ignora deteção, ignora cache) restaura de vez.
+  const enrichHistory = async (force = false) => {
     const account = accounts.find((a) => a.username === activeAccount);
 
-    const missingTeamSize = matches.filter((m) => !m.team_size);
+    const missingTeamSize = force ? [] : matches.filter((m) => !m.team_size);
     // "participants" pode existir mas vir de uma versão mais antiga desta
     // funcionalidade, sem os campos de dano/ouro/cura por jogador (só
     // campeão/KDA/build/augments) — sem verificar isto, uma partida já
@@ -750,19 +828,23 @@ export default function App() {
     // adicionarmos novos dados a extrair (ver extractAllParticipants em
     // electron.js), e ficava para sempre incompleta no Histórico.
     const hasIncompleteParticipants = (m) =>
-      Array.isArray(m.participants) && m.participants.length > 0 && m.participants[0].damageDealt === undefined;
-    const missingDetails = matches.filter(
-      (m) =>
-        m.riot_match_id &&
-        (m.damage_dealt == null ||
-          m.healing == null ||
-          m.participants == null ||
-          m.double_kills == null ||
-          m.triple_kills == null ||
-          hasIncompleteParticipants(m))
-    );
+      Array.isArray(m.participants) &&
+      m.participants.length > 0 &&
+      (m.participants[0].damageDealt === undefined || m.participants[0].doubleKills === undefined);
+    const missingDetails = force
+      ? matches.filter((m) => m.riot_match_id)
+      : matches.filter(
+          (m) =>
+            m.riot_match_id &&
+            (m.damage_dealt == null ||
+              m.healing == null ||
+              m.participants == null ||
+              m.double_kills == null ||
+              m.triple_kills == null ||
+              hasIncompleteParticipants(m))
+        );
 
-    const localFix = missingTeamSize.filter((m) => m.placement === 7 || m.placement === 8);
+    const localFix = force ? [] : missingTeamSize.filter((m) => m.placement === 7 || m.placement === 8);
     const localFixIds = new Set(localFix.map((m) => m.id));
 
     const needsApiMap = new Map();
@@ -776,7 +858,10 @@ export default function App() {
 
     if (!allAffectedIds.size) return;
 
-    setSyncStatus({ status: "loading", message: t("enriching_history") });
+    setSyncStatus({
+      status: "loading",
+      message: force ? t("repairing_all_history") : t("enriching_history"),
+    });
 
     try {
       if (localFix.length) {
@@ -793,44 +878,70 @@ export default function App() {
           return;
         }
 
-        if (window.electron?.backfillMatchDetails) {
+        // Antes de pedir à Riot API, vê se algum amigo já tem estes mesmos
+        // ids com os dados completos — se sim, o UPDATE usa logo esses
+        // dados, sem gastar pedido nenhum (ver getMatchCacheByIds). Em modo
+        // "force" ignora-se a cache de propósito: o objetivo é repor a
+        // verdade a partir da Riot API, não confiar em mais nenhuma linha
+        // guardada (que podia ter sido afetada pelo mesmo bug).
+        const detailsByMatchId = new Map();
+        const stillNeedsApi = [];
+
+        if (force) {
+          stillNeedsApi.push(...needsApi);
+        } else {
+          const cacheMap = await getMatchCacheByIds(
+            needsApi.map((m) => m.riot_match_id),
+            account.username
+          );
+          needsApi.forEach((m) => {
+            const cached = cacheMap.get(m.riot_match_id);
+            const fromCache = cached ? buildBackfillDetailsFromCache(cached, account.riotAccount) : null;
+            if (fromCache) detailsByMatchId.set(m.riot_match_id, { matchId: m.riot_match_id, ...fromCache });
+            else stillNeedsApi.push(m);
+          });
+        }
+
+        let dbError = null;
+
+        if (stillNeedsApi.length && window.electron?.backfillMatchDetails) {
           const res = await window.electron.backfillMatchDetails({
-            matchIds: needsApi.map((m) => m.riot_match_id),
+            matchIds: stillNeedsApi.map((m) => m.riot_match_id),
             region: account?.region || "europe",
             gameName: account.riotAccount,
             tagLine: account.riotTag,
           });
 
           if (res.success) {
-            const detailsByMatchId = new Map(res.results.map((r) => [r.matchId, r]));
-            let dbError = null;
-            for (const m of needsApi) {
-              const details = detailsByMatchId.get(m.riot_match_id);
-              if (!details) continue;
-              // IMPORTANTE: só conta como corrigida se o UPDATE na Supabase
-              // tiver mesmo sucesso — antes isto era contado sempre, mesmo
-              // quando falhava (ex: coluna "participants" em falta na
-              // tabela), fazendo a app dizer "N partidas enriquecidas"
-              // quando na verdade nada tinha sido gravado, e a mesma partida
-              // nunca mais era assinalada como precisando de correção.
-              const result = await updateMatchDetails(m.id, details);
-              if (result.success) {
-                apiFixed += 1;
-              } else if (!dbError) {
-                dbError = result.error;
-              }
-            }
-            if (dbError && apiFixed === 0) {
-              setSyncStatus({
-                status: "error",
-                message: t("save_matches_error").replace("{error}", dbError),
-              });
-              return;
-            }
+            res.results.forEach((r) => detailsByMatchId.set(r.matchId, r));
           } else if (res.error === "missing-api-key") {
             setSyncStatus({ status: "error", message: t("missing_api_key") });
             return;
           }
+        }
+
+        for (const m of needsApi) {
+          const details = detailsByMatchId.get(m.riot_match_id);
+          if (!details) continue;
+          // IMPORTANTE: só conta como corrigida se o UPDATE na Supabase
+          // tiver mesmo sucesso — antes isto era contado sempre, mesmo
+          // quando falhava (ex: coluna "participants" em falta na
+          // tabela), fazendo a app dizer "N partidas enriquecidas"
+          // quando na verdade nada tinha sido gravado, e a mesma partida
+          // nunca mais era assinalada como precisando de correção.
+          const result = await updateMatchDetails(m.id, details);
+          if (result.success) {
+            apiFixed += 1;
+          } else if (!dbError) {
+            dbError = result.error;
+          }
+        }
+        if (dbError && apiFixed === 0) {
+          setSyncStatus({
+            status: "error",
+            message: t("save_matches_error").replace("{error}", dbError),
+          });
+          return;
         }
       }
 
@@ -876,11 +987,21 @@ export default function App() {
     setTimeout(() => {
       setActiveAccount(name);
       setSwitching(false);
-      setShowAccountManager(false);
+      setShowSettings(false);
     }, 180);
   };
 
   const owned = useMemo(() => new Set(wins), [wins]);
+
+  // Nome de exibição por id de campeão — a Riot usa ids internos que às
+  // vezes não batem certo com o nome (ex: Wukong tem id "MonkeyKing"), por
+  // isso a pesquisa/ordenação/tooltip da Coleção usam sempre este mapa em
+  // vez do id, senão escrever "wukong" não encontrava o próprio Wukong.
+  const championsById = useMemo(() => {
+    const map = {};
+    champions.forEach((c) => { map[c.id] = c.name; });
+    return map;
+  }, [champions]);
 
   // ================= REPARAR VITÓRIAS (a partir do histórico já guardado) =================
   // A lista de vitórias (tab Coleção) fica guardada à parte do histórico de
@@ -962,11 +1083,42 @@ export default function App() {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [q, champions]);
 
-  const filteredWins = useMemo(() => {
-    return wins
-      .filter((c) => q === "" || c.toLowerCase().includes(q))
-      .sort((a, b) => a.localeCompare(b));
-  }, [wins, debouncedSearch]);
+  // "won"/"unowned" partem sempre da lista completa de campeões (não só de
+  // "wins") para o filtro "sem vitória" conseguir mostrar algo — "wins" só
+  // tem os IDs já conquistados, nunca os que faltam.
+  //
+  // A pesquisa compara pelo NOME de exibição (championsById), não pelo id
+  // interno da Riot — para a maioria dos campeões os dois coincidem, mas
+  // não sempre: o Wukong tem id "MonkeyKing" (nome legado, nunca mudou),
+  // por isso comparar só pelo id obrigava a escrever "monkeyking" para o
+  // encontrar, mesmo o campeão se chamando "Wukong" em todo o lado na app.
+  const filteredCollection = useMemo(() => {
+    const bySearch = (id) => {
+      if (q === "") return true;
+      const name = (championsById[id] || id).toLowerCase();
+      return name.includes(q) || id.toLowerCase().includes(q);
+    };
+    // Também por nome (não id) — senão o Wukong ordenava-se sob "M" (de
+    // "MonkeyKing") em vez de "W", o que seria estranho numa grelha alfabética.
+    const byName = (a, b) =>
+      (championsById[a] || a).localeCompare(championsById[b] || b);
+
+    if (collectionFilter === "unowned") {
+      return champions
+        .map((c) => c.id)
+        .filter((id) => !owned.has(id) && bySearch(id))
+        .sort(byName);
+    }
+
+    if (collectionFilter === "all") {
+      return champions
+        .map((c) => c.id)
+        .filter(bySearch)
+        .sort(byName);
+    }
+
+    return wins.filter(bySearch).sort(byName);
+  }, [wins, champions, championsById, owned, collectionFilter, debouncedSearch]);
 
   // ================= RESUMO FILTRADO POR FORMATO =================
   const statsMatches = useMemo(() => {
@@ -978,12 +1130,15 @@ export default function App() {
   // importadas da Riot API mas) sem as estatísticas extra ao estilo op.gg
   // que só passámos a guardar mais tarde, incluindo partidas já
   // "enriquecidas" antes mas com "participants" de uma versão mais antiga
-  // (sem dano/ouro/cura por jogador). Ver enrichHistory.
+  // (sem dano/ouro/cura por jogador, ou sem double/triple kills — campo
+  // adicionado mais tarde a extractAllParticipants). Ver enrichHistory.
   const missingEnrichmentCount = useMemo(() => {
     const ids = new Set();
     matches.forEach((m) => {
       const incompleteParticipants =
-        Array.isArray(m.participants) && m.participants.length > 0 && m.participants[0].damageDealt === undefined;
+        Array.isArray(m.participants) &&
+        m.participants.length > 0 &&
+        (m.participants[0].damageDealt === undefined || m.participants[0].doubleKills === undefined);
       if (!m.team_size) ids.add(m.id);
       else if (
         m.riot_match_id &&
@@ -999,9 +1154,25 @@ export default function App() {
     return ids.size;
   }, [matches]);
 
+  // Enquanto o patch da Data Dragon não chega, DRAGON fica null e todas as
+  // imagens de campeão/item da app simplesmente não aparecem — sem isto o
+  // arranque a frio parecia "partido" por um instante em vez de "a carregar".
+  if (!patch && !patchFailed) {
+    return (
+      <div style={styles.app}>
+        <div style={styles.auroraBlob1} aria-hidden="true" />
+        <div style={styles.auroraBlob2} aria-hidden="true" />
+        <div style={styles.coldLoadingWrap}>
+          <div style={styles.coldLoadingSpinner} />
+          <div style={styles.coldLoadingText}>{t("cold_loading")}</div>
+        </div>
+      </div>
+    );
+  }
+
   const account = accounts.find((a) => a.username === activeAccount);
-  const lastSyncLabel = account?.lastSyncAt
-    ? new Date(account.lastSyncAt).toLocaleString(lang === "en" ? "en-GB" : "pt-PT", {
+  const lastSyncLabel = latestMatchTimestamp
+    ? new Date(latestMatchTimestamp).toLocaleString(lang === "en" ? "en-GB" : "pt-PT", {
         day: "2-digit",
         month: "2-digit",
         hour: "2-digit",
@@ -1149,7 +1320,11 @@ export default function App() {
       <div
         style={{
           width: "100%",
-          maxWidth: 1800,
+          // Fluido em vez de um teto fixo: em monitores grandes o conteúdo
+          // aproveita mais espaço em vez de deixar margens mortas dos lados;
+          // nunca desce abaixo dos 900px (mínimo da janela, ver electron.js)
+          // nem cresce sem limite em monitores muito largos (4K/ultrawide).
+          maxWidth: "clamp(900px, 94vw, 2200px)",
           height: "100%",
           display: "flex",
           flexDirection: "column",
@@ -1183,15 +1358,17 @@ export default function App() {
 
             <div style={styles.topBarDivider} />
 
-            <div style={styles.accountPill}>
-              <span
-                style={{
-                  ...styles.accountDot,
-                  background: activeAccount ? "var(--place-good)" : "var(--text-muted)",
-                }}
-              />
-              <span style={styles.accountName}>{activeAccount || t("no_account")}</span>
-            </div>
+            <Tooltip label={t("switch_account_tooltip")}>
+              <button style={styles.accountPill} onClick={() => openSettings("accounts")}>
+                <span
+                  style={{
+                    ...styles.accountDot,
+                    background: activeAccount ? "var(--place-good)" : "var(--text-muted)",
+                  }}
+                />
+                <span style={styles.accountName}>{activeAccount || t("no_account")}</span>
+              </button>
+            </Tooltip>
           </div>
 
           <div style={styles.topBarRight}>
@@ -1230,7 +1407,7 @@ export default function App() {
                         label={t("enrich_history_tooltip").replace("{count}", missingEnrichmentCount)}
                       >
                         <button
-                          onClick={enrichHistory}
+                          onClick={() => enrichHistory()}
                           style={styles.syncAllBtn}
                           disabled={syncStatus?.status === "loading"}
                         >
@@ -1251,6 +1428,17 @@ export default function App() {
                         </button>
                       </Tooltip>
                     )}
+                    {matches.some((m) => m.riot_match_id) && (
+                      <Tooltip label={t("repair_all_tooltip")}>
+                        <button
+                          onClick={() => setShowRepairAllConfirm(true)}
+                          style={styles.syncAllBtn}
+                          disabled={syncStatus?.status === "loading"}
+                        >
+                          {t("repair_all_btn")}
+                        </button>
+                      </Tooltip>
+                    )}
                   </div>
                 </div>
                 {syncStatus?.status === "loading" && (
@@ -1261,40 +1449,13 @@ export default function App() {
               </div>
             )}
 
-            {/* Cluster de ícones agrupados — visual mais moderno do que 3
-                botões soltos, e reforça que são ações relacionadas
-                (preferências) e não ações principais como o sync. */}
+            {/* Idioma/tema/compactação/contas viviam antes como 4 botões
+                soltos neste cluster — agora vivem todos dentro do modal de
+                Definições, e este ⚙ é a única entrada para lá. */}
             <div style={styles.iconCluster}>
-              <Tooltip label={t("language_label")}>
-                <button
-                  onClick={() => setLang((l) => (l === "pt" ? "en" : "pt"))}
-                  style={styles.iconClusterBtn}
-                >
-                  {lang === "pt" ? "PT" : "EN"}
-                </button>
-              </Tooltip>
-              <div style={styles.iconClusterDivider} />
-              <Tooltip label={theme === "dark" ? t("theme_to_light") : t("theme_to_dark")}>
-                <button
-                  onClick={() => setTheme((th) => (th === "dark" ? "light" : "dark"))}
-                  style={styles.iconClusterBtn}
-                >
-                  {theme === "dark" ? "☀" : "🌙"}
-                </button>
-              </Tooltip>
-              <div style={styles.iconClusterDivider} />
-              <Tooltip label={t("manage_accounts")}>
-                <button onClick={() => setShowAccountManager(true)} style={styles.iconClusterBtn}>
+              <Tooltip label={t("open_settings")}>
+                <button onClick={() => openSettings("general")} style={styles.iconClusterBtn}>
                   ⚙
-                </button>
-              </Tooltip>
-              <div style={styles.iconClusterDivider} />
-              <Tooltip label={headerCompact ? t("stats_expand") : t("stats_collapse")}>
-                <button
-                  onClick={() => setHeaderCompact((c) => !c)}
-                  style={styles.iconClusterBtn}
-                >
-                  {headerCompact ? "⌄" : "⌃"}
                 </button>
               </Tooltip>
             </div>
@@ -1321,7 +1482,7 @@ export default function App() {
                     style={{
                       ...styles.tabBtn,
                       padding: headerCompact ? "4px 16px" : "6px 16px",
-                      color: isActive ? "#ffffff" : "var(--text-secondary)",
+                      color: isActive ? "var(--accent-solid-text)" : "var(--text-secondary)",
                     }}
                   >
                     {isActive && (
@@ -1358,7 +1519,7 @@ export default function App() {
                         style={{
                           ...styles.formatBtn,
                           padding: headerCompact ? "4px 10px" : "6px 10px",
-                          color: isActive ? "#ffffff" : "var(--text-secondary)",
+                          color: isActive ? "var(--accent-solid-text)" : "var(--text-secondary)",
                         }}
                       >
                         {isActive && (
@@ -1517,25 +1678,72 @@ export default function App() {
                 )}
 
                 <div style={styles.cardScroll}>
-                  <h2 style={styles.sectionTitle}>{t("your_victories")}</h2>
-                  <div style={styles.grid} className="scrollArea">
+                  <div style={styles.collectionHeader}>
+                    <div style={styles.collectionTitleRow}>
+                      <h2 style={{ ...styles.sectionTitle, marginBottom: 0 }}>{t("your_victories")}</h2>
+                      <span style={styles.collectionCount}>
+                        {filteredCollection.length} / {champions.length}
+                      </span>
+                    </div>
+                    <div style={styles.segGroup}>
+                      {[
+                        { key: "won", label: t("collection_filter_won") },
+                        { key: "unowned", label: t("collection_filter_unowned") },
+                        { key: "all", label: t("collection_filter_all") },
+                      ].map((opt) => (
+                        <button
+                          key={opt.key}
+                          onClick={() => setCollectionFilter(opt.key)}
+                          style={{
+                            ...styles.segBtn,
+                            ...(collectionFilter === opt.key ? styles.segBtnActive : null),
+                          }}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {/* Sem scroll/altura próprios de propósito — antes a grelha
+                      tinha um maxHeight fixo de 26vh e ficava minúscula em
+                      monitores grandes, com uma barra de scroll aninhada
+                      dentro da área principal (que já é a única zona com
+                      scroll da app). Agora cresce livremente e usa o espaço
+                      todo disponível. */}
+                  <div style={styles.grid}>
                     <AnimatePresence>
-                      {filteredWins.map((champ) => {
+                      {filteredCollection.map((champ) => {
                         const stat = champStats[champ];
-                        const tooltip = stat
+                        const hasWin = owned.has(champ);
+                        const name = championsById[champ] || champ;
+                        const status = stat
                           ? `${stat.games} ${t("wins_count_kda")} ${(stat.kills / stat.games).toFixed(1)}/${(stat.deaths / stat.games).toFixed(1)}/${(stat.assists / stat.games).toFixed(1)}`
-                          : t("no_kda_data_yet");
+                          : hasWin
+                          ? t("no_kda_data_yet")
+                          : t("no_win_yet");
+                        // Sem legenda visível no cartão (só o ícone, para
+                        // caber mais por linha) — o nome vive só no tooltip
+                        // agora, à frente do estado/KDA.
+                        const tooltip = `${name} — ${status}`;
 
                         return (
                           <Tooltip key={champ} label={tooltip}>
                             <motion.div
                               initial={{ opacity: 0, scale: 0.7 }}
-                              animate={{ opacity: 1, scale: 1 }}
+                              // O opacity final vem daqui (não do "style"): o
+                              // framer-motion controla opacity via animate,
+                              // por isso um opacity posto só no style de
+                              // winCardEmpty seria sempre substituído por
+                              // este e nunca se via o esbatimento.
+                              animate={{ opacity: hasWin ? 1 : 0.55, scale: 1 }}
                               exit={{ opacity: 0, scale: 0.7 }}
                               transition={{ duration: 0.08 }}
-                              style={styles.winCard}
+                              style={hasWin ? styles.winCard : styles.winCardEmpty}
                             >
-                              <img src={`${DRAGON}/img/champion/${champ}.png`} style={styles.icon} />
+                              <div style={styles.winIconWrap}>
+                                <img src={`${DRAGON}/img/champion/${champ}.png`} style={styles.winIcon} />
+                                {hasWin && <div style={styles.winBadge}>✓</div>}
+                              </div>
                             </motion.div>
                           </Tooltip>
                         );
@@ -1561,31 +1769,74 @@ export default function App() {
             <div style={styles.emptyStateText}>
               {t("no_active_account_text")}
             </div>
-            <button onClick={() => setShowAccountManager(true)} style={styles.primaryBtn}>
+            <button onClick={() => openSettings("accounts")} style={styles.primaryBtn}>
               {t("manage_accounts")}
             </button>
           </div>
         )}
       </div>
 
-      <AnimatePresence>
-        {showAccountManager && (
-          <AccountManager
-            accounts={accounts}
-            activeAccount={activeAccount}
-            onClose={() => setShowAccountManager(false)}
-            onSwitch={switchAccount}
-            onCreate={createAccountFromManager}
-            onUpdateRiotAccount={updateRiotAccountFor}
-            onDelete={deleteAccount}
-          />
-        )}
-      </AnimatePresence>
+      {showSettings && (
+        <Settings
+          onClose={() => setShowSettings(false)}
+          initialTab={settingsTab}
+          lang={lang}
+          setLang={setLang}
+          theme={theme}
+          setTheme={setTheme}
+          headerCompact={headerCompact}
+          setHeaderCompact={setHeaderCompact}
+          accounts={accounts}
+          activeAccount={activeAccount}
+          onSwitch={switchAccount}
+          onCreate={createAccountFromManager}
+          onUpdateRiotAccount={updateRiotAccountFor}
+          onDelete={deleteAccount}
+        />
+      )}
+
+      {showRepairAllConfirm && (
+        <ConfirmDialog
+          title={t("repair_all_confirm_title")}
+          message={t("repair_all_confirm_message")}
+          confirmLabel={t("repair_all_btn")}
+          onConfirm={() => {
+            setShowRepairAllConfirm(false);
+            enrichHistory(true);
+          }}
+          onCancel={() => setShowRepairAllConfirm(false)}
+        />
+      )}
     </div>
   );
 }
 
 const styles = {
+  coldLoadingWrap: {
+    position: "relative",
+    zIndex: 1,
+    flex: 1,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 14,
+  },
+
+  coldLoadingSpinner: {
+    width: 34,
+    height: 34,
+    borderRadius: "50%",
+    border: "3px solid rgba(var(--accent-rgb),0.2)",
+    borderTopColor: "var(--accent-solid)",
+    animation: "spin 0.8s linear infinite",
+  },
+
+  coldLoadingText: {
+    fontSize: 13,
+    color: "var(--text-secondary)",
+  },
+
   // Sinal visual de "há mais conteúdo abaixo" — só aparece quando a lista
   // ainda não chegou ao fim (ver canScrollDown/updateScrollShadow).
   scrollShadow: {
@@ -1678,7 +1929,7 @@ const styles = {
   liveBannerIcon: {
     width: 36,
     height: 36,
-    borderRadius: 8,
+    borderRadius: "var(--radius-md)",
     pointerEvents: "none",
   },
 
@@ -1757,7 +2008,7 @@ const styles = {
     marginLeft: 6,
     width: 22,
     height: 22,
-    borderRadius: 6,
+    borderRadius: "var(--radius-sm)",
     border: "none",
     background: "rgba(var(--soft-rgb),0.08)",
     color: "var(--text-secondary)",
@@ -1785,7 +2036,7 @@ const styles = {
   brandLogo: {
     height: 28,
     width: 28,
-    borderRadius: 6,
+    borderRadius: "var(--radius-sm)",
   },
 
   brandName: {
@@ -1879,8 +2130,8 @@ const styles = {
   formatIndicator: {
     position: "absolute",
     inset: 0,
-    borderRadius: 8,
-    background: "linear-gradient(135deg, #a855f7, #7c3aed)",
+    borderRadius: "var(--radius-md)",
+    background: "var(--accent-gradient)",
     boxShadow: "0 3px 12px rgba(79,70,229,0.45)",
     zIndex: 0,
   },
@@ -1914,8 +2165,8 @@ const styles = {
   tabIndicator: {
     position: "absolute",
     inset: 0,
-    borderRadius: 10,
-    background: "linear-gradient(135deg, #a855f7, #7c3aed)",
+    borderRadius: "var(--radius-lg)",
+    background: "var(--accent-gradient)",
     boxShadow: "0 3px 12px rgba(79,70,229,0.45)",
     zIndex: 0,
   },
@@ -1947,7 +2198,7 @@ const styles = {
     gap: 8,
     marginTop: 8,
     padding: "10px 14px 12px",
-    borderRadius: 16,
+    borderRadius: "var(--radius-2xl)",
     background: "linear-gradient(180deg, rgba(var(--panel-rgb),0.95), rgba(var(--panel-deep-rgb),0.97))",
     border: "1px solid rgba(var(--border-rgb),0.5)",
     boxShadow: "0 1px 0 rgba(255,255,255,0.04) inset, 0 6px 18px rgba(0,0,0,0.18)",
@@ -1981,6 +2232,7 @@ const styles = {
     borderRadius: 20,
     background: "rgba(var(--soft-rgb),0.06)",
     border: "1px solid rgba(var(--border-rgb),0.4)",
+    cursor: "pointer",
   },
 
   accountDot: {
@@ -2003,7 +2255,7 @@ const styles = {
   iconCluster: {
     display: "flex",
     alignItems: "stretch",
-    borderRadius: 10,
+    borderRadius: "var(--radius-lg)",
     border: "1px solid rgba(var(--accent-rgb),0.25)",
     background: "rgba(var(--panel-deep-rgb),0.85)",
     overflow: "hidden",
@@ -2017,11 +2269,6 @@ const styles = {
     cursor: "pointer",
     fontSize: 12,
     transition: "background 0.15s ease",
-  },
-
-  iconClusterDivider: {
-    width: 1,
-    background: "rgba(var(--border-rgb),0.4)",
   },
 
   syncBox: {
@@ -2043,7 +2290,7 @@ const styles = {
 
   syncBtn: {
     padding: "6px 10px",
-    borderRadius: 8,
+    borderRadius: "var(--radius-md)",
     border: "1px solid rgba(var(--accent-rgb),0.25)",
     background: "rgba(var(--panel-deep-rgb),0.85)",
     color: "var(--accent-text)",
@@ -2055,7 +2302,7 @@ const styles = {
 
   syncAllBtn: {
     padding: "6px 10px",
-    borderRadius: 8,
+    borderRadius: "var(--radius-md)",
     border: "1px solid rgba(var(--soft-rgb),0.15)",
     background: "transparent",
     color: "var(--text-secondary)",
@@ -2067,7 +2314,7 @@ const styles = {
   syncProgressTrack: {
     width: 140,
     height: 4,
-    borderRadius: 4,
+    borderRadius: "var(--radius-xs)",
     overflow: "hidden",
     background: "rgba(var(--accent-rgb),0.15)",
     marginTop: 2,
@@ -2076,15 +2323,15 @@ const styles = {
   syncProgressFill: {
     height: "100%",
     width: "30%",
-    borderRadius: 4,
-    background: "#7c3aed",
+    borderRadius: "var(--radius-xs)",
+    background: "var(--accent-solid)",
     animation: "growSyncBar 1.2s ease-in-out infinite",
   },
 
   cardScroll: {
     background: "linear-gradient(180deg, rgba(var(--panel-rgb),0.92), rgba(var(--panel-deep-rgb),0.96))",
     border: "1px solid rgba(var(--border-rgb),0.5)",
-    borderRadius: 16,
+    borderRadius: "var(--radius-2xl)",
     padding: 18,
     marginTop: 16,
     display: "flex",
@@ -2093,12 +2340,60 @@ const styles = {
 
   sectionTitle: { marginBottom: 12, color: "var(--accent-text)" },
 
+  // Título+contagem numa linha, filtro por baixo — em vez de tudo espremido
+  // numa única linha (o segGroup ficava a competir por espaço com o título
+  // em ecrãs mais estreitos), agora cada peça tem sempre a largura toda.
+  collectionHeader: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+  },
+
+  collectionTitleRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "baseline",
+    gap: 10,
+  },
+
+  collectionCount: {
+    fontSize: 12,
+    fontWeight: 600,
+    color: "var(--text-muted)",
+  },
+
+  segGroup: {
+    display: "flex",
+    gap: 2,
+    padding: 2,
+    alignSelf: "flex-start",
+    borderRadius: "var(--radius-md)",
+    background: "rgba(var(--panel-deep-rgb),0.9)",
+    border: "1px solid rgba(var(--border-rgb),0.4)",
+  },
+
+  segBtn: {
+    padding: "6px 12px",
+    borderRadius: "var(--radius-sm)",
+    border: "none",
+    background: "transparent",
+    color: "var(--text-secondary)",
+    cursor: "pointer",
+    fontSize: 12,
+    fontWeight: 600,
+  },
+
+  segBtnActive: {
+    background: "var(--accent-solid)",
+    color: "var(--accent-solid-text)",
+  },
+
   primaryBtn: {
     padding: "10px 14px",
-    borderRadius: 10,
+    borderRadius: "var(--radius-lg)",
     border: "none",
-    background: "#7c3aed",
-    color: "#ffffff",
+    background: "var(--accent-solid)",
+    color: "var(--accent-solid-text)",
     cursor: "pointer",
   },
 
@@ -2126,7 +2421,7 @@ const styles = {
     fontSize: 10,
     color: "var(--text-muted)",
     border: "1px solid rgba(var(--border-rgb),0.4)",
-    borderRadius: 6,
+    borderRadius: "var(--radius-sm)",
     padding: "2px 6px",
     whiteSpace: "nowrap",
     flexShrink: 0,
@@ -2156,7 +2451,7 @@ const styles = {
   quickCheckIcon: {
     width: 40,
     height: 40,
-    borderRadius: 8,
+    borderRadius: "var(--radius-md)",
     pointerEvents: "none",
   },
 
@@ -2176,28 +2471,78 @@ const styles = {
     marginTop: 1,
   },
 
+  // Cartões compactos, com nome visível (antes eram só ícones de 48px, sem
+  // legenda, presos a uma grelha com maxHeight de 26vh fixo — minúscula e
+  // desperdiçava todo o espaço extra em monitores grandes). Sem altura
+  // própria: cresce livremente, a única scroll é a da área principal.
+  // Tamanho pensado para caber o máximo de campeões por linha (menos scroll
+  // a percorrer), não para os cartões serem grandes.
   grid: {
-    padding: "3px",
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fill, minmax(54px, 1fr))",
-    gap: 10,
-    marginTop: 12,
-    maxHeight: "26vh",
+    gridTemplateColumns: "repeat(auto-fill, minmax(60px, 1fr))",
+    gap: 8,
+    marginTop: 4,
   },
 
+  // Só o ícone (o nome do campeão vive no tooltip, não no cartão — cabe
+  // mais por linha assim, menos scroll a percorrer para ver a coleção
+  // toda).
   winCard: {
-    borderRadius: 12,
-    padding: 3,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: "var(--radius-md)",
+    padding: 4,
     border: "1px solid rgba(var(--accent-rgb),0.4)",
     background: "rgba(var(--accent-rgb),0.12)",
   },
 
-  icon: { width: 48, height: 48, borderRadius: 10, pointerEvents: "none" },
+  // Usado só no filtro "Todos" — campeões sem vitória ficam visivelmente
+  // apagados ao lado dos que já a têm, em vez de todos terem o mesmo peso
+  // visual (mesma linguagem das conquistas por desbloquear).
+  winCardEmpty: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: "var(--radius-md)",
+    padding: 4,
+    border: "1px solid rgba(var(--border-rgb),0.3)",
+    background: "rgba(var(--panel-deep-rgb),0.5)",
+  },
+
+  winIconWrap: {
+    position: "relative",
+  },
+
+  winIcon: {
+    width: "clamp(36px, 2.6vw, 46px)",
+    height: "clamp(36px, 2.6vw, 46px)",
+    borderRadius: "var(--radius-md)",
+    pointerEvents: "none",
+  },
+
+  winBadge: {
+    position: "absolute",
+    bottom: -2,
+    right: -2,
+    width: 14,
+    height: 14,
+    borderRadius: "50%",
+    background: "var(--place-good)",
+    color: "#fff",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: 9,
+    fontWeight: 800,
+    border: "1.5px solid var(--bg-mid)",
+    lineHeight: 1,
+  },
 
   emptyState: {
     marginTop: 40,
     padding: 30,
-    borderRadius: 16,
+    borderRadius: "var(--radius-2xl)",
     background: "linear-gradient(180deg, rgba(var(--panel-rgb),0.92), rgba(var(--panel-deep-rgb),0.96))",
     border: "1px solid rgba(var(--border-rgb),0.5)",
     textAlign: "center",

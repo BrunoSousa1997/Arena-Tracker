@@ -42,6 +42,7 @@ contextBridge.exposeInMainWorld("electron", {
   },
 
   exportFile: (payload) => ipcRenderer.invoke("export:saveFile", payload),
-  importRiotHistory: (payload) => ipcRenderer.invoke("riotapi:importHistory", payload),
+  listMatchIds: (payload) => ipcRenderer.invoke("riotapi:listMatchIds", payload),
+  fetchMatchDetails: (payload) => ipcRenderer.invoke("riotapi:fetchMatchDetails", payload),
   backfillMatchDetails: (payload) => ipcRenderer.invoke("riotapi:backfillMatchDetails", payload),
 });

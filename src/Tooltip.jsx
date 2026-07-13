@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { cloneElement, isValidElement, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 // Tooltip partilhado por toda a app — substitui os antigos atributos
@@ -30,6 +30,7 @@ export default function Tooltip({ label, children, position = "top", disabled = 
   const [finalStyle, setFinalStyle] = useState(null);
   const wrapRef = useRef(null);
   const bubbleRef = useRef(null);
+  const bubbleId = useId();
 
   const show = () => {
     const rect = wrapRef.current?.getBoundingClientRect();
@@ -84,18 +85,35 @@ export default function Tooltip({ label, children, position = "top", disabled = 
 
   if (!label || disabled) return children;
 
+  // Além de rato (onMouseEnter/Leave), reage a foco/desfoco por teclado
+  // (onFocus/onBlur fazem "bubble" no React mesmo o evento nativo não
+  // fazendo) — sem isto, quem navega por Tab nunca via a explicação de
+  // botões só-com-ícone (editar/apagar conta, sincronizar, etc.), só quem
+  // usava rato. E se o filho for um único elemento, ligamos
+  // aria-describedby a ele para leitores de ecrã também apanharem o texto.
+  const describedChild =
+    isValidElement(children) && coords
+      ? cloneElement(children, {
+          "aria-describedby": bubbleId,
+        })
+      : children;
+
   return (
     <span
       ref={wrapRef}
       style={style ? { ...styles.wrap, ...style } : styles.wrap}
       onMouseEnter={show}
       onMouseLeave={hide}
+      onFocus={show}
+      onBlur={hide}
     >
-      {children}
+      {describedChild}
       {coords &&
         createPortal(
           <span
             ref={bubbleRef}
+            id={bubbleId}
+            role="tooltip"
             style={{
               ...styles.bubble,
               ...(finalStyle
