@@ -13,15 +13,15 @@
   --panel-deep-rgb: 15, 16, 21;
   --soft-rgb: 255, 255, 255;
 
-  --accent-text: #9499f5;
+  --accent-text: #ab8bfa;
   --text-body: #e9eaee;
   --text-secondary: #9aa0ab;
   --text-secondary-rgb: 154, 160, 171;
   --text-muted: #6d7280;
 
-  --place-good: #4ade80;
-  --place-mid: #fb923c;
-  --place-low: #f87171;
+  --place-good: #2fe08a;
+  --place-mid: #ff9a2e;
+  --place-low: #ff5c5c;
   --place-unknown: #6d7280;
 
   --text: #9ca3af;
@@ -29,9 +29,9 @@
   --bg: #16171d;
   --border: #2e303a;
   --code-bg: #1f2028;
-  --accent: #c084fc;
-  --accent-bg: rgba(192, 132, 252, 0.15);
-  --accent-border: rgba(192, 132, 252, 0.5);
+  --accent: #d17bff;
+  --accent-bg: rgba(209, 123, 255, 0.16);
+  --accent-border: rgba(209, 123, 255, 0.55);
 }
 
 :root[data-theme="light"] {
@@ -45,15 +45,15 @@
   --panel-deep-rgb: 243, 244, 247;
   --soft-rgb: 0, 0, 0;
 
-  --accent-text: #4338ca;
+  --accent-text: #6d28d9;
   --text-body: #14161c;
   --text-secondary: #565d6a;
   --text-secondary-rgb: 86, 93, 106;
   --text-muted: #868c98;
 
-  --place-good: #15803d;
-  --place-mid: #c2410c;
-  --place-low: #b91c1c;
+  --place-good: #0f9d4e;
+  --place-mid: #d94e0a;
+  --place-low: #d21f1f;
   --place-unknown: #6b7280;
 
   --text: #6b6375;
@@ -61,9 +61,9 @@
   --bg: #fff;
   --border: #e5e4e7;
   --code-bg: #f4f3ec;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
+  --accent: #b347ff;
+  --accent-bg: rgba(179, 71, 255, 0.12);
+  --accent-border: rgba(179, 71, 255, 0.55);
 }
 
 /* --accent-rgb: índigo vívido, só para o que deve mesmo destacar-se (tab
@@ -72,8 +72,9 @@
    linha subtil para todos os containers/painéis, para não pintar tudo da
    mesma cor e perder hierarquia visual. */
 :root {
-  --accent-rgb: 99, 102, 241;
-  --accent-solid: #4f46e5;
+  --accent-rgb: 147, 74, 246;
+  --accent-solid: #7c3aed;
+  --accent-solid-2: #d946ef;
   --accent-solid-text: #ffffff;
   --border-rgb: 148, 154, 166;
 }

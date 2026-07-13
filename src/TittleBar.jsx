@@ -90,7 +90,7 @@ const styles = {
         alignItems: "center",
         justifyContent: "center",
         border: "none",
-        background: "#4f46e5",
+        background: "#7c3aed",
         color: "#ffffff",
         borderRadius: 6,
         cursor: "pointer",

@@ -453,7 +453,7 @@ const styles = {
     fontWeight: 600,
     padding: "2px 6px",
     borderRadius: 6,
-    background: "#4f46e5",
+    background: "#7c3aed",
     color: "#ffffff",
   },
 
@@ -544,7 +544,7 @@ const styles = {
     padding: "10px 16px",
     borderRadius: 10,
     border: "none",
-    background: "linear-gradient(135deg, #6366f1, #4f46e5)",
+    background: "linear-gradient(135deg, #a855f7, #7c3aed)",
     color: "#ffffff",
     cursor: "pointer",
     fontSize: 13,

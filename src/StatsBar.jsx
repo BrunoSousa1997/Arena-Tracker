@@ -8,6 +8,19 @@ function kdaLabel(k, d, a) {
   return `${k.toFixed(1)} / ${d.toFixed(1)} / ${a.toFixed(1)}`;
 }
 
+// Fundo translúcido por trás dos números com resultado (vitórias/top3/
+// derrotas/winrate) — antes só a cor do texto distinguia cada métrica, o que
+// deixava a barra visualmente plana. Um chip com a mesma cor do texto, bem
+// suave, dá presença a cada número sem competir com ele.
+function chipStyle(color) {
+  return {
+    padding: "4px 10px",
+    borderRadius: 9,
+    background: `color-mix(in srgb, ${color} 14%, transparent)`,
+    border: `1px solid color-mix(in srgb, ${color} 30%, transparent)`,
+  };
+}
+
 // Resumo geral partilhado por todas as tabs — antes só existia (de forma
 // diferente) dentro de Visão Geral e Estatísticas; agora é um único
 // componente sempre visível, logo abaixo das tabs. "matches" já vem
@@ -124,7 +137,7 @@ export default function StatsBar({ matches, teamSizeFilter, wins: winsList, cham
                 <div style={styles.summaryLabel}>{t("stat_games")}</div>
               </div>
               <div style={styles.summaryDivider} />
-              <div style={styles.summaryItem}>
+              <div style={{ ...styles.summaryItem, ...chipStyle("var(--place-good)") }}>
                 <div style={{ ...styles.summaryValue, color: "var(--place-good)" }}>
                   {stats.wins}
                   {stats.wins > 0 && <span style={styles.summarySub}> ({stats.uniqueWinChamps} {t("champions_suffix")})</span>}
@@ -132,17 +145,17 @@ export default function StatsBar({ matches, teamSizeFilter, wins: winsList, cham
                 <div style={styles.summaryLabel}>{t("stat_wins_first")}</div>
               </div>
               <div style={styles.summaryDivider} />
-              <div style={styles.summaryItem}>
+              <div style={{ ...styles.summaryItem, ...chipStyle(placementColor(3)) }}>
                 <div style={{ ...styles.summaryValue, color: placementColor(3) }}>{stats.top3Games}</div>
                 <div style={styles.summaryLabel}>{t("stat_wins_top3")}</div>
               </div>
               <div style={styles.summaryDivider} />
-              <div style={styles.summaryItem}>
+              <div style={{ ...styles.summaryItem, ...chipStyle("var(--place-low)") }}>
                 <div style={{ ...styles.summaryValue, color: "var(--place-low)" }}>{stats.belowTop3Games}</div>
                 <div style={styles.summaryLabel}>{t("stat_losses")}</div>
               </div>
               <div style={styles.summaryDivider} />
-              <div style={styles.summaryItem}>
+              <div style={{ ...styles.summaryItem, ...chipStyle("var(--accent-text)") }}>
                 <div style={{ ...styles.summaryValue, color: "var(--accent-text)" }}>{stats.winrate}%</div>
                 <div style={styles.summaryLabel}>{t("stat_winrate_first")}</div>
               </div>

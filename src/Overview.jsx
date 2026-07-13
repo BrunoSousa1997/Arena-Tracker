@@ -10,6 +10,18 @@ function avgOf(sum, count) {
   return count ? sum / count : null;
 }
 
+// Fundo translúcido por trás dos números com resultado no resumo de topo —
+// mesma ideia do StatsBar (ver chipStyle lá), para o "0%"/streaks também
+// terem presença própria em vez de só texto colorido sobre fundo neutro.
+function heroChipStyle(color) {
+  return {
+    padding: "4px 10px",
+    borderRadius: 9,
+    background: `color-mix(in srgb, ${color} 14%, transparent)`,
+    border: `1px solid color-mix(in srgb, ${color} 30%, transparent)`,
+  };
+}
+
 // Duração em segundos -> "m:ss", para os destaques de vitória mais rápida e
 // partida mais longa (mesma lógica usada no Histórico, ver MatchHistory.jsx).
 function formatDuration(seconds) {
@@ -840,14 +852,14 @@ export default function Overview({ matches, wins, champions, DRAGON, onOpenChamp
               <div style={styles.heroStatLabel}>{t("overview_total_games")}</div>
             </div>
             <div style={styles.heroStatDivider} />
-            <div style={styles.heroStat}>
+            <div style={{ ...styles.heroStat, ...heroChipStyle(placementColor(3)) }}>
               <div style={{ ...styles.heroStatValue, color: placementColor(3) }}>
                 {top3RatePct}%
               </div>
               <div style={styles.heroStatLabel}>{t("overview_top3_rate")}</div>
             </div>
             <div style={styles.heroStatDivider} />
-            <div style={styles.heroStat}>
+            <div style={{ ...styles.heroStat, ...heroChipStyle("var(--place-good)") }}>
               <div style={{ ...styles.heroStatValue, color: "var(--place-good)" }}>
                 {top1RatePct}%
               </div>
@@ -856,7 +868,14 @@ export default function Overview({ matches, wins, champions, DRAGON, onOpenChamp
             {streaks.current > 1 && (
               <>
                 <div style={styles.heroStatDivider} />
-                <div style={styles.heroStat}>
+                <div
+                  style={{
+                    ...styles.heroStat,
+                    ...heroChipStyle(
+                      streaks.currentType === "win" ? "var(--place-good)" : "var(--place-low)"
+                    ),
+                  }}
+                >
                   <div
                     style={{
                       ...styles.heroStatValue,
@@ -1321,7 +1340,7 @@ const styles = {
 
   progressFill: {
     height: "100%",
-    background: "linear-gradient(90deg, #9aa0a6, #6366f1)",
+    background: "linear-gradient(90deg, #9aa0a6, #a855f7)",
     borderRadius: 6,
   },
 

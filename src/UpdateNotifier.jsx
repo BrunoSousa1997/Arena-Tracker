@@ -78,7 +78,7 @@ const styles = {
     padding: "5px 10px",
     borderRadius: 8,
     border: "none",
-    background: "#4f46e5",
+    background: "#7c3aed",
     color: "#ffffff",
     cursor: "pointer",
     fontSize: 12,

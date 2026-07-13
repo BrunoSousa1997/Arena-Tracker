@@ -915,8 +915,8 @@ const styles = {
   },
 
   chipActive: {
-    background: "linear-gradient(135deg, #6366f1, #4f46e5)",
-    borderColor: "#4f46e5",
+    background: "linear-gradient(135deg, #a855f7, #7c3aed)",
+    borderColor: "#7c3aed",
     color: "#ffffff",
     boxShadow: "0 3px 10px rgba(79,70,229,0.4)",
   },

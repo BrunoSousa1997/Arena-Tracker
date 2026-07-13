@@ -18,11 +18,11 @@ export function placementColor(placement) {
 // sufixo de alpha em hex (ex: `${cor}26`) como antes. Estes dois helpers
 // fazem o mesmo com color-mix(), que funciona com qualquer var() na origem.
 export function placementBg(placement) {
-  return `color-mix(in srgb, ${placementColor(placement)} 15%, transparent)`;
+  return `color-mix(in srgb, ${placementColor(placement)} 22%, transparent)`;
 }
 
 export function placementBorder(placement) {
-  return `color-mix(in srgb, ${placementColor(placement)} 40%, transparent)`;
+  return `color-mix(in srgb, ${placementColor(placement)} 55%, transparent)`;
 }
 
 export function placementText(placement) {
