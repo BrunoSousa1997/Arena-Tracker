@@ -45,4 +45,5 @@ contextBridge.exposeInMainWorld("electron", {
   listMatchIds: (payload) => ipcRenderer.invoke("riotapi:listMatchIds", payload),
   fetchMatchDetails: (payload) => ipcRenderer.invoke("riotapi:fetchMatchDetails", payload),
   backfillMatchDetails: (payload) => ipcRenderer.invoke("riotapi:backfillMatchDetails", payload),
+  canaryCheck: (payload) => ipcRenderer.invoke("riotapi:canaryCheck", payload),
 });

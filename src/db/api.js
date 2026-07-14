@@ -209,18 +209,31 @@ function multikillFromCounts(doubleKills, tripleKills) {
   return 0;
 }
 
+// Localiza a nossa própria entrada dentro de "participants" de uma partida
+// que outro user importou — é a única forma de saber "qual destes 16-18
+// jogadores sou eu". Tenta primeiro por puuid (estável, nunca muda) e só cai
+// para o nome Riot se a linha em cache for antiga e ainda não tiver puuid
+// guardado por participante (ver extractAllParticipants em electron.js) —
+// nome pode diferir por maiúsculas/espaços ou por o Riot ID ter mudado desde
+// que o amigo importou esta partida, o que antes fazia isto falhar em
+// silêncio e cair sempre para um pedido à Riot API mesmo havendo cache.
+function findSelfInParticipants(participants, puuid, gameName) {
+  if (puuid) {
+    const byPuuid = participants.find((p) => p.puuid && p.puuid === puuid);
+    if (byPuuid) return byPuuid;
+  }
+  if (!gameName) return null;
+  const needle = gameName.trim().toLowerCase();
+  return participants.find((p) => p.name && p.name.trim().toLowerCase() === needle) || null;
+}
+
 // Reconstrói o registo de uma partida (mesmo formato que uma importação
 // normal via Riot API produziria) a partir de uma linha já em cache — sem
-// pedir nada à Riot. Localiza a nossa própria entrada dentro de
-// "participants" pelo nome Riot (o "gameName" usado para sincronizar, sem a
-// tag) — é a única forma de saber "qual destes 16-18 jogadores sou eu"
-// numa partida que outro user importou. Devolve null se não encontrar
-// ninguém com esse nome (não devia acontecer para uma partida onde
-// realmente jogámos, mas nomes podem mudar entre partidas).
-export function buildMatchFromCache(matchId, cached, gameName) {
+// pedir nada à Riot. Devolve null se não encontrar a nossa entrada (não
+// devia acontecer para uma partida onde realmente jogámos).
+export function buildMatchFromCache(matchId, cached, puuid, gameName) {
   const participants = cached.participants || [];
-  const needle = gameName.trim().toLowerCase();
-  const me = participants.find((p) => p.name && p.name.trim().toLowerCase() === needle);
+  const me = findSelfInParticipants(participants, puuid, gameName);
   // Nunca aceitar uma linha em cache com dados a meio — sem isto, tentar
   // reconstruir a partir de um "participants" desatualizado dava valores
   // a 0 onde já podia ter havido um número real (ver aviso em
@@ -262,10 +275,9 @@ export function buildMatchFromCache(matchId, cached, gameName) {
 // campos que o backfill/enriquecimento precisa de atualizar numa partida já
 // existente (ver updateMatchDetails) — sem os campos que uma partida já
 // importada não muda (champion/kills/placement/etc.).
-export function buildBackfillDetailsFromCache(cached, gameName) {
+export function buildBackfillDetailsFromCache(cached, puuid, gameName) {
   const participants = cached.participants || [];
-  const needle = gameName.trim().toLowerCase();
-  const me = participants.find((p) => p.name && p.name.trim().toLowerCase() === needle);
+  const me = findSelfInParticipants(participants, puuid, gameName);
   if (!me || !isParticipantComplete(me)) return null;
 
   return {

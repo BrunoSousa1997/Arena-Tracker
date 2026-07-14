@@ -28,6 +28,41 @@ import { normalizeChampionId } from "./champions";
 import { useLanguage, LANGUAGES } from "./i18n";
 import { getRoast } from "./roasts";
 
+// Processa uma lista com um nº fixo de "trabalhadores" em paralelo — mesmo
+// padrão do processWithConcurrency em electron.js, mas usado aqui só para
+// UPDATEs à Supabase (ver enrichHistory), que não têm nenhum rate limit da
+// Riot a respeitar, por isso sem nenhum wait() entre pedidos.
+async function runWithConcurrency(items, concurrency, handler) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const current = nextIndex++;
+      results[current] = await handler(items[current], current);
+    }
+  }
+
+  const workerCount = Math.min(concurrency, items.length);
+  await Promise.all(Array.from({ length: workerCount }, worker));
+  return results;
+}
+
+// Nº de UPDATEs à Supabase em voo ao mesmo tempo durante o "Reparar tudo" —
+// sem relação nenhuma com o limite da Riot API (isto fala só com a nossa
+// própria base de dados). Valor conservador para não sobrecarregar a ligação
+// do utilizador nem a Supabase, mas já bem acima do "1 de cada vez" anterior.
+const DB_UPDATE_CONCURRENCY = 10;
+
+// Rede de segurança para a verificação "canário" (ver riotapi:canaryCheck em
+// electron.js e canaryDue em syncActiveAccount) — o gatilho normal é o patch
+// atual ter mudado desde a última verificação (um queueId de Arena só muda
+// mesmo num patch novo), não um temporizador. Isto só entra em jogo se
+// "patch" nunca tiver sido resolvido (ex: sem internet no arranque, ver
+// patchFailed) — nesse caso cai para repetir de X em X tempo, para a
+// verificação não ficar permanentemente desligada.
+const CANARY_CHECK_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
+
 export default function App() {
   const { t, lang, setLang } = useLanguage();
 
@@ -634,16 +669,24 @@ export default function App() {
   };
 
   const updateRiotAccountFor = (username, { riotAccount, riotTag, region }) => {
-    const updated = accounts.map((a) =>
-      a.username === username
-        ? {
-            ...a,
-            riotAccount: riotAccount?.trim() || username,
-            riotTag: riotTag?.trim() || "",
-            region: region || a.region || "europe",
-          }
-        : a
-    );
+    const updated = accounts.map((a) => {
+      if (a.username !== username) return a;
+
+      const newRiotAccount = riotAccount?.trim() || username;
+      const newRiotTag = riotTag?.trim() || "";
+      // Se o Riot ID (nome ou tag) mudar, o puuid guardado em cache já não
+      // corresponde a ninguém real — limpa-o para forçar uma nova resolução
+      // via account-v1 na próxima sincronização (ver puuid em syncActiveAccount).
+      const identityChanged = newRiotAccount !== a.riotAccount || newRiotTag !== a.riotTag;
+
+      return {
+        ...a,
+        riotAccount: newRiotAccount,
+        riotTag: newRiotTag,
+        region: region || a.region || "europe",
+        puuid: identityChanged ? null : a.puuid,
+      };
+    });
 
     setAccounts(updated);
     localStorage.setItem("riot-accounts", JSON.stringify(updated));
@@ -696,6 +739,11 @@ export default function App() {
         tagLine: account.riotTag,
         region: account.region || "europe",
         since: latestMatchTimestamp || null,
+        // Se já sabemos o puuid desta conta (ver abaixo), poupa o pedido a
+        // account-v1 que resolveria gameName+tagLine -> puuid outra vez —
+        // um Riot ID só muda por ação do próprio jogador (ver
+        // updateRiotAccountFor, que limpa o puuid guardado nesse caso).
+        puuid: account.puuid || null,
       });
 
       if (!listRes.success) {
@@ -705,6 +753,17 @@ export default function App() {
             : listRes.error || t("unknown_error");
         setSyncStatus({ status: "error", message: msg });
         return;
+      }
+
+      // Primeira vez que resolvemos este puuid (ou a key mudou de algum
+      // modo) — guarda-o na conta para todas as sincronizações seguintes,
+      // incluindo o enrichHistory logo a seguir, poderem reaproveitá-lo.
+      if (listRes.puuid && listRes.puuid !== account.puuid) {
+        const updatedAccounts = accounts.map((a) =>
+          a.username === account.username ? { ...a, puuid: listRes.puuid } : a
+        );
+        setAccounts(updatedAccounts);
+        localStorage.setItem("riot-accounts", JSON.stringify(updatedAccounts));
       }
 
       const existingIds = await getImportedMatchIds(account.username);
@@ -720,7 +779,7 @@ export default function App() {
       const idsNeedingApi = [];
       candidateIds.forEach((id) => {
         const cached = cacheMap.get(id);
-        const fromCache = cached ? buildMatchFromCache(id, cached, account.riotAccount) : null;
+        const fromCache = cached ? buildMatchFromCache(id, cached, listRes.puuid, account.riotAccount) : null;
         if (fromCache) cachedMatches.push(fromCache);
         else idsNeedingApi.push(id);
       });
@@ -743,11 +802,60 @@ export default function App() {
         return;
       }
 
-      const normalized = [...cachedMatches, ...detailsRes.matches].map((m) => ({
+      // 4) De vez em quando (não a cada sync), confirma que a listagem
+      // filtrada por queue (passo 1) não está a deixar escapar partidas de
+      // Arena com um queueId que ainda não conhecemos — ver
+      // riotapi:canaryCheck em electron.js. Um queueId de Arena só muda
+      // mesmo num patch novo (foi assim que aconteceu desta vez, ver
+      // ARENA_QUEUE_IDS), e a app já sabe o patch atual (Data Dragon, ver
+      // "patch" acima) — por isso corre sempre que o patch mudou desde a
+      // última verificação, em vez de um temporizador cego: nunca falha uma
+      // mudança de patch, e nunca gasta pedidos extra a meio de um patch sem
+      // alterações. Se o patch nunca tiver sido resolvido (offline, ver
+      // "patchFailed"), cai para o temporizador (CANARY_CHECK_INTERVAL_MS)
+      // como rede de segurança, para a verificação não ficar permanentemente
+      // desligada. Silenciosamente ignorado se falhar (não é crítico, tenta-
+      // se de novo no próximo sync).
+      let canaryMatches = [];
+      const canaryDue = patch
+        ? account.lastCanaryPatch !== patch
+        : !account.lastCanaryCheck || Date.now() - account.lastCanaryCheck > CANARY_CHECK_INTERVAL_MS;
+      if (canaryDue && window.electron?.canaryCheck) {
+        const canaryRes = await window.electron.canaryCheck({
+          puuid: listRes.puuid,
+          region: account.region || "europe",
+          knownIds: [...existingIds, ...listRes.ids],
+        });
+
+        if (canaryRes.success) {
+          canaryMatches = canaryRes.newArenaMatches || [];
+          if (canaryRes.unknownQueueIds?.length) {
+            console.warn(
+              "[canary] queueId(s) de Arena desconhecido(s) detetado(s):",
+              canaryRes.unknownQueueIds
+            );
+          }
+
+          // Guarda os dois: "lastCanaryPatch" é o gatilho normal (ver
+          // canaryDue acima); "lastCanaryCheck" só serve de rede de
+          // segurança para quando "patch" não está disponível.
+          const updatedAccounts = accounts.map((a) =>
+            a.username === account.username
+              ? { ...a, lastCanaryPatch: patch || a.lastCanaryPatch, lastCanaryCheck: Date.now() }
+              : a
+          );
+          setAccounts(updatedAccounts);
+          localStorage.setItem("riot-accounts", JSON.stringify(updatedAccounts));
+        }
+      }
+
+      const normalized = [...cachedMatches, ...detailsRes.matches, ...canaryMatches].map((m) => ({
         ...m,
         champion: normalizeChampionId(m.champion, champions),
       }));
-      const newMatches = normalized.filter((m) => !existingIds.has(m.matchId));
+      const newMatches = normalized.filter(
+        (m, index, arr) => !existingIds.has(m.matchId) && arr.findIndex((x) => x.matchId === m.matchId) === index
+      );
 
       const result = await addMatchesBulk(account.username, newMatches);
 
@@ -791,7 +899,8 @@ export default function App() {
       // Encadeia a correção de partidas já importadas mas incompletas — fica
       // sem efeito nenhum (nem sequer muda o status na UI) quando não há
       // nada para corrigir, ver early-return no início de enrichHistory.
-      await enrichHistory();
+      // Passa o puuid já resolvido acima para não o voltar a pedir à Riot.
+      await enrichHistory(false, listRes.puuid);
     } catch (err) {
       setSyncStatus({ status: "error", message: err?.message || String(err) });
     }
@@ -817,8 +926,14 @@ export default function App() {
   // double_kills/triple_kills a 0 por cima de um valor já correto). Como
   // 0 não é "null", isso não fica marcado como "por corrigir" pela deteção
   // normal — só um "force" (ignora deteção, ignora cache) restaura de vez.
-  const enrichHistory = async (force = false) => {
+  // "knownPuuid" é opcional: quando chamado logo a seguir a um sync (ver
+  // syncActiveAccount), o puuid acabado de resolver ainda não está visível
+  // aqui via "accounts" (o setAccounts que o guarda só se reflete no
+  // próximo render) — passá-lo explicitamente evita um pedido a account-v1
+  // que, de outra forma, se repetiria já a seguir ao de listMatchIds.
+  const enrichHistory = async (force = false, knownPuuid = null) => {
     const account = accounts.find((a) => a.username === activeAccount);
+    const puuid = knownPuuid || account?.puuid || null;
 
     const missingTeamSize = force ? [] : matches.filter((m) => !m.team_size);
     // "participants" pode existir mas vir de uma versão mais antiga desta
@@ -896,7 +1011,7 @@ export default function App() {
           );
           needsApi.forEach((m) => {
             const cached = cacheMap.get(m.riot_match_id);
-            const fromCache = cached ? buildBackfillDetailsFromCache(cached, account.riotAccount) : null;
+            const fromCache = cached ? buildBackfillDetailsFromCache(cached, puuid, account.riotAccount) : null;
             if (fromCache) detailsByMatchId.set(m.riot_match_id, { matchId: m.riot_match_id, ...fromCache });
             else stillNeedsApi.push(m);
           });
@@ -904,38 +1019,74 @@ export default function App() {
 
         let dbError = null;
 
+        // Um histórico grande (sobretudo em "force") pode facilmente ter
+        // centenas de partidas a pedir de novo à Riot API — um único pedido
+        // IPC com todas de uma vez só devolve alguma coisa à interface no
+        // fim, o que faz o "Reparar tudo" parecer preso mesmo a funcionar.
+        // Dividir em lotes deixa atualizar o syncStatus entre cada um, sem
+        // mudar nada no ritmo de pedidos à Riot API em si (esse continua a
+        // ser controlado só pelo FETCH_CONCURRENCY dentro de cada lote, ver
+        // electron.js).
+        const BACKFILL_BATCH_SIZE = 60;
         if (stillNeedsApi.length && window.electron?.backfillMatchDetails) {
-          const res = await window.electron.backfillMatchDetails({
-            matchIds: stillNeedsApi.map((m) => m.riot_match_id),
-            region: account?.region || "europe",
-            gameName: account.riotAccount,
-            tagLine: account.riotTag,
-          });
+          const total = stillNeedsApi.length;
+          let done = 0;
 
-          if (res.success) {
-            res.results.forEach((r) => detailsByMatchId.set(r.matchId, r));
-          } else if (res.error === "missing-api-key") {
-            setSyncStatus({ status: "error", message: t("missing_api_key") });
-            return;
+          for (let i = 0; i < stillNeedsApi.length; i += BACKFILL_BATCH_SIZE) {
+            const batch = stillNeedsApi.slice(i, i + BACKFILL_BATCH_SIZE);
+
+            setSyncStatus({
+              status: "loading",
+              message: `${force ? t("repairing_all_history") : t("enriching_history")} (${done}/${total})`,
+            });
+
+            const res = await window.electron.backfillMatchDetails({
+              matchIds: batch.map((m) => m.riot_match_id),
+              region: account?.region || "europe",
+              gameName: account.riotAccount,
+              tagLine: account.riotTag,
+              puuid,
+            });
+
+            if (res.success) {
+              res.results.forEach((r) => detailsByMatchId.set(r.matchId, r));
+            } else if (res.error === "missing-api-key") {
+              setSyncStatus({ status: "error", message: t("missing_api_key") });
+              return;
+            }
+
+            done += batch.length;
           }
         }
 
-        for (const m of needsApi) {
-          const details = detailsByMatchId.get(m.riot_match_id);
-          if (!details) continue;
-          // IMPORTANTE: só conta como corrigida se o UPDATE na Supabase
-          // tiver mesmo sucesso — antes isto era contado sempre, mesmo
-          // quando falhava (ex: coluna "participants" em falta na
-          // tabela), fazendo a app dizer "N partidas enriquecidas"
-          // quando na verdade nada tinha sido gravado, e a mesma partida
-          // nunca mais era assinalada como precisando de correção.
-          const result = await updateMatchDetails(m.id, details);
+        // Os UPDATEs à Supabase (ao contrário dos pedidos à Riot API acima)
+        // não têm nenhum limite a respeitar — são só um pedido nosso à nossa
+        // própria base de dados. Fazê-los um a um em série (await dentro do
+        // for) era o verdadeiro gargalo do "Reparar tudo" num histórico
+        // grande: cada UPDATE espera pela viagem de ida e volta à Supabase
+        // antes do seguinte começar. Com vários em voo ao mesmo tempo
+        // (mesmo padrão de "trabalhadores" do processWithConcurrency em
+        // electron.js, só que aqui sem nenhum wait() entre pedidos — não há
+        // rate limit da Riot a respeitar neste passo) isto fica muito mais
+        // rápido sem tocar em nada do ritmo de pedidos à Riot API.
+        const toUpdate = needsApi.filter((m) => detailsByMatchId.has(m.riot_match_id));
+        const updateResults = await runWithConcurrency(toUpdate, DB_UPDATE_CONCURRENCY, (m) =>
+          updateMatchDetails(m.id, detailsByMatchId.get(m.riot_match_id))
+        );
+
+        // IMPORTANTE: só conta como corrigida se o UPDATE na Supabase tiver
+        // mesmo sucesso — antes isto era contado sempre, mesmo quando
+        // falhava (ex: coluna "participants" em falta na tabela), fazendo a
+        // app dizer "N partidas enriquecidas" quando na verdade nada tinha
+        // sido gravado, e a mesma partida nunca mais era assinalada como
+        // precisando de correção.
+        updateResults.forEach((result) => {
           if (result.success) {
             apiFixed += 1;
           } else if (!dbError) {
             dbError = result.error;
           }
-        }
+        });
         if (dbError && apiFixed === 0) {
           setSyncStatus({
             status: "error",
