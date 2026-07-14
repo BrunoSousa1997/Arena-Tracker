@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { placementColor, placementText, placementBg, placementBorder, isLastPlace } from "./placement";
-import { normalizeChampionId } from "./champions";
-import { buildFormatBuckets, bestFormatAvg, bestFormatKda } from "./formatStats";
-import { augmentRarityStyle } from "./augments";
-import { useLanguage } from "./i18n";
-import Tooltip from "./Tooltip";
+import { X, Info, Puzzle, Search, ChevronUp, ChevronDown } from "lucide-react";
+import { placementColor, placementText, placementBg, placementBorder, isLastPlace } from "../lib/placement";
+import { normalizeChampionId } from "../lib/champions";
+import { buildFormatBuckets, bestFormatAvg, bestFormatKda } from "../lib/formatStats";
+import { augmentRarityStyle } from "../lib/augments";
+import { useLanguage } from "../lib/i18n";
+import Tooltip from "../components/Tooltip";
 
 // Item de trinket obrigatório em qualquer partida (toda a gente o leva) —
 // não diz nada sobre o estilo de jogo do campeão, por isso sai da lista de
@@ -194,52 +195,92 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
   const [expanded, setExpanded] = useState(null);
   const [sortBy, setSortBy] = useState("games_desc");
   // Antes não havia forma nenhuma de saltar direto para um campeão aqui —
-  // só dava para ordenar e ir procurando na lista toda.
+  // só dava para ordenar e ir procurando na lista toda. A lista de
+  // sugestões por baixo (mesma lógica do Histórico, ver championSuggestions
+  // em MatchHistory.jsx) junta o melhor dos dois: continua a ser texto
+  // livre, mas mostra logo com quem esse texto está a corresponder.
   const [champSearch, setChampSearch] = useState("");
-  // Filtro por build (augment ou item específico) — restringe TODAS as
-  // estatísticas abaixo (não só a lista de campeões) às partidas em que essa
-  // peça foi mesmo usada, ex: "só as partidas em que levei o Prisma X".
-  const [buildFilterQuery, setBuildFilterQuery] = useState("");
-  const [buildFilter, setBuildFilter] = useState(null); // { type: "augment"|"item", id, name }
-  const rowRefs = useRef({});
+  const [champSearchFocused, setChampSearchFocused] = useState(false);
+  const [champSearchHighlight, setChampSearchHighlight] = useState(-1);
+  // Filtro por build (augments e itens específicos) — restringe TODAS as
+  // estatísticas abaixo (não só a lista de campeões) às partidas em que
+  // TODAS as peças escolhidas foram mesmo usadas, ex: "só as partidas em que
+  // levei este augment E este item". Augments e itens vivem em dois campos
+  // próprios (cada um permite escolher vários, não só um de cada vez) — antes
+  // eram um único campo combinado com uma única seleção possível.
+  const [augmentFilterQuery, setAugmentFilterQuery] = useState("");
+  const [augmentFilterIds, setAugmentFilterIds] = useState([]);
+  const [itemFilterQuery, setItemFilterQuery] = useState("");
+  const [itemFilterIds, setItemFilterIds] = useState([]);
 
   const champName = (id) => champions.find((c) => c.id === id)?.name || id;
 
-  // Lista combinada de augments + itens pesquisáveis, construída uma vez a
-  // partir dos mapas já carregados (id -> nome/objeto vindos do Data Dragon).
-  const buildOptions = useMemo(() => {
-    const augmentOptions = Object.entries(augmentsMap || {}).map(([id, info]) => ({
-      type: "augment",
-      id,
-      name: info?.name || `Augment #${id}`,
-      icon: info?.icon,
-    }));
-    const itemOptions = Object.entries(itemsMap || {}).map(([id, name]) => ({
-      type: "item",
-      id,
-      name: name || `Item #${id}`,
-    }));
-    return [...augmentOptions, ...itemOptions];
-  }, [augmentsMap, itemsMap]);
+  // Listas pesquisáveis, construídas uma vez a partir dos mapas já
+  // carregados (id -> nome/objeto vindos do Data Dragon).
+  const augmentOptions = useMemo(
+    () =>
+      Object.entries(augmentsMap || {}).map(([id, info]) => ({
+        id,
+        name: info?.name || `Augment #${id}`,
+        icon: info?.icon,
+      })),
+    [augmentsMap]
+  );
 
-  const buildFilterMatches = useMemo(() => {
-    const q = buildFilterQuery.trim().toLowerCase();
-    if (!q || buildFilter) return [];
-    return buildOptions.filter((o) => o.name.toLowerCase().includes(q)).slice(0, 8);
-  }, [buildFilterQuery, buildOptions, buildFilter]);
+  const itemOptions = useMemo(
+    () => Object.entries(itemsMap || {}).map(([id, name]) => ({ id, name: name || `Item #${id}` })),
+    [itemsMap]
+  );
 
-  // Partidas restringidas ao augment/item escolhido (se houver) — tudo o
+  const augmentSuggestions = useMemo(() => {
+    const q = augmentFilterQuery.trim().toLowerCase();
+    if (!q) return [];
+    return augmentOptions
+      .filter((o) => !augmentFilterIds.includes(o.id) && o.name.toLowerCase().includes(q))
+      .slice(0, 8);
+  }, [augmentFilterQuery, augmentOptions, augmentFilterIds]);
+
+  const itemSuggestions = useMemo(() => {
+    const q = itemFilterQuery.trim().toLowerCase();
+    if (!q) return [];
+    return itemOptions.filter((o) => !itemFilterIds.includes(o.id) && o.name.toLowerCase().includes(q)).slice(0, 8);
+  }, [itemFilterQuery, itemOptions, itemFilterIds]);
+
+  const selectedAugmentFilters = useMemo(
+    () => augmentOptions.filter((o) => augmentFilterIds.includes(o.id)),
+    [augmentOptions, augmentFilterIds]
+  );
+
+  const selectedItemFilters = useMemo(
+    () => itemOptions.filter((o) => itemFilterIds.includes(o.id)),
+    [itemOptions, itemFilterIds]
+  );
+
+  const toggleAugmentFilter = (o) => {
+    setAugmentFilterIds((ids) => (ids.includes(o.id) ? ids.filter((id) => id !== o.id) : [...ids, o.id]));
+    setAugmentFilterQuery("");
+  };
+
+  const toggleItemFilter = (o) => {
+    setItemFilterIds((ids) => (ids.includes(o.id) ? ids.filter((id) => id !== o.id) : [...ids, o.id]));
+    setItemFilterQuery("");
+  };
+
+  // Partidas restringidas aos augments/itens escolhidos (se houver) — tudo o
   // resto (leaderboard, KDA, dano médio, matchups, etc.) passa a ser
-  // calculado só sobre este subconjunto, em vez das partidas todas.
+  // calculado só sobre este subconjunto, em vez das partidas todas. "every"
+  // exige TODAS as peças escolhidas na mesma partida (não basta uma), para
+  // conseguir isolar uma build específica em vez de só "usei isto OU aquilo".
   const filteredMatches = useMemo(() => {
-    if (!buildFilter) return matches;
+    if (!augmentFilterIds.length && !itemFilterIds.length) return matches;
     return matches.filter((m) => {
-      if (buildFilter.type === "augment") {
-        return (m.augments || []).some((a) => String(a) === String(buildFilter.id));
-      }
-      return (m.items || []).some((it) => String(it?.itemID) === String(buildFilter.id));
+      const matchAugments = augmentFilterIds.every((id) =>
+        (m.augments || []).some((a) => String(a) === String(id))
+      );
+      const matchItems = itemFilterIds.every((id) => (m.items || []).some((it) => String(it?.itemID) === String(id)));
+      return matchAugments && matchItems;
     });
-  }, [matches, buildFilter]);
+  }, [matches, augmentFilterIds, itemFilterIds]);
 
   // Comparação lado a lado — dois campeões escolhidos manualmente, sem
   // depender do filtro/ordenação ativos na lista principal.
@@ -248,35 +289,6 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
   const [compareBId, setCompareBId] = useState(null);
   const [compareQueryA, setCompareQueryA] = useState("");
   const [compareQueryB, setCompareQueryB] = useState("");
-
-  // Vindo de um atalho da Visão Geral ("ver mais" num destaque) — abre logo
-  // a linha do campeão em questão e desloca a vista até ela.
-  // "highlightChampion" é sempre um objeto NOVO { champion, key } — mesmo
-  // clicando duas vezes seguidas no mesmo campeão, cada clique tem de
-  // disparar isto de novo, e comparar só pela string do campeão não fazia
-  // isso (o valor não mudava, o efeito nem corria a 2ª vez). Também já não
-  // há nenhum callback a repor nada a null: era exatamente essa reposição
-  // antecipada que, ao mudar a dependência do efeito cedo demais, cancelava
-  // o scroll pendente antes de ele sequer disparar.
-  useEffect(() => {
-    const champion = highlightChampion?.champion;
-    if (!champion) return;
-    setExpanded(champion);
-    // A Visão Geral manda sempre a métrica do cartão em que se clicou
-    // (sortKey) — aplicamos logo esse filtro/ordenação aqui, para a lista já
-    // aparecer filtrada pelo mesmo critério do cartão, não só com a linha do
-    // campeão aberta.
-    if (highlightChampion.sortKey) setSortBy(highlightChampion.sortKey);
-
-    // requestAnimationFrame espera pelo próximo frame (troca de tab e
-    // renderização da lista já feitas) antes de medir/scrollar — mais fiável
-    // do que um atraso arbitrário em milissegundos.
-    const raf = requestAnimationFrame(() => {
-      rowRefs.current[champion]?.scrollIntoView({ behavior: "smooth", block: "center" });
-    });
-
-    return () => cancelAnimationFrame(raf);
-  }, [highlightChampion]);
 
   // Partidas agrupadas por campeão E por formato (2v2/3v3) — partilhado com
   // Overview.jsx (ver formatStats.js) para os dois lados da app usarem
@@ -560,6 +572,67 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
     return [...list].sort(activeSortMeta.compare);
   }, [perChampion, activeSortMeta, champSearch]);
 
+  const champSearchSuggestions = useMemo(() => {
+    const q = champSearch.trim().toLowerCase();
+    if (!q) return [];
+    return perChampion.filter((c) => c.name.toLowerCase().includes(q)).slice(0, 8);
+  }, [champSearch, perChampion]);
+
+  const showChampSearchSuggestions = champSearchFocused && champSearchSuggestions.length > 0;
+
+  const selectChampSearchSuggestion = (c) => {
+    setChampSearch(c.name);
+    setChampSearchFocused(false);
+    setChampSearchHighlight(-1);
+  };
+
+  const handleChampSearchKeyDown = (e) => {
+    if (!showChampSearchSuggestions) return;
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setChampSearchHighlight((i) => Math.min(i + 1, champSearchSuggestions.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setChampSearchHighlight((i) => Math.max(i - 1, 0));
+    } else if (e.key === "Enter") {
+      if (champSearchHighlight >= 0 && champSearchSuggestions[champSearchHighlight]) {
+        e.preventDefault();
+        selectChampSearchSuggestion(champSearchSuggestions[champSearchHighlight]);
+      }
+    } else if (e.key === "Escape") {
+      setChampSearchFocused(false);
+    }
+  };
+
+  // "Load more" em vez de paginação clássica — mesma lógica do Histórico
+  // (ver MatchHistory.jsx): a lista vive no scroll único da tab, sem scroll
+  // próprio, por isso "carregar mais" continua de onde se estava em vez de
+  // saltar para outra página. Reinicia sempre que a busca/ordenação/filtro
+  // de build mudam.
+  const REPORTS_PAGE_SIZE = 20;
+  const [visibleChampCount, setVisibleChampCount] = useState(REPORTS_PAGE_SIZE);
+
+  useEffect(() => {
+    setVisibleChampCount(REPORTS_PAGE_SIZE);
+  }, [champSearch, sortBy, augmentFilterIds, itemFilterIds]);
+
+  const visibleChampions = sortedChampions.slice(0, visibleChampCount);
+  const hasMoreChampions = visibleChampCount < sortedChampions.length;
+
+  // Vindo de um atalho da Visão Geral ("ver mais" num destaque) — já não
+  // abre/expande a linha do campeão nem desloca o scroll até ela (a App.jsx
+  // trata de repor o scroll da tab no topo ao navegar para cá, ver
+  // goToChampionStats). Só continua a aplicar a métrica do cartão em que se
+  // clicou (sortKey), para a lista já aparecer ordenada por esse critério.
+  // "highlightChampion" é sempre um objeto NOVO { champion, key } mesmo
+  // clicando duas vezes seguidas no mesmo campeão, para este efeito disparar
+  // de novo mesmo sem o campeão mudar.
+  useEffect(() => {
+    if (!highlightChampion?.champion) return;
+    if (highlightChampion.sortKey) setSortBy(highlightChampion.sortKey);
+  }, [highlightChampion]);
+
   const compareA = useMemo(
     () => perChampion.find((c) => c.champion === compareAId) || null,
     [perChampion, compareAId]
@@ -695,7 +768,7 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
                     style={styles.searchInput}
                   />
                   {!slot.champ && slot.options.length > 0 && (
-                    <div style={styles.buildFilterDropdown}>
+                    <div className="scrollArea" style={styles.buildFilterDropdown}>
                       {slot.options.map((c) => (
                         <div
                           key={c.champion}
@@ -780,110 +853,174 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
           <h2 style={styles.sectionTitle}>{t("stats_by_champion")}</h2>
         </div>
 
-        {/* Painel de filtros — busca de campeão e filtro por build lado a
-            lado, ordenação por baixo com rótulo próprio, tudo dentro do
-            mesmo cartão em vez de campos soltos empilhados. */}
+        {/* Painel de filtros — busca de campeão + ordenação numa linha,
+            augments/itens (multi-seleção, um campo por tipo) noutra — tudo
+            dentro do mesmo cartão em vez de campos soltos empilhados.
+            Ordenação passou de ~20 chips (que tornavam este cartão enorme)
+            para um único <select>. */}
         <div style={styles.filterToolbar}>
           <div style={styles.filterToolbarRow}>
-            <div style={{ ...styles.searchBox, flex: 1, marginBottom: 0 }}>
-              <span style={styles.searchIcon}>🔎</span>
+            <div style={{ ...styles.searchBox, flex: 1, marginBottom: 0, position: "relative" }}>
+              <span style={styles.searchIcon}>
+                <Search size={13} strokeWidth={2.25} />
+              </span>
               <input
                 value={champSearch}
-                onChange={(e) => setChampSearch(e.target.value)}
+                onChange={(e) => {
+                  setChampSearch(e.target.value);
+                  setChampSearchHighlight(-1);
+                }}
+                onFocus={() => setChampSearchFocused(true)}
+                onBlur={() => setTimeout(() => setChampSearchFocused(false), 120)}
+                onKeyDown={handleChampSearchKeyDown}
                 placeholder={t("search_champion_placeholder")}
                 style={styles.searchInput}
               />
-            </div>
 
-            {/* Filtro por build — restringe tudo (leaderboard, médias,
-                matchups) às partidas em que um augment/item específico foi
-                levado, ex: "só quero ver como me saio quando levo este
-                augment". Etiqueta fixa por cima (mesmo com o filtro já
-                aplicado) para não se confundir com a busca de campeão ao
-                lado, que tem o mesmo aspeto. */}
-            <div style={{ ...styles.compareSlotCol, flex: 1 }}>
-              <div style={styles.filterToolbarLabel}>{t("build_filter_label")}</div>
-              {buildFilter ? (
-                <div style={{ ...styles.buildFilterChip, marginBottom: 0 }}>
-                  {buildFilter.type === "augment" && buildFilter.icon && (
-                    <img src={buildFilter.icon} style={styles.buildFilterChipIcon} />
-                  )}
-                  {buildFilter.type === "item" && DRAGON && (
-                    <img src={`${DRAGON}/img/item/${buildFilter.id}.png`} style={styles.buildFilterChipIcon} />
-                  )}
-                  <span>{t("filtered_by_build")}: {buildFilter.name}</span>
-                  <button
-                    onClick={() => {
-                      setBuildFilter(null);
-                      setBuildFilterQuery("");
-                    }}
-                    style={styles.buildFilterClear}
-                  >
-                    ✕
-                  </button>
-                </div>
-              ) : (
-                <div style={{ ...styles.searchBox, position: "relative", marginBottom: 0 }}>
-                  <span style={styles.searchIcon}>🧩</span>
-                  <input
-                    value={buildFilterQuery}
-                    onChange={(e) => setBuildFilterQuery(e.target.value)}
-                    placeholder={t("build_filter_placeholder")}
-                    style={styles.searchInput}
-                  />
-                  {buildFilterMatches.length > 0 && (
-                    <div style={styles.buildFilterDropdown}>
-                      {buildFilterMatches.map((o) => (
-                        <div
-                          key={`${o.type}-${o.id}`}
-                          className="clickableRow"
-                          style={styles.buildFilterOption}
-                          onClick={() => {
-                            setBuildFilter(o);
-                            setBuildFilterQuery("");
-                          }}
-                          role="button"
-                          tabIndex={0}
-                          onKeyDown={(e) => {
-                            if (e.key !== "Enter" && e.key !== " ") return;
-                            e.preventDefault();
-                            setBuildFilter(o);
-                            setBuildFilterQuery("");
-                          }}
-                        >
-                          {o.type === "augment" && o.icon && (
-                            <img src={o.icon} style={styles.buildFilterOptionIcon} />
-                          )}
-                          {o.type === "item" && DRAGON && (
-                            <img src={`${DRAGON}/img/item/${o.id}.png`} style={styles.buildFilterOptionIcon} />
-                          )}
-                          <span style={styles.buildFilterOptionName}>{o.name}</span>
-                          <span style={styles.buildFilterOptionType}>
-                            {o.type === "augment" ? t("augment_label") : t("item_label")}
-                          </span>
-                        </div>
-                      ))}
+              {showChampSearchSuggestions && (
+                <div className="scrollArea" style={styles.buildFilterDropdown}>
+                  {champSearchSuggestions.map((c, idx) => (
+                    <div
+                      key={c.champion}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => selectChampSearchSuggestion(c)}
+                      style={{
+                        ...styles.buildFilterOption,
+                        ...(idx === champSearchHighlight ? styles.searchOptionActive : null),
+                      }}
+                    >
+                      {DRAGON && (
+                        <img
+                          src={`${DRAGON}/img/champion/${c.champion}.png`}
+                          style={styles.buildFilterOptionIcon}
+                        />
+                      )}
+                      <span style={styles.buildFilterOptionName}>{c.name}</span>
                     </div>
-                  )}
+                  ))}
                 </div>
               )}
             </div>
+
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              style={{ ...styles.filterSelect, flex: 1 }}
+            >
+              {SORT_META.map((opt) => (
+                <option key={opt.key} value={opt.key}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
           </div>
 
-          <div style={styles.filterToolbarLabel}>{t("filter_group_sort")}</div>
-          <div style={styles.sortChipRow}>
-            {SORT_META.map((opt) => (
-              <button
-                key={opt.key}
-                onClick={() => setSortBy(opt.key)}
-                style={{
-                  ...styles.sortChip,
-                  ...(sortBy === opt.key ? styles.sortChipActive : {}),
-                }}
-              >
-                {opt.label}
-              </button>
-            ))}
+          {/* Filtro por build — restringe tudo (leaderboard, médias,
+              matchups) às partidas em que TODOS os augments/itens escolhidos
+              foram usados na mesma partida, ex: "só quero ver como me saio
+              quando levo este augment com este item". Augments e itens têm
+              campos próprios (cada um permite escolher vários), para não
+              misturar os dois tipos de opção numa única lista comprida. */}
+          <div style={styles.filterToolbarRow}>
+            <div style={{ ...styles.compareSlotCol, flex: 1 }}>
+              <div style={styles.filterToolbarLabel}>{t("build_filter_augments_label")}</div>
+              {selectedAugmentFilters.length > 0 && (
+                <div style={styles.buildFilterChipRow}>
+                  {selectedAugmentFilters.map((o) => (
+                    <div key={o.id} style={styles.buildFilterChip}>
+                      {o.icon && <img src={o.icon} style={styles.buildFilterChipIcon} />}
+                      <span>{o.name}</span>
+                      <button onClick={() => toggleAugmentFilter(o)} style={styles.buildFilterClear}>
+                        <X size={11} strokeWidth={2.5} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div style={{ ...styles.searchBox, position: "relative", marginBottom: 0 }}>
+                <span style={styles.searchIcon}>
+                  <Puzzle size={13} strokeWidth={2.25} />
+                </span>
+                <input
+                  value={augmentFilterQuery}
+                  onChange={(e) => setAugmentFilterQuery(e.target.value)}
+                  placeholder={t("build_filter_augments_placeholder")}
+                  style={styles.searchInput}
+                />
+                {augmentSuggestions.length > 0 && (
+                  <div className="scrollArea" style={styles.buildFilterDropdown}>
+                    {augmentSuggestions.map((o) => (
+                      <div
+                        key={o.id}
+                        className="clickableRow"
+                        style={styles.buildFilterOption}
+                        onClick={() => toggleAugmentFilter(o)}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => {
+                          if (e.key !== "Enter" && e.key !== " ") return;
+                          e.preventDefault();
+                          toggleAugmentFilter(o);
+                        }}
+                      >
+                        {o.icon && <img src={o.icon} style={styles.buildFilterOptionIcon} />}
+                        <span style={styles.buildFilterOptionName}>{o.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div style={{ ...styles.compareSlotCol, flex: 1 }}>
+              <div style={styles.filterToolbarLabel}>{t("build_filter_items_label")}</div>
+              {selectedItemFilters.length > 0 && (
+                <div style={styles.buildFilterChipRow}>
+                  {selectedItemFilters.map((o) => (
+                    <div key={o.id} style={styles.buildFilterChip}>
+                      {DRAGON && <img src={`${DRAGON}/img/item/${o.id}.png`} style={styles.buildFilterChipIcon} />}
+                      <span>{o.name}</span>
+                      <button onClick={() => toggleItemFilter(o)} style={styles.buildFilterClear}>
+                        <X size={11} strokeWidth={2.5} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div style={{ ...styles.searchBox, position: "relative", marginBottom: 0 }}>
+                <span style={styles.searchIcon}>
+                  <Puzzle size={13} strokeWidth={2.25} />
+                </span>
+                <input
+                  value={itemFilterQuery}
+                  onChange={(e) => setItemFilterQuery(e.target.value)}
+                  placeholder={t("build_filter_items_placeholder")}
+                  style={styles.searchInput}
+                />
+                {itemSuggestions.length > 0 && (
+                  <div className="scrollArea" style={styles.buildFilterDropdown}>
+                    {itemSuggestions.map((o) => (
+                      <div
+                        key={o.id}
+                        className="clickableRow"
+                        style={styles.buildFilterOption}
+                        onClick={() => toggleItemFilter(o)}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => {
+                          if (e.key !== "Enter" && e.key !== " ") return;
+                          e.preventDefault();
+                          toggleItemFilter(o);
+                        }}
+                      >
+                        {DRAGON && <img src={`${DRAGON}/img/item/${o.id}.png`} style={styles.buildFilterOptionIcon} />}
+                        <span style={styles.buildFilterOptionName}>{o.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -891,7 +1028,7 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
           <div style={styles.emptyInline}>{t("no_filtered_champions")}</div>
         ) : (
         <div style={styles.champList}>
-          {sortedChampions.map((s) => {
+          {visibleChampions.map((s) => {
             const isOpen = expanded === s.champion;
 
             // Valor do critério de ordenação ativo para este campeão — ver
@@ -902,11 +1039,7 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
             const showSortValue = sortValueDef && sortValueRaw != null;
 
             return (
-              <div
-                key={s.champion}
-                ref={(el) => { rowRefs.current[s.champion] = el; }}
-                style={styles.champCard}
-              >
+              <div key={s.champion} style={styles.champCard}>
                 <div
                   className="clickableRow"
                   style={styles.champRow}
@@ -1000,7 +1133,9 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
                     {kdaLabel(s.avgK, s.avgD, s.avgA)}
                   </div>
 
-                  <div style={styles.expandArrow}>{isOpen ? "▲" : "▼"}</div>
+                  <div style={styles.expandArrow}>
+                    {isOpen ? <ChevronUp size={14} strokeWidth={2.25} /> : <ChevronDown size={14} strokeWidth={2.25} />}
+                  </div>
                 </div>
 
                 <AnimatePresence>
@@ -1100,7 +1235,9 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
                           <div style={styles.expandLabel}>
                             {t("section_matchups")}{" "}
                             <Tooltip label={t("matchups_disclaimer")}>
-                              <span style={styles.infoDot}>ⓘ</span>
+                              <span style={styles.infoDot}>
+                                <Info size={11} strokeWidth={2.25} />
+                              </span>
                             </Tooltip>
                           </div>
                           <div style={styles.matchupsGrid}>
@@ -1365,6 +1502,15 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
           })}
         </div>
         )}
+
+        {hasMoreChampions && (
+          <button
+            onClick={() => setVisibleChampCount((c) => c + REPORTS_PAGE_SIZE)}
+            style={styles.loadMoreBtn}
+          >
+            {t("load_more")} ({sortedChampions.length - visibleChampCount})
+          </button>
+        )}
       </div>
     </div>
   );
@@ -1429,20 +1575,29 @@ const styles = {
   },
 
   searchIcon: {
-    fontSize: 12,
+    display: "inline-flex",
     flexShrink: 0,
+    color: "var(--text-muted)",
+  },
+
+  // Cada peça escolhida (augment ou item) vira um chip próprio dentro de
+  // buildFilterChipRow — antes era uma única faixa cheia de largura (só
+  // cabia uma seleção de cada vez); agora várias cabem lado a lado.
+  buildFilterChipRow: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 6,
   },
 
   buildFilterChip: {
     display: "flex",
     alignItems: "center",
-    gap: 8,
-    padding: "8px 12px",
-    borderRadius: "var(--radius-lg)",
+    gap: 6,
+    padding: "4px 8px",
+    borderRadius: "var(--radius-pill)",
     background: "rgba(250,204,21,0.1)",
     border: "1px solid rgba(250,204,21,0.4)",
-    marginBottom: 10,
-    fontSize: 12,
+    fontSize: 11,
     color: "var(--text-body)",
   },
 
@@ -1507,11 +1662,10 @@ const styles = {
     whiteSpace: "nowrap",
   },
 
-  buildFilterOptionType: {
-    fontSize: 9,
-    textTransform: "uppercase",
-    color: "var(--text-muted)",
-    flexShrink: 0,
+  // Realce de navegação por teclado (setas) nas sugestões de campeão — mesma
+  // lógica do Histórico (ver searchOptionActive em MatchHistory.jsx).
+  searchOptionActive: {
+    background: "rgba(var(--accent-rgb),0.2)",
   },
 
   searchInput: {
@@ -1558,39 +1712,39 @@ const styles = {
     color: "var(--text-muted)",
   },
 
-  // Fileira de filtros/ordenação — espelha os cartões de destaque da Visão
-  // Geral (mesmos rótulos) para que os dois sítios falem a mesma linguagem;
-  // clicar num destaque lá seleciona automaticamente o chip equivalente cá.
-  sortChipRow: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: 6,
-    marginBottom: 0,
-  },
-
-  sortChip: {
-    padding: "6px 13px",
-    borderRadius: "var(--radius-pill)",
+  // Ordenação — antes ~20 chips (um por critério, espelhando os cartões de
+  // destaque da Visão Geral) que tornavam este painel enorme; um único
+  // <select> ocupa a mesma linha da busca de campeão, sem quebrar.
+  filterSelect: {
+    padding: "5px 8px",
+    borderRadius: "var(--radius-md)",
+    background: "rgba(var(--panel-deep-rgb),0.9)",
     border: "1px solid rgba(var(--border-rgb),0.4)",
-    background: "rgba(var(--panel-deep-rgb),0.7)",
-    color: "var(--text-secondary)",
-    cursor: "pointer",
+    color: "var(--text-body)",
     fontSize: 11,
     fontWeight: 600,
-    transition: "all 0.15s ease",
-  },
-
-  sortChipActive: {
-    background: "var(--accent-gradient)",
-    borderColor: "var(--accent-solid)",
-    color: "var(--accent-solid-text)",
-    boxShadow: "0 3px 10px rgba(79,70,229,0.4)",
+    cursor: "pointer",
   },
 
   champList: {
     display: "flex",
     flexDirection: "column",
-    gap: 8,
+    gap: 6,
+  },
+
+  // Mesma lógica/estilo do botão "Carregar mais" do Histórico (ver
+  // loadMoreBtn em MatchHistory.jsx).
+  loadMoreBtn: {
+    alignSelf: "center",
+    marginTop: 8,
+    padding: "8px 20px",
+    borderRadius: "var(--radius-pill)",
+    border: "1px solid rgba(var(--accent-rgb),0.35)",
+    background: "rgba(var(--accent-rgb),0.1)",
+    color: "var(--accent-text)",
+    cursor: "pointer",
+    fontSize: 12,
+    fontWeight: 600,
   },
 
   // Mesma paleta do cartão de partida no Histórico (ver matchCard em
@@ -1612,36 +1766,36 @@ const styles = {
   champRow: {
     display: "flex",
     alignItems: "center",
-    gap: 12,
-    padding: "8px 12px",
+    gap: 10,
+    padding: "6px 12px",
     cursor: "pointer",
     background: "rgba(var(--accent-rgb),0.16)",
   },
 
   champIcon: {
-    width: 36,
-    height: 36,
+    width: 28,
+    height: 28,
     borderRadius: "var(--radius-md)",
     pointerEvents: "none",
   },
 
   champRowName: {
-    width: 130,
-    fontSize: 13,
+    width: 115,
+    fontSize: 12,
     color: "var(--text-body)",
     fontWeight: 600,
   },
 
   champRowGames: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: 500,
     color: "var(--text-secondary)",
     marginTop: 1,
   },
 
   champRowStat: {
-    width: 110,
-    fontSize: 12,
+    width: 95,
+    fontSize: 11,
     color: "var(--text-secondary)",
     textAlign: "center",
   },
@@ -1650,8 +1804,8 @@ const styles = {
   // campeão?") mas antes tinha o mesmo peso visual que Top 3/KDA — só a cor
   // (accent) a distinguia. Maior e mais pesada para saltar à vista primeiro.
   champRowStatPrimary: {
-    width: 110,
-    fontSize: 15,
+    width: 95,
+    fontSize: 13,
     fontWeight: 800,
     textAlign: "center",
   },
@@ -1667,7 +1821,7 @@ const styles = {
   },
 
   placementMiniCard: {
-    width: 22,
+    width: 19,
     borderRadius: 5,
     padding: "2px 0",
     display: "flex",
@@ -1693,9 +1847,9 @@ const styles = {
   // passou para champRowSortValue, mais à esquerda, para não ficar tudo
   // encostado ao KDA/seta do lado direito.
   champRowKda: {
-    width: 100,
+    width: 90,
     flexShrink: 0,
-    fontSize: 12,
+    fontSize: 11,
     color: "var(--text-body)",
     textAlign: "right",
   },
@@ -1728,14 +1882,16 @@ const styles = {
   },
 
   expandArrow: {
-    fontSize: 10,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
     color: "var(--text-secondary)",
-    width: 14,
-    textAlign: "center",
+    width: 16,
+    flexShrink: 0,
   },
 
   expandWrap: {
-    padding: "0 12px 14px 58px",
+    padding: "0 12px 12px 50px",
     display: "flex",
     flexDirection: "column",
     gap: 10,
@@ -1769,6 +1925,8 @@ const styles = {
   },
 
   infoDot: {
+    display: "inline-flex",
+    verticalAlign: "middle",
     textTransform: "none",
     letterSpacing: 0,
     cursor: "help",

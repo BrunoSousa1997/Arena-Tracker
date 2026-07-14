@@ -1,3 +1,13 @@
+/* Só o "theme" (tokens de breakpoints/spacing) + "utilities" (classes
+   responsivas, grid, flex, etc.) — sem o "preflight" (reset global de
+   margens/tipografia/inputs). A app já tem o seu próprio reset e estilos
+   inline afinados ao detalhe (ver "INTERAÇÃO GLOBAL" mais abaixo); importar
+   o preflight do Tailwind por cima disso arriscava mudar botões/inputs/
+   headings já bem definidos, só para ganhar as classes utilitárias que
+   são o que realmente precisamos aqui. */
+@import "tailwindcss/theme.css";
+@import "tailwindcss/utilities.css";
+
 /* ================= TEMA (claro/escuro) =================
    Paleta neutra (slate) + um único acento vívido (índigo), pensada para
    contraste AA e para não pintar tudo com a mesma cor: o índigo aparece só
@@ -337,4 +347,20 @@ select:hover {
 .clickableCard:hover {
   border-color: rgba(var(--accent-rgb), 0.6);
   transform: translateY(-2px);
+}
+
+/* Cartões de partida no Histórico — mesma ideia do .clickableCard (leve
+   levantamento ao passar o rato), mas com sombra em vez de mudar a cor do
+   contorno: aqui a borda já muda de cor consoante o resultado (ver
+   matchIcon/borderLeft em MatchHistory.jsx), por isso a sombra é o sinal de
+   "clicável" que não entra em conflito com essa cor. Classe própria (não
+   .clickableCard) para não mudar o comportamento dos outros cartões que já
+   usam essa classe noutros sítios da app. */
+.historyCard {
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.historyCard:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.3);
 }

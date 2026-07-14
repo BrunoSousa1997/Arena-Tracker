@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 import { createPortal } from "react-dom";
-import { useLanguage } from "./i18n";
+import { useLanguage } from "../lib/i18n";
 
 // Substitui window.confirm() nativo (fora do tema, sem estilo) por um modal
 // próprio, para ações destrutivas (ex: apagar conta) não quebrarem a

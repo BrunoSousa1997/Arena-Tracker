@@ -1,8 +1,8 @@
 import { useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { placementColor } from "./placement";
-import { normalizeChampionId } from "./champions";
-import { useLanguage } from "./i18n";
+import { placementColor } from "../lib/placement";
+import { normalizeChampionId } from "../lib/champions";
+import { useLanguage } from "../lib/i18n";
 
 function kdaLabel(k, d, a) {
   return `${k.toFixed(1)} / ${d.toFixed(1)} / ${a.toFixed(1)}`;

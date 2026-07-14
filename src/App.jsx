@@ -1,77 +1,45 @@
 import React, { useEffect, useState, useMemo, useRef } from "react";
-import {
-  getWins,
-  addWin,
-  ensureUser,
-  addMatch,
-  getMatches,
-  getImportedMatchIds,
-  addMatchesBulk,
-  updateTeamSizeForIds,
-  updateMatchDetails,
-  getMatchCacheByIds,
-  buildMatchFromCache,
-  buildBackfillDetailsFromCache,
-} from "./db/api";
+import { addWin } from "./db/api";
 import { motion, AnimatePresence } from "framer-motion";
-import UpdateNotifier from "./UpdateNotifier";
-import Overview from "./Overview";
-import MatchHistory from "./MatchHistory";
-import MatchReports from "./MatchReports";
-import Achievements from "./Achievements";
-import Settings from "./Settings";
-import StatsBar from "./StatsBar";
-import Tooltip from "./Tooltip";
-import ConfirmDialog from "./ConfirmDialog";
-import { loadAugments } from "./augments";
-import { normalizeChampionId } from "./champions";
-import { useLanguage, LANGUAGES } from "./i18n";
-import { getRoast } from "./roasts";
-
-// Processa uma lista com um nº fixo de "trabalhadores" em paralelo — mesmo
-// padrão do processWithConcurrency em electron.js, mas usado aqui só para
-// UPDATEs à Supabase (ver enrichHistory), que não têm nenhum rate limit da
-// Riot a respeitar, por isso sem nenhum wait() entre pedidos.
-async function runWithConcurrency(items, concurrency, handler) {
-  const results = new Array(items.length);
-  let nextIndex = 0;
-
-  async function worker() {
-    while (nextIndex < items.length) {
-      const current = nextIndex++;
-      results[current] = await handler(items[current], current);
-    }
-  }
-
-  const workerCount = Math.min(concurrency, items.length);
-  await Promise.all(Array.from({ length: workerCount }, worker));
-  return results;
-}
-
-// Nº de UPDATEs à Supabase em voo ao mesmo tempo durante o "Reparar tudo" —
-// sem relação nenhuma com o limite da Riot API (isto fala só com a nossa
-// própria base de dados). Valor conservador para não sobrecarregar a ligação
-// do utilizador nem a Supabase, mas já bem acima do "1 de cada vez" anterior.
-const DB_UPDATE_CONCURRENCY = 10;
-
-// Rede de segurança para a verificação "canário" (ver riotapi:canaryCheck em
-// electron.js e canaryDue em syncActiveAccount) — o gatilho normal é o patch
-// atual ter mudado desde a última verificação (um queueId de Arena só muda
-// mesmo num patch novo), não um temporizador. Isto só entra em jogo se
-// "patch" nunca tiver sido resolvido (ex: sem internet no arranque, ver
-// patchFailed) — nesse caso cai para repetir de X em X tempo, para a
-// verificação não ficar permanentemente desligada.
-const CANARY_CHECK_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
+import {
+  LayoutDashboard,
+  Trophy,
+  ScrollText,
+  TrendingUp,
+  Award,
+  Info,
+  Settings as SettingsIcon,
+  X,
+  RotateCw,
+  Search,
+} from "lucide-react";
+import UpdateNotifier from "./components/UpdateNotifier";
+import Loading from "./components/Loading";
+import Overview from "./views/Overview";
+import MatchHistory from "./views/MatchHistory";
+import MatchReports from "./views/MatchReports";
+import Achievements from "./views/Achievements";
+import Settings from "./views/Settings";
+import StatsBar from "./components/StatsBar";
+import Tooltip from "./components/Tooltip";
+import ConfirmDialog from "./components/ConfirmDialog";
+import { normalizeChampionId } from "./lib/champions";
+import { useLanguage, LANGUAGES } from "./lib/i18n";
+import { useStaticData } from "./hooks/useStaticData";
+import { useTheme } from "./hooks/useTheme";
+import { useAccounts } from "./hooks/useAccounts";
+import { useLiveGame } from "./hooks/useLiveGame";
+import { useRiotSync } from "./hooks/useRiotSync";
 
 export default function App() {
   const { t, lang, setLang } = useLanguage();
 
   const TABS = [
-    { key: "overview", icon: "📊", label: t("tab_overview") },
-    { key: "wins", icon: "🏆", label: t("tab_wins") },
-    { key: "history", icon: "📜", label: t("tab_history") },
-    { key: "stats", icon: "📈", label: t("tab_stats") },
-    { key: "achievements", icon: "🎖️", label: t("tab_achievements") },
+    { key: "overview", icon: LayoutDashboard, label: t("tab_overview") },
+    { key: "wins", icon: Trophy, label: t("tab_wins") },
+    { key: "history", icon: ScrollText, label: t("tab_history") },
+    { key: "stats", icon: TrendingUp, label: t("tab_stats") },
+    { key: "achievements", icon: Award, label: t("tab_achievements") },
   ];
 
   // Formato (Todos/2v2/3v3) — agora ao lado das tabs, na mesma linha (ver
@@ -84,16 +52,8 @@ export default function App() {
     { key: 3, label: t("format_3v3_short"), full: t("format_3v3") },
   ];
 
-  const [patch, setPatch] = useState(null);
-  // Se o pedido do patch falhar ou demorar demasiado, deixamos de bloquear a
-  // app — sem isto, sem internet no arranque prendia o utilizador atrás de
-  // um ecrã de loading para sempre (as imagens de campeão/item já lidavam
-  // bem com DRAGON=null antes; só o loading inicial é que faltava).
-  const [patchFailed, setPatchFailed] = useState(false);
-  const [champions, setChampions] = useState([]);
-  const [augmentsMap, setAugmentsMap] = useState({});
-  const [summonerSpellsMap, setSummonerSpellsMap] = useState({});
-  const [itemsMap, setItemsMap] = useState({});
+  const { patch, patchFailed, champions, augmentsMap, summonerSpellsMap, itemsMap, DRAGON } =
+    useStaticData();
 
   // Campeão a destacar/abrir automaticamente nas Estatísticas quando se
   // clica num atalho da Visão Geral (ver goToChampionStats mais abaixo).
@@ -106,24 +66,43 @@ export default function App() {
   // nos que já tens).
   const [collectionFilter, setCollectionFilter] = useState("won");
 
-  // cada conta: { username, riotAccount, riotTag }
-  // "username" é só a etiqueta que vês na app; "riotAccount" (+ "riotTag") é
-  // o Riot ID usado para sincronizar automaticamente com o League e para
-  // importar histórico via Riot API.
-  const [accounts, setAccounts] = useState([]);
-  const [activeAccount, setActiveAccount] = useState(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const [settingsTab, setSettingsTab] = useState("general");
+  const openSettings = (tab = "general") => {
+    setSettingsTab(tab);
+    setShowSettings(true);
+  };
 
-  // Sincronização com a Riot API para a conta ativa: null = inativo,
-  // { status: "loading"|"done"|"error", message }
-  const [syncStatus, setSyncStatus] = useState(null);
-  // Confirmação antes de "Reparar dados" (enrichHistory em modo force) —
-  // gasta mais pedidos do que o normal e reescreve dados já guardados, por
-  // isso pede confirmação em vez de disparar logo ao clicar.
-  const [showRepairAllConfirm, setShowRepairAllConfirm] = useState(false);
+  const {
+    accounts,
+    setAccounts,
+    activeAccount,
+    setActiveAccount,
+    switching,
+    wins,
+    setWins,
+    matches,
+    setMatches,
+    dataLoading,
+    createAccountFromManager,
+    updateRiotAccountFor,
+    deleteAccount,
+    switchAccount: switchAccountRaw,
+  } = useAccounts({ onNeedsAccountSetup: () => openSettings("accounts") });
 
-  const [wins, setWins] = useState([]);
-  const [matches, setMatches] = useState([]);
-  const [switching, setSwitching] = useState(false);
+  // Fecha as Definições no mesmo instante em que a troca de conta se torna
+  // visível — ver comentário em switchAccount, useAccounts.js.
+  const switchAccount = (name) => switchAccountRaw(name, () => setShowSettings(false));
+
+  const {
+    syncStatus,
+    setSyncStatus,
+    showRepairAllConfirm,
+    setShowRepairAllConfirm,
+    latestMatchTimestamp,
+    syncActiveAccount,
+    enrichHistory,
+  } = useRiotSync({ accounts, setAccounts, activeAccount, matches, setMatches, setWins, champions, patch, t });
 
   // A Arena já teve formatos diferentes (8 equipas de 2 vs 6 equipas de 3) —
   // "top 3" e os baldes de lugar não significam o mesmo nos dois formatos,
@@ -131,442 +110,48 @@ export default function App() {
   // "all" = sem filtro, 2 = equipas de 2 (8 equipas), 3 = equipas de 3 (6 equipas).
   const [teamSizeFilter, setTeamSizeFilter] = useState("all");
 
-  const [showSettings, setShowSettings] = useState(false);
-  const [settingsTab, setSettingsTab] = useState("general");
-  const openSettings = (tab = "general") => {
-    setSettingsTab(tab);
-    setShowSettings(true);
-  };
   const [view, setView] = useState("overview");
 
-  // Aviso do campeão em jogo (Live Client Data) — mostra logo no início da
-  // partida se já há ou não vitória com esse campeão, sem o jogador ter de
-  // ir procurar manualmente na tab Coleção. null = sem aviso ativo.
-  const [liveChampionAlert, setLiveChampionAlert] = useState(null);
-
-  // Posição da caixa de aviso, só depois de o utilizador a arrastar pelo
-  // menos uma vez — persistida, para não voltar sempre ao centro depois de
-  // reiniciar a app. null = ainda na posição por omissão (centrada no topo).
-  const [liveBannerPos, setLiveBannerPos] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem("live-banner-pos")) || null;
-    } catch {
-      return null;
-    }
-  });
-  const liveBannerRef = useRef(null);
-  const liveBannerDrag = useRef(null);
-  // Marca que o último gesto foi um arrasto (não um clique) — o onClick do
-  // banner lê isto para não navegar para a Coleção logo a seguir a mover a
-  // caixa (largar o rato no fim de um arrasto também dispara "click").
-  const liveBannerJustDragged = useRef(false);
-  const [isDraggingBanner, setIsDraggingBanner] = useState(false);
-
-  const handleLiveBannerPointerMove = (e) => {
-    const d = liveBannerDrag.current;
-    const el = liveBannerRef.current;
-    if (!d || !el) return;
-
-    const dx = e.clientX - d.startX;
-    const dy = e.clientY - d.startY;
-    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) d.moved = true;
-
-    // Mantém a caixa sempre dentro do ecrã, mesmo arrastando até à borda.
-    const margin = 4;
-    const maxLeft = Math.max(window.innerWidth - el.offsetWidth - margin, margin);
-    const maxTop = Math.max(window.innerHeight - el.offsetHeight - margin, margin);
-    const left = Math.min(Math.max(d.originLeft + dx, margin), maxLeft);
-    const top = Math.min(Math.max(d.originTop + dy, margin), maxTop);
-
-    el.style.left = `${left}px`;
-    el.style.top = `${top}px`;
-    el.style.transform = "none";
-  };
-
-  const handleLiveBannerPointerUp = () => {
-    const d = liveBannerDrag.current;
-    window.removeEventListener("pointermove", handleLiveBannerPointerMove);
-    window.removeEventListener("pointerup", handleLiveBannerPointerUp);
-    setIsDraggingBanner(false);
-
-    if (!d || !liveBannerRef.current) {
-      liveBannerDrag.current = null;
+  // Ao trocar de tab, os dados (matches/wins/champions) já estão todos em
+  // memória — não há nada "a carregar" de verdade. Mesmo assim, mostrar o
+  // Loading por um instante em vez de ir direto para o conteúdo dá uma
+  // transição mais deliberada/percetível (o utilizador pediu isto
+  // explicitamente) do que só a animação de fade da AnimatePresence. Não
+  // dispara no primeiro render (só interessa em trocas de tab a sério, ver
+  // "isFirstRender").
+  const [viewLoading, setViewLoading] = useState(false);
+  const isFirstViewRender = useRef(true);
+  useEffect(() => {
+    if (isFirstViewRender.current) {
+      isFirstViewRender.current = false;
       return;
     }
+    setViewLoading(true);
+    const t = setTimeout(() => setViewLoading(false), 260);
+    return () => clearTimeout(t);
+  }, [view]);
 
-    liveBannerJustDragged.current = d.moved;
+  const {
+    liveChampionAlert,
+    setLiveChampionAlert,
+    liveBannerPos,
+    liveBannerRef,
+    liveBannerJustDragged,
+    isDraggingBanner,
+    handleLiveBannerPointerDown,
+  } = useLiveGame({
+    accounts,
+    setAccounts,
+    activeAccount,
+    setActiveAccount,
+    champions,
+    matches,
+    setMatches,
+    setWins,
+    lang,
+  });
 
-    if (d.moved) {
-      const rect = liveBannerRef.current.getBoundingClientRect();
-      const pos = { top: rect.top, left: rect.left };
-      setLiveBannerPos(pos);
-      localStorage.setItem("live-banner-pos", JSON.stringify(pos));
-    }
-
-    liveBannerDrag.current = null;
-  };
-
-  const handleLiveBannerPointerDown = (e) => {
-    // Só o botão principal do rato inicia o arrasto (evita interferir com
-    // clique direito ou outros botões).
-    if (e.button !== 0 || !liveBannerRef.current) return;
-
-    const rect = liveBannerRef.current.getBoundingClientRect();
-    liveBannerDrag.current = {
-      startX: e.clientX,
-      startY: e.clientY,
-      originLeft: rect.left,
-      originTop: rect.top,
-      moved: false,
-    };
-    setIsDraggingBanner(true);
-
-    window.addEventListener("pointermove", handleLiveBannerPointerMove);
-    window.addEventListener("pointerup", handleLiveBannerPointerUp);
-  };
-
-  // Rede de segurança: se o componente desmontar a meio de um arrasto (ex:
-  // fechar a app), garante que os listeners globais não ficam pendurados.
-  useEffect(() => {
-    return () => {
-      window.removeEventListener("pointermove", handleLiveBannerPointerMove);
-      window.removeEventListener("pointerup", handleLiveBannerPointerUp);
-    };
-  }, []);
-
-  // Tema claro/escuro — persistido e aplicado via atributo data-theme na
-  // tag <html> (ver index.css), para todos os componentes lerem as mesmas
-  // variáveis CSS sem precisar de prop-drilling.
-  const [theme, setTheme] = useState(() => localStorage.getItem("theme") || "dark");
-
-  useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-    localStorage.setItem("theme", theme);
-  }, [theme]);
-
-  // Cabeçalho (marca/conta/sync + tabs + filtro + resumo) comprimido ou não —
-  // um único interruptor para o bloco todo (persistido, tal como o tema),
-  // em vez de cada secção ter o seu próprio botão de colapsar. Comprimir
-  // nunca esconde dados: só reduz o espaçamento e passa o resumo para a
-  // versão numa única linha (ver StatsBar).
-  const [headerCompact, setHeaderCompact] = useState(
-    () => localStorage.getItem("header-compact") === "1"
-  );
-
-  useEffect(() => {
-    localStorage.setItem("header-compact", headerCompact ? "1" : "0");
-  }, [headerCompact]);
-
-  // ================= LOAD ACCOUNTS =================
-  useEffect(() => {
-    const saved = localStorage.getItem("riot-accounts");
-    const active = localStorage.getItem("active-account");
-
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      // migração: versões antigas guardavam só strings, ou objetos sem riotTag
-      const normalized = parsed.map((a) =>
-        typeof a === "string"
-          ? { username: a, riotAccount: a, riotTag: "", region: "europe" }
-          : { riotTag: "", region: "europe", ...a }
-      );
-      setAccounts(normalized);
-
-      if (normalized.length === 0) openSettings("accounts");
-    } else {
-      openSettings("accounts");
-    }
-
-    if (active) setActiveAccount(active);
-  }, []);
-
-  // ================= PATCH =================
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadPatch() {
-      try {
-        const res = await fetch(
-          "https://ddragon.leagueoflegends.com/api/versions.json"
-        );
-        const versions = await res.json();
-        if (!cancelled) setPatch(versions[0]);
-      } catch {
-        if (!cancelled) setPatchFailed(true);
-      }
-    }
-    loadPatch();
-
-    // Rede lenta/pendurada sem lançar erro nenhum — ao fim de 6s desistimos
-    // de bloquear a app na mesma, mesmo sem resposta.
-    const timeout = setTimeout(() => setPatchFailed(true), 6000);
-    return () => {
-      cancelled = true;
-      clearTimeout(timeout);
-    };
-  }, []);
-
-  const DRAGON = patch
-    ? `https://ddragon.leagueoflegends.com/cdn/${patch}`
-    : null;
-
-  // ================= CHAMPIONS =================
-  useEffect(() => {
-    if (!DRAGON) return;
-
-    fetch(`${DRAGON}/data/en_US/champion.json`)
-      .then((r) => r.json())
-      .then((data) => {
-        const champs = Object.values(data.data).map((c) => ({
-          id: c.id,
-          name: c.name,
-          tags: c.tags,
-        }));
-
-        setChampions(champs);
-      });
-  }, [DRAGON]);
-
-  // ================= AUGMENTS (nomes/ícones via Community Dragon) =================
-  useEffect(() => {
-    loadAugments().then(setAugmentsMap);
-  }, []);
-
-  // ================= FEITIÇOS DE INVOCADOR (ícones, para o Histórico) =================
-  // Guardamos o nome do feitiço (ex: "Flash") tanto na Live Client Data
-  // watcher como na importação via Riot API (ver electron.js), por isso o
-  // mapa aqui só precisa de ir de nome -> ícone, sem lidar com ids.
-  useEffect(() => {
-    if (!DRAGON) return;
-
-    fetch(`${DRAGON}/data/en_US/summoner.json`)
-      .then((r) => r.json())
-      .then((data) => {
-        const map = {};
-        Object.values(data.data || {}).forEach((spell) => {
-          map[spell.name] = `${DRAGON}/img/spell/${spell.image.full}`;
-        });
-        setSummonerSpellsMap(map);
-      });
-  }, [DRAGON]);
-
-  // ================= ITENS (nomes, para tooltip no Histórico) =================
-  useEffect(() => {
-    if (!DRAGON) return;
-
-    fetch(`${DRAGON}/data/en_US/item.json`)
-      .then((r) => r.json())
-      .then((data) => {
-        const map = {};
-        Object.entries(data.data || {}).forEach(([id, item]) => {
-          map[Number(id)] = item.name;
-        });
-        setItemsMap(map);
-      });
-  }, [DRAGON]);
-
-  // ================= WINS + MATCHES =================
-  useEffect(() => {
-    if (!activeAccount) return;
-
-    getWins(activeAccount).then((data) => {
-      setWins(data || []);
-    });
-
-    getMatches(activeAccount).then((data) => {
-      setMatches(data || []);
-    });
-  }, [activeAccount]);
-
-  // ================= LIVE CLIENT DATA (deteção automática de partidas) =================
-  useEffect(() => {
-    if (!window.electron?.onMatchResult) return;
-
-    const unsubscribe = window.electron.onMatchResult(async (result) => {
-      const {
-        riotId,
-        champion: liveChampionName,
-        kills,
-        deaths,
-        assists,
-        items,
-        win: didWin,
-        teamSize,
-        cs,
-        visionScore,
-        champLevel,
-        gameDuration,
-        damageDealt,
-        damageTaken,
-        goldEarned,
-        multikill,
-        summoner1,
-        summoner2,
-        maxHp,
-      } = result || {};
-
-      if (!liveChampionName) return;
-
-      // a Live Client Data API devolve o nome de exibição do campeão (ex: "Miss Fortune"),
-      // por isso convertemos para o id do Data Dragon usado no resto da app (ex: "MissFortune")
-      const championId = champions.find(
-        (c) => c.name.toLowerCase() === liveChampionName.toLowerCase()
-      )?.id;
-
-      if (!championId) {
-        console.warn("Campeão não reconhecido na live client data:", liveChampionName);
-        return;
-      }
-
-      const [baseName, detectedTag] = (riotId || "").split("#");
-      let matchedUsername =
-        accounts.find((a) => a.riotAccount?.toLowerCase() === baseName?.toLowerCase())
-          ?.username || null;
-
-      if (!matchedUsername && baseName) {
-        matchedUsername = baseName;
-        setAccounts((prev) => {
-          if (prev.some((a) => a.username === matchedUsername)) return prev;
-          const updated = [
-            ...prev,
-            { username: matchedUsername, riotAccount: baseName, riotTag: detectedTag || "", region: "europe" },
-          ];
-          localStorage.setItem("riot-accounts", JSON.stringify(updated));
-          return updated;
-        });
-      }
-
-      if (!matchedUsername) return;
-
-      const extra = {
-        cs,
-        visionScore,
-        champLevel,
-        gameDuration,
-        damageDealt,
-        damageTaken,
-        goldEarned,
-        multikill,
-        summoner1,
-        summoner2,
-        maxHp,
-      };
-
-      await ensureUser(matchedUsername);
-      if (didWin) await addWin(matchedUsername, championId);
-      await addMatch(matchedUsername, championId, kills, deaths, assists, didWin, items, teamSize, extra);
-
-      if (matchedUsername === activeAccount) {
-        if (didWin) {
-          setWins((prev) => (prev.includes(championId) ? prev : [...prev, championId]));
-        }
-        setMatches((prev) => [
-          {
-            champion: championId,
-            kills,
-            deaths,
-            assists,
-            win: !!didWin,
-            items: items || [],
-            placement: null,
-            augments: null,
-            team_size: teamSize ?? null,
-            cs: cs ?? null,
-            vision_score: visionScore ?? null,
-            champ_level: champLevel ?? null,
-            game_duration: gameDuration ?? null,
-            damage_dealt: damageDealt ?? null,
-            damage_taken: damageTaken ?? null,
-            gold_earned: goldEarned ?? null,
-            multikill: multikill ?? null,
-            summoner1: summoner1 ?? null,
-            summoner2: summoner2 ?? null,
-            max_hp: maxHp ?? null,
-            created_at: new Date().toISOString(),
-          },
-          ...prev,
-        ]);
-      } else if (!activeAccount) {
-        localStorage.setItem("active-account", matchedUsername);
-        setActiveAccount(matchedUsername);
-      }
-
-      // A partida acabou — se o banner ainda estiver aberto para este
-      // campeão, atualiza-o em vez de o deixar parado a dizer "a jogar"
-      // depois do jogo já ter terminado. A Live Client Data só dá Vitória/
-      // Derrota (1º lugar ou não); o lugar exato (2º-8º), dano, ouro e
-      // augments só ficam disponíveis depois de sincronizar com a Riot API,
-      // daí o aviso "sincroniza dentro de uns minutos" em baixo no banner.
-      setLiveChampionAlert((prev) =>
-        prev && prev.championId === championId
-          ? { ...prev, gameEnded: true, gameWon: !!didWin }
-          : prev
-      );
-    });
-
-    return unsubscribe;
-  }, [accounts, activeAccount, champions]);
-
-  // ================= AVISO: CAMPEÃO EM JOGO (Live Client Data) =================
-  // Dispara logo no início da partida (não espera pelo fim) para dizer de
-  // imediato se já há vitória com o campeão detetado — ver
-  // sendActiveChampion em electron.js. Também escolhe logo aqui uma frase de
-  // "roast" (ver roasts.js) consoante o nº de vitórias já registadas com
-  // esse campeão nesta conta — o nº de vitórias vem do histórico de
-  // partidas (mais fiável do que a lista "wins", que só marca se há alguma
-  // vitória, não quantas).
-  useEffect(() => {
-    if (!window.electron?.onActiveChampion) return;
-
-    const unsubscribe = window.electron.onActiveChampion(({ champion: liveChampionName } = {}) => {
-      if (!liveChampionName) return;
-
-      const championId = champions.find(
-        (c) => c.name.toLowerCase() === liveChampionName.toLowerCase()
-      )?.id;
-
-      if (!championId) return;
-
-      const winCount = matches.filter(
-        (m) => m.win && normalizeChampionId(m.champion, champions) === championId
-      ).length;
-
-      setLiveChampionAlert({
-        championId,
-        hasWin: winCount > 0,
-        roast: getRoast(championId, winCount, lang),
-        kda: { kills: 0, deaths: 0, assists: 0 },
-        items: [],
-      });
-    });
-
-    return unsubscribe;
-  }, [champions, matches, lang]);
-
-  // KDA + build atuais — chegam à parte (ver sendLiveStats em electron.js),
-  // repetidos a cada poll (3 em 3s) enquanto a partida decorre, por isso só
-  // atualizamos os campos que mudam em vez de recriar o alerta inteiro (o
-  // que reiniciaria a animação de entrada do banner a cada poll). Não há
-  // augments aqui: a Live Client Data API da Riot não os expõe durante a
-  // partida — só ficam visíveis no Histórico/Estatísticas depois de a
-  // partida terminar e sincronizar.
-  useEffect(() => {
-    if (!window.electron?.onLiveStats) return;
-
-    const unsubscribe = window.electron.onLiveStats(({ kills, deaths, assists, items } = {}) => {
-      setLiveChampionAlert((prev) =>
-        prev
-          ? {
-              ...prev,
-              kda: { kills: kills ?? 0, deaths: deaths ?? 0, assists: assists ?? 0 },
-              items: items || [],
-            }
-          : prev
-      );
-    });
-
-    return unsubscribe;
-  }, []);
+  const { theme, setTheme, headerCompact, setHeaderCompact } = useTheme();
 
   const goToChampionInCollection = (championId) => {
     const name = champions.find((c) => c.id === championId)?.name || "";
@@ -575,16 +160,16 @@ export default function App() {
     setLiveChampionAlert(null);
   };
 
-  // Atalho usado pelos destaques da Visão Geral — abre logo a tab de
-  // Estatísticas com a linha do campeão já expandida (ver highlightChampion
-  // em MatchReports.jsx). Guardamos sempre um objeto NOVO (nunca só a
-  // string do campeão) — mesmo clicando duas vezes seguidas no mesmo
+  // Atalho usado pelos destaques da Visão Geral — abre a tab de Estatísticas
+  // já ordenada pela métrica do cartão em que se clicou (ver highlightChampion
+  // em MatchReports.jsx). Já não abre/expande a linha do campeão nem
+  // desloca o scroll até ela — em vez disso, repõe sempre o scroll da tab no
+  // topo, para nunca aterrar a meio da lista caso já estivesse scrollada de
+  // uma visita anterior à mesma tab. Guardamos sempre um objeto NOVO (nunca
+  // só a string do campeão) — mesmo clicando duas vezes seguidas no mesmo
   // campeão, cada clique tem de disparar o efeito de novo em MatchReports,
   // e comparar só pela string não fazia isso na 2ª vez (o valor não mudava,
-  // logo o efeito nem corria). Isto também elimina a necessidade de um
-  // callback "onHighlightHandled" a repor o valor a null — essa reposição,
-  // se acontecesse cedo demais, cancelava o scroll pendente antes de ele
-  // disparar (era essa a causa de "às vezes não leva ao campeão certo").
+  // logo o efeito nem corria).
   const goToChampionStats = (championId, sortKey) => {
     setView("stats");
     setStatsHighlightChampion({
@@ -592,6 +177,7 @@ export default function App() {
       key: Date.now(),
       sortKey,
     });
+    mainScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
   };
 
   // ================= VERIFICAÇÃO RÁPIDA (atalho global) =================
@@ -647,500 +233,6 @@ export default function App() {
 
     return () => clearTimeout(t);
   }, [search]);
-
-  // ================= GESTÃO DE CONTAS =================
-  const createAccountFromManager = async (username, riotAccountRaw, riotTagRaw, regionRaw) => {
-    const riotAccount = riotAccountRaw || username;
-    const riotTag = riotTagRaw || "";
-    const region = regionRaw || "europe";
-
-    const exists = accounts.some((a) => a.username === username);
-    const updated = exists
-      ? accounts
-      : [...accounts, { username, riotAccount, riotTag, region }];
-
-    setAccounts(updated);
-    setActiveAccount(username);
-
-    localStorage.setItem("riot-accounts", JSON.stringify(updated));
-    localStorage.setItem("active-account", username);
-
-    await ensureUser(username);
-  };
-
-  const updateRiotAccountFor = (username, { riotAccount, riotTag, region }) => {
-    const updated = accounts.map((a) => {
-      if (a.username !== username) return a;
-
-      const newRiotAccount = riotAccount?.trim() || username;
-      const newRiotTag = riotTag?.trim() || "";
-      // Se o Riot ID (nome ou tag) mudar, o puuid guardado em cache já não
-      // corresponde a ninguém real — limpa-o para forçar uma nova resolução
-      // via account-v1 na próxima sincronização (ver puuid em syncActiveAccount).
-      const identityChanged = newRiotAccount !== a.riotAccount || newRiotTag !== a.riotTag;
-
-      return {
-        ...a,
-        riotAccount: newRiotAccount,
-        riotTag: newRiotTag,
-        region: region || a.region || "europe",
-        puuid: identityChanged ? null : a.puuid,
-      };
-    });
-
-    setAccounts(updated);
-    localStorage.setItem("riot-accounts", JSON.stringify(updated));
-  };
-
-  // Marca de "desde quando sincronizar" — antes vinha de "lastSyncAt" só no
-  // localStorage (por conta), que se perdia ao limpar dados locais ou
-  // trocar de PC, obrigando a um resync completo (não incorreto, só mais
-  // pesado do que precisava). Agora deriva sempre da partida mais recente
-  // já guardada na BD para esta conta — a mesma fonte que "matches" (ver
-  // getMatches), por isso reflete sempre o estado real já sincronizado,
-  // nunca um valor local que possa ter ficado para trás.
-  const latestMatchTimestamp = useMemo(() => {
-    if (!matches.length) return null;
-    return Math.max(...matches.map((m) => new Date(m.created_at).getTime()));
-  }, [matches]);
-
-  // Sincroniza a conta ativa com a Riot API: vai buscar partidas de Arena
-  // novas e grava-as automaticamente (sem pedir confirmação). Se já houve
-  // uma sincronização antes, só pede à Riot partidas a partir dessa data —
-  // muito mais leve do que voltar a pedir o histórico todo de cada vez, e
-  // sem nenhum limite artificial do nosso lado (só o ritmo de pedidos que a
-  // própria Riot API permite). Já não existe uma opção separada de
-  // "sincronizar tudo" — em vez de voltar a pedir o histórico inteiro do
-  // zero para recuperar partidas em falta, esta função encadeia sempre no
-  // fim uma passagem por enrichHistory(), que corrige/completa só as
-  // partidas já importadas que ficaram sem team_size ou sem os dados extra
-  // (dano/ouro/CS/etc.) — muito mais leve e sem repetir trabalho.
-  const syncActiveAccount = async () => {
-    const account = accounts.find((a) => a.username === activeAccount);
-    if (!account || !window.electron?.listMatchIds || !window.electron?.fetchMatchDetails) return;
-
-    if (!account.riotTag) {
-      setSyncStatus({
-        status: "error",
-        message: t("no_riot_tag").replace("{name}", account.username),
-      });
-      return;
-    }
-
-    setSyncStatus({
-      status: "loading",
-      message: t("syncing"),
-    });
-
-    try {
-      // 1) Só a lista de ids — barato, 1 pedido por cada 100 partidas.
-      const listRes = await window.electron.listMatchIds({
-        gameName: account.riotAccount,
-        tagLine: account.riotTag,
-        region: account.region || "europe",
-        since: latestMatchTimestamp || null,
-        // Se já sabemos o puuid desta conta (ver abaixo), poupa o pedido a
-        // account-v1 que resolveria gameName+tagLine -> puuid outra vez —
-        // um Riot ID só muda por ação do próprio jogador (ver
-        // updateRiotAccountFor, que limpa o puuid guardado nesse caso).
-        puuid: account.puuid || null,
-      });
-
-      if (!listRes.success) {
-        const msg =
-          listRes.error === "missing-api-key"
-            ? t("missing_api_key")
-            : listRes.error || t("unknown_error");
-        setSyncStatus({ status: "error", message: msg });
-        return;
-      }
-
-      // Primeira vez que resolvemos este puuid (ou a key mudou de algum
-      // modo) — guarda-o na conta para todas as sincronizações seguintes,
-      // incluindo o enrichHistory logo a seguir, poderem reaproveitá-lo.
-      if (listRes.puuid && listRes.puuid !== account.puuid) {
-        const updatedAccounts = accounts.map((a) =>
-          a.username === account.username ? { ...a, puuid: listRes.puuid } : a
-        );
-        setAccounts(updatedAccounts);
-        localStorage.setItem("riot-accounts", JSON.stringify(updatedAccounts));
-      }
-
-      const existingIds = await getImportedMatchIds(account.username);
-      const candidateIds = listRes.ids.filter((id) => !existingIds.has(id));
-
-      // 2) Antes de gastar pedidos à Riot API pelos detalhes de cada
-      // partida, vê se algum amigo já a importou — a Arena tem sempre
-      // vários jogadores reais (16-18), por isso os dados que ele já
-      // guardou servem também para nós (ver getMatchCacheByIds).
-      const cacheMap = await getMatchCacheByIds(candidateIds, account.username);
-
-      const cachedMatches = [];
-      const idsNeedingApi = [];
-      candidateIds.forEach((id) => {
-        const cached = cacheMap.get(id);
-        const fromCache = cached ? buildMatchFromCache(id, cached, listRes.puuid, account.riotAccount) : null;
-        if (fromCache) cachedMatches.push(fromCache);
-        else idsNeedingApi.push(id);
-      });
-
-      // 3) Só pede à Riot API os ids que sobraram (sem cache partilhada).
-      const detailsRes = idsNeedingApi.length
-        ? await window.electron.fetchMatchDetails({
-            matchIds: idsNeedingApi,
-            puuid: listRes.puuid,
-            region: account.region || "europe",
-          })
-        : { success: true, matches: [] };
-
-      if (!detailsRes.success) {
-        const msg =
-          detailsRes.error === "missing-api-key"
-            ? t("missing_api_key")
-            : detailsRes.error || t("unknown_error");
-        setSyncStatus({ status: "error", message: msg });
-        return;
-      }
-
-      // 4) De vez em quando (não a cada sync), confirma que a listagem
-      // filtrada por queue (passo 1) não está a deixar escapar partidas de
-      // Arena com um queueId que ainda não conhecemos — ver
-      // riotapi:canaryCheck em electron.js. Um queueId de Arena só muda
-      // mesmo num patch novo (foi assim que aconteceu desta vez, ver
-      // ARENA_QUEUE_IDS), e a app já sabe o patch atual (Data Dragon, ver
-      // "patch" acima) — por isso corre sempre que o patch mudou desde a
-      // última verificação, em vez de um temporizador cego: nunca falha uma
-      // mudança de patch, e nunca gasta pedidos extra a meio de um patch sem
-      // alterações. Se o patch nunca tiver sido resolvido (offline, ver
-      // "patchFailed"), cai para o temporizador (CANARY_CHECK_INTERVAL_MS)
-      // como rede de segurança, para a verificação não ficar permanentemente
-      // desligada. Silenciosamente ignorado se falhar (não é crítico, tenta-
-      // se de novo no próximo sync).
-      let canaryMatches = [];
-      const canaryDue = patch
-        ? account.lastCanaryPatch !== patch
-        : !account.lastCanaryCheck || Date.now() - account.lastCanaryCheck > CANARY_CHECK_INTERVAL_MS;
-      if (canaryDue && window.electron?.canaryCheck) {
-        const canaryRes = await window.electron.canaryCheck({
-          puuid: listRes.puuid,
-          region: account.region || "europe",
-          knownIds: [...existingIds, ...listRes.ids],
-        });
-
-        if (canaryRes.success) {
-          canaryMatches = canaryRes.newArenaMatches || [];
-          if (canaryRes.unknownQueueIds?.length) {
-            console.warn(
-              "[canary] queueId(s) de Arena desconhecido(s) detetado(s):",
-              canaryRes.unknownQueueIds
-            );
-          }
-
-          // Guarda os dois: "lastCanaryPatch" é o gatilho normal (ver
-          // canaryDue acima); "lastCanaryCheck" só serve de rede de
-          // segurança para quando "patch" não está disponível.
-          const updatedAccounts = accounts.map((a) =>
-            a.username === account.username
-              ? { ...a, lastCanaryPatch: patch || a.lastCanaryPatch, lastCanaryCheck: Date.now() }
-              : a
-          );
-          setAccounts(updatedAccounts);
-          localStorage.setItem("riot-accounts", JSON.stringify(updatedAccounts));
-        }
-      }
-
-      const normalized = [...cachedMatches, ...detailsRes.matches, ...canaryMatches].map((m) => ({
-        ...m,
-        champion: normalizeChampionId(m.champion, champions),
-      }));
-      const newMatches = normalized.filter(
-        (m, index, arr) => !existingIds.has(m.matchId) && arr.findIndex((x) => x.matchId === m.matchId) === index
-      );
-
-      const result = await addMatchesBulk(account.username, newMatches);
-
-      if (!result.success) {
-        setSyncStatus({
-          status: "error",
-          message: t("save_matches_error").replace("{error}", result.error),
-        });
-        return;
-      }
-
-      for (const m of newMatches) {
-        if (m.win) await addWin(account.username, m.champion);
-      }
-
-      // "latestMatchTimestamp" (usado no próximo "since") recalcula-se
-      // sozinho a partir de "matches" assim que o setMatches abaixo correr —
-      // não precisa de nenhuma marca própria a guardar aqui. "created_at"
-      // já vem do fim de jogo (gameEndTimestamp), não da hora da
-      // sincronização — os jogos por vezes demoram alguns minutos a
-      // aparecer na API depois de terminarem, e usar a hora "agora" como
-      // referência deixaria sempre um jogo ainda não propagado de fora do
-      // intervalo pedido na próxima sincronização.
-      if (account.username === activeAccount) {
-        getWins(activeAccount).then((d) => setWins(d || []));
-        getMatches(activeAccount).then((d) => setMatches(d || []));
-      }
-
-      const cacheHits = cachedMatches.filter((m) => !existingIds.has(m.matchId)).length;
-      setSyncStatus({
-        status: "done",
-        message:
-          result.inserted > 0
-            ? `${result.inserted} ${t("matches_imported")}` +
-              (cacheHits > 0 ? ` (${cacheHits} ${t("matches_from_cache")})` : "")
-            : t("already_up_to_date"),
-      });
-
-      setTimeout(() => setSyncStatus((prev) => (prev?.status === "done" ? null : prev)), 4000);
-
-      // Encadeia a correção de partidas já importadas mas incompletas — fica
-      // sem efeito nenhum (nem sequer muda o status na UI) quando não há
-      // nada para corrigir, ver early-return no início de enrichHistory.
-      // Passa o puuid já resolvido acima para não o voltar a pedir à Riot.
-      await enrichHistory(false, listRes.puuid);
-    } catch (err) {
-      setSyncStatus({ status: "error", message: err?.message || String(err) });
-    }
-  };
-
-  // Corrige/enriquece partidas antigas que já têm riot_match_id — e por
-  // isso são sempre tratadas como "já importadas" (ver getImportedMatchIds
-  // em db/api.js). Uma sincronização normal ou "Sincronizar tudo" NUNCA as
-  // volta a tocar, mesmo que lhes faltem colunas que não existiam quando
-  // foram importadas da primeira vez (team_size, e depois dano/ouro/CS/
-  // vision score/etc.) — é por isso que sincronizar tudo não chega para
-  // essas partidas aparecerem detalhadas no Histórico/Estatísticas.
-  // Duas fases: 1) heurística local sem pedidos à Riot API (lugar 7º/8º só
-  // existe no formato de 8 equipas, dá para saber o team_size sem API);
-  // 2) para o resto, com riot_match_id, voltamos a consultar a Riot API e
-  // fazemos UPDATE na linha já existente (nunca um INSERT novo).
-  // "force" ignora por completo qualquer deteção de "o que precisa de
-  // correção" e a cache partilhada — reconsulta a Riot API para TODAS as
-  // partidas com riot_match_id, para repor valores corretos independente-
-  // mente da causa. Existe por causa de um bug já corrigido em
-  // getMatchCacheByIds (a cache podia usar-se a si própria — uma partida
-  // tua já incompleta — como se fosse "de outro user", escrevendo de volta
-  // double_kills/triple_kills a 0 por cima de um valor já correto). Como
-  // 0 não é "null", isso não fica marcado como "por corrigir" pela deteção
-  // normal — só um "force" (ignora deteção, ignora cache) restaura de vez.
-  // "knownPuuid" é opcional: quando chamado logo a seguir a um sync (ver
-  // syncActiveAccount), o puuid acabado de resolver ainda não está visível
-  // aqui via "accounts" (o setAccounts que o guarda só se reflete no
-  // próximo render) — passá-lo explicitamente evita um pedido a account-v1
-  // que, de outra forma, se repetiria já a seguir ao de listMatchIds.
-  const enrichHistory = async (force = false, knownPuuid = null) => {
-    const account = accounts.find((a) => a.username === activeAccount);
-    const puuid = knownPuuid || account?.puuid || null;
-
-    const missingTeamSize = force ? [] : matches.filter((m) => !m.team_size);
-    // "participants" pode existir mas vir de uma versão mais antiga desta
-    // funcionalidade, sem os campos de dano/ouro/cura por jogador (só
-    // campeão/KDA/build/augments) — sem verificar isto, uma partida já
-    // "enriquecida" uma vez nunca mais seria revisitada, mesmo depois de
-    // adicionarmos novos dados a extrair (ver extractAllParticipants em
-    // electron.js), e ficava para sempre incompleta no Histórico.
-    const hasIncompleteParticipants = (m) =>
-      Array.isArray(m.participants) &&
-      m.participants.length > 0 &&
-      (m.participants[0].damageDealt === undefined || m.participants[0].doubleKills === undefined);
-    const missingDetails = force
-      ? matches.filter((m) => m.riot_match_id)
-      : matches.filter(
-          (m) =>
-            m.riot_match_id &&
-            (m.damage_dealt == null ||
-              m.healing == null ||
-              m.participants == null ||
-              m.double_kills == null ||
-              m.triple_kills == null ||
-              hasIncompleteParticipants(m))
-        );
-
-    const localFix = force ? [] : missingTeamSize.filter((m) => m.placement === 7 || m.placement === 8);
-    const localFixIds = new Set(localFix.map((m) => m.id));
-
-    const needsApiMap = new Map();
-    missingTeamSize
-      .filter((m) => !localFixIds.has(m.id) && m.riot_match_id)
-      .forEach((m) => needsApiMap.set(m.id, m));
-    missingDetails.forEach((m) => needsApiMap.set(m.id, m));
-    const needsApi = [...needsApiMap.values()];
-
-    const allAffectedIds = new Set([...missingTeamSize.map((m) => m.id), ...missingDetails.map((m) => m.id)]);
-
-    if (!allAffectedIds.size) return;
-
-    setSyncStatus({
-      status: "loading",
-      message: force ? t("repairing_all_history") : t("enriching_history"),
-    });
-
-    try {
-      if (localFix.length) {
-        await updateTeamSizeForIds(localFix.map((m) => m.id), 2);
-      }
-
-      let apiFixed = 0;
-      if (needsApi.length) {
-        if (!account?.riotTag) {
-          setSyncStatus({
-            status: "error",
-            message: t("define_riot_tag_enrich").replace("{name}", account?.username),
-          });
-          return;
-        }
-
-        // Antes de pedir à Riot API, vê se algum amigo já tem estes mesmos
-        // ids com os dados completos — se sim, o UPDATE usa logo esses
-        // dados, sem gastar pedido nenhum (ver getMatchCacheByIds). Em modo
-        // "force" ignora-se a cache de propósito: o objetivo é repor a
-        // verdade a partir da Riot API, não confiar em mais nenhuma linha
-        // guardada (que podia ter sido afetada pelo mesmo bug).
-        const detailsByMatchId = new Map();
-        const stillNeedsApi = [];
-
-        if (force) {
-          stillNeedsApi.push(...needsApi);
-        } else {
-          const cacheMap = await getMatchCacheByIds(
-            needsApi.map((m) => m.riot_match_id),
-            account.username
-          );
-          needsApi.forEach((m) => {
-            const cached = cacheMap.get(m.riot_match_id);
-            const fromCache = cached ? buildBackfillDetailsFromCache(cached, puuid, account.riotAccount) : null;
-            if (fromCache) detailsByMatchId.set(m.riot_match_id, { matchId: m.riot_match_id, ...fromCache });
-            else stillNeedsApi.push(m);
-          });
-        }
-
-        let dbError = null;
-
-        // Um histórico grande (sobretudo em "force") pode facilmente ter
-        // centenas de partidas a pedir de novo à Riot API — um único pedido
-        // IPC com todas de uma vez só devolve alguma coisa à interface no
-        // fim, o que faz o "Reparar tudo" parecer preso mesmo a funcionar.
-        // Dividir em lotes deixa atualizar o syncStatus entre cada um, sem
-        // mudar nada no ritmo de pedidos à Riot API em si (esse continua a
-        // ser controlado só pelo FETCH_CONCURRENCY dentro de cada lote, ver
-        // electron.js).
-        const BACKFILL_BATCH_SIZE = 60;
-        if (stillNeedsApi.length && window.electron?.backfillMatchDetails) {
-          const total = stillNeedsApi.length;
-          let done = 0;
-
-          for (let i = 0; i < stillNeedsApi.length; i += BACKFILL_BATCH_SIZE) {
-            const batch = stillNeedsApi.slice(i, i + BACKFILL_BATCH_SIZE);
-
-            setSyncStatus({
-              status: "loading",
-              message: `${force ? t("repairing_all_history") : t("enriching_history")} (${done}/${total})`,
-            });
-
-            const res = await window.electron.backfillMatchDetails({
-              matchIds: batch.map((m) => m.riot_match_id),
-              region: account?.region || "europe",
-              gameName: account.riotAccount,
-              tagLine: account.riotTag,
-              puuid,
-            });
-
-            if (res.success) {
-              res.results.forEach((r) => detailsByMatchId.set(r.matchId, r));
-            } else if (res.error === "missing-api-key") {
-              setSyncStatus({ status: "error", message: t("missing_api_key") });
-              return;
-            }
-
-            done += batch.length;
-          }
-        }
-
-        // Os UPDATEs à Supabase (ao contrário dos pedidos à Riot API acima)
-        // não têm nenhum limite a respeitar — são só um pedido nosso à nossa
-        // própria base de dados. Fazê-los um a um em série (await dentro do
-        // for) era o verdadeiro gargalo do "Reparar tudo" num histórico
-        // grande: cada UPDATE espera pela viagem de ida e volta à Supabase
-        // antes do seguinte começar. Com vários em voo ao mesmo tempo
-        // (mesmo padrão de "trabalhadores" do processWithConcurrency em
-        // electron.js, só que aqui sem nenhum wait() entre pedidos — não há
-        // rate limit da Riot a respeitar neste passo) isto fica muito mais
-        // rápido sem tocar em nada do ritmo de pedidos à Riot API.
-        const toUpdate = needsApi.filter((m) => detailsByMatchId.has(m.riot_match_id));
-        const updateResults = await runWithConcurrency(toUpdate, DB_UPDATE_CONCURRENCY, (m) =>
-          updateMatchDetails(m.id, detailsByMatchId.get(m.riot_match_id))
-        );
-
-        // IMPORTANTE: só conta como corrigida se o UPDATE na Supabase tiver
-        // mesmo sucesso — antes isto era contado sempre, mesmo quando
-        // falhava (ex: coluna "participants" em falta na tabela), fazendo a
-        // app dizer "N partidas enriquecidas" quando na verdade nada tinha
-        // sido gravado, e a mesma partida nunca mais era assinalada como
-        // precisando de correção.
-        updateResults.forEach((result) => {
-          if (result.success) {
-            apiFixed += 1;
-          } else if (!dbError) {
-            dbError = result.error;
-          }
-        });
-        if (dbError && apiFixed === 0) {
-          setSyncStatus({
-            status: "error",
-            message: t("save_matches_error").replace("{error}", dbError),
-          });
-          return;
-        }
-      }
-
-      const totalFixed = localFix.length + apiFixed;
-      const unresolved = allAffectedIds.size - totalFixed;
-
-      getMatches(activeAccount).then((d) => setMatches(d || []));
-
-      setSyncStatus({
-        status: "done",
-        message:
-          totalFixed > 0
-            ? `${totalFixed} ${t("matches_enriched")}` +
-              (unresolved > 0 ? ` ${unresolved} ${t("not_enough_recovered")}` : "")
-            : t("not_enough_data_at_all"),
-      });
-
-      setTimeout(() => setSyncStatus((prev) => (prev?.status === "done" ? null : prev)), 6000);
-    } catch (err) {
-      setSyncStatus({ status: "error", message: err?.message || String(err) });
-    }
-  };
-
-  const deleteAccount = (username) => {
-    const updated = accounts.filter((a) => a.username !== username);
-    setAccounts(updated);
-    localStorage.setItem("riot-accounts", JSON.stringify(updated));
-
-    if (activeAccount === username) {
-      setActiveAccount(null);
-      setWins([]);
-      setMatches([]);
-      localStorage.removeItem("active-account");
-    }
-  };
-
-  const switchAccount = async (name) => {
-    setSwitching(true);
-
-    await ensureUser(name);
-    localStorage.setItem("active-account", name);
-
-    setTimeout(() => {
-      setActiveAccount(name);
-      setSwitching(false);
-      setShowSettings(false);
-    }, 180);
-  };
 
   const owned = useMemo(() => new Set(wins), [wins]);
 
@@ -1313,10 +405,7 @@ export default function App() {
       <div style={styles.app}>
         <div style={styles.auroraBlob1} aria-hidden="true" />
         <div style={styles.auroraBlob2} aria-hidden="true" />
-        <div style={styles.coldLoadingWrap}>
-          <div style={styles.coldLoadingSpinner} />
-          <div style={styles.coldLoadingText}>{t("cold_loading")}</div>
-        </div>
+        <Loading label={t("cold_loading")} size="lg" />
       </div>
     );
   }
@@ -1462,7 +551,7 @@ export default function App() {
               }}
               style={styles.liveBannerClose}
             >
-              ✕
+              <X size={12} strokeWidth={2.5} />
             </button>
           </motion.div>
         )}
@@ -1503,7 +592,9 @@ export default function App() {
               <img src="./logo.ico" style={styles.brandLogo} />
               <span style={styles.brandName}>Arena Tracker</span>
               <Tooltip label={t("riot_disclaimer")}>
-                <span style={styles.infoIcon}>ⓘ</span>
+                <span style={styles.infoIcon}>
+                  <Info size={13} strokeWidth={2.25} />
+                </span>
               </Tooltip>
             </div>
 
@@ -1550,7 +641,14 @@ export default function App() {
                         style={styles.syncBtn}
                         disabled={syncStatus?.status === "loading"}
                       >
-                        {syncStatus?.status === "loading" ? t("sync_btn_loading") : `⟲ ${t("sync_btn")}`}
+                        {syncStatus?.status === "loading" ? (
+                          t("sync_btn_loading")
+                        ) : (
+                          <>
+                            <RotateCw size={13} strokeWidth={2.25} style={styles.syncBtnIcon} />
+                            {t("sync_btn")}
+                          </>
+                        )}
                       </button>
                     </Tooltip>
                     {missingEnrichmentCount > 0 && (
@@ -1606,7 +704,7 @@ export default function App() {
             <div style={styles.iconCluster}>
               <Tooltip label={t("open_settings")}>
                 <button onClick={() => openSettings("general")} style={styles.iconClusterBtn}>
-                  ⚙
+                  <SettingsIcon size={14} strokeWidth={2.25} />
                 </button>
               </Tooltip>
             </div>
@@ -1644,7 +742,9 @@ export default function App() {
                       />
                     )}
                     <span style={styles.tabBtnLabel}>
-                      <span style={styles.tabBtnIcon}>{tab.icon}</span>
+                      <span style={styles.tabBtnIcon}>
+                        <tab.icon size={14} strokeWidth={2.25} />
+                      </span>
                       {tab.label}
                     </span>
                   </button>
@@ -1728,15 +828,34 @@ export default function App() {
             {/* Transição entre tabs — a troca de conteúdo (Visão Geral,
                 Coleção, etc.) já não é instantânea: "mode=wait" garante que
                 a tab antiga desaparece antes da nova entrar, para não haver
-                sobreposição nem saltos de altura a meio da animação. */}
+                sobreposição nem saltos de altura a meio da animação. Isto
+                tem um custo: com "wait", há sempre um instante em que NENHUM
+                conteúdo está montado (a tab antiga já saiu, a nova ainda não
+                entrou) — não é falta de dados nenhuma (matches/wins já estão
+                em memória), é só o próprio gap da animação. Antes a saída e
+                a entrada tinham a mesma duração (0.16s cada, ~0.32s de gap
+                total); a saída agora é bem mais rápida (0.08s) do que a
+                entrada (0.14s) — reduz o gap sem eliminar por completo a
+                proteção do "wait" contra sobreposição. */}
             <AnimatePresence mode="wait" initial={false}>
               <motion.div
                 key={view}
                 initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                transition={{ duration: 0.16, ease: "easeOut" }}
+                animate={{ opacity: 1, y: 0, transition: { duration: 0.14, ease: "easeOut" } }}
+                exit={{ opacity: 0, y: -6, transition: { duration: 0.08, ease: "easeIn" } }}
               >
+            {/* Enquanto wins/matches da conta ativa ainda não chegaram (troca
+                de conta, arranque inicial), mostra o Loading em vez de deixar
+                cada página renderizar por instantes com dados vazios (o que
+                parecia "sem partidas" quando na realidade só faltava a
+                resposta da Supabase chegar, ver dataLoading em
+                useAccounts.js). "viewLoading" cobre a troca de TAB (ver
+                comentário junto à sua declaração acima) — situação diferente,
+                sem pedido nenhum de dados, só uma transição mais deliberada. */}
+            {dataLoading || viewLoading ? (
+              <Loading label={t("loading_generic")} />
+            ) : (
+              <>
             {view === "overview" && (
               <Overview
                 matches={statsMatches}
@@ -1756,10 +875,6 @@ export default function App() {
                 summonerSpellsMap={summonerSpellsMap}
                 itemsMap={itemsMap}
                 theme={theme}
-                riotAccountName={
-                  accounts.find((a) => a.username === activeAccount)?.riotAccount ||
-                  activeAccount
-                }
               />
             )}
 
@@ -1786,7 +901,9 @@ export default function App() {
             {view === "wins" && (
               <>
                 <div style={styles.globalSearch}>
-                  <span>🔎</span>
+                  <span style={styles.searchIcon}>
+                    <Search size={14} strokeWidth={2.25} />
+                  </span>
                   <input
                     ref={searchInputRef}
                     placeholder={t("search_placeholder")}
@@ -1829,13 +946,11 @@ export default function App() {
                 )}
 
                 <div style={styles.cardScroll}>
+                  {/* Sem título "Coleção" aqui em cima — a própria tab já
+                      tem esse nome na barra lateral, repeti-lo só empurrava
+                      o filtro/grelha para baixo sem acrescentar nada. Filtro
+                      e contagem ficam agora na mesma linha. */}
                   <div style={styles.collectionHeader}>
-                    <div style={styles.collectionTitleRow}>
-                      <h2 style={{ ...styles.sectionTitle, marginBottom: 0 }}>{t("your_victories")}</h2>
-                      <span style={styles.collectionCount}>
-                        {filteredCollection.length} / {champions.length}
-                      </span>
-                    </div>
                     <div style={styles.segGroup}>
                       {[
                         { key: "won", label: t("collection_filter_won") },
@@ -1854,6 +969,9 @@ export default function App() {
                         </button>
                       ))}
                     </div>
+                    <span style={styles.collectionCount}>
+                      {filteredCollection.length} / {champions.length}
+                    </span>
                   </div>
                   {/* Sem scroll/altura próprios de propósito — antes a grelha
                       tinha um maxHeight fixo de 26vh e ficava minúscula em
@@ -1889,7 +1007,16 @@ export default function App() {
                               animate={{ opacity: hasWin ? 1 : 0.55, scale: 1 }}
                               exit={{ opacity: 0, scale: 0.7 }}
                               transition={{ duration: 0.08 }}
-                              style={hasWin ? styles.winCard : styles.winCardEmpty}
+                              // Clicável só quando já há vitória (só aí existem
+                              // dados para mostrar nas Estatísticas) — salta
+                              // logo para lá com esse campeão em foco, em vez
+                              // de teres de o procurar manualmente na lista.
+                              onClick={hasWin ? () => goToChampionStats(champ) : undefined}
+                              className={hasWin ? "clickableCard" : undefined}
+                              style={{
+                                ...(hasWin ? styles.winCard : styles.winCardEmpty),
+                                cursor: hasWin ? "pointer" : "default",
+                              }}
                             >
                               <div style={styles.winIconWrap}>
                                 <img src={`${DRAGON}/img/champion/${champ}.png`} style={styles.winIcon} />
@@ -1902,6 +1029,8 @@ export default function App() {
                     </AnimatePresence>
                   </div>
                 </div>
+              </>
+            )}
               </>
             )}
               </motion.div>
@@ -1963,31 +1092,6 @@ export default function App() {
 }
 
 const styles = {
-  coldLoadingWrap: {
-    position: "relative",
-    zIndex: 1,
-    flex: 1,
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 14,
-  },
-
-  coldLoadingSpinner: {
-    width: 34,
-    height: 34,
-    borderRadius: "50%",
-    border: "3px solid rgba(var(--accent-rgb),0.2)",
-    borderTopColor: "var(--accent-solid)",
-    animation: "spin 0.8s linear infinite",
-  },
-
-  coldLoadingText: {
-    fontSize: 13,
-    color: "var(--text-secondary)",
-  },
-
   // Sinal visual de "há mais conteúdo abaixo" — só aparece quando a lista
   // ainda não chegou ao fim (ver canScrollDown/updateScrollShadow).
   scrollShadow: {
@@ -2009,7 +1113,10 @@ const styles = {
     overflowY: "hidden",
     color: "var(--text-body)",
     paddingTop: "32px",
-    fontFamily: "Cinzel, serif",
+    // "Cinzel" (decorativa) fica só na marca/título e no banner ao vivo (ver
+    // brandName/liveBanner abaixo) — herdar isto aqui cascatava para toda a
+    // app, incluindo tabelas densas de Histórico/Estatísticas, onde uma
+    // serif decorativa lê pior do que a sans-serif de "--sans" (index.css).
     display: "flex",
     justifyContent: "center",
     boxSizing: "border-box",
@@ -2159,12 +1266,14 @@ const styles = {
     marginLeft: 6,
     width: 22,
     height: 22,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
     borderRadius: "var(--radius-sm)",
     border: "none",
     background: "rgba(var(--soft-rgb),0.08)",
     color: "var(--text-secondary)",
     cursor: "pointer",
-    fontSize: 11,
   },
 
   // Antes a marca vivia num bloco próprio, centrado e acima da topBar (logo
@@ -2195,10 +1304,11 @@ const styles = {
     fontWeight: 700,
     fontSize: 13,
     whiteSpace: "nowrap",
+    fontFamily: "Cinzel, serif",
   },
 
   infoIcon: {
-    fontSize: 13,
+    display: "inline-flex",
     color: "var(--text-muted)",
     cursor: "help",
   },
@@ -2332,8 +1442,8 @@ const styles = {
   },
 
   tabBtnIcon: {
-    fontSize: 13,
-    lineHeight: 1,
+    display: "inline-flex",
+    alignItems: "center",
   },
 
   title: { color: "var(--accent-text)", fontSize: 34 },
@@ -2414,11 +1524,12 @@ const styles = {
 
   iconClusterBtn: {
     padding: "6px 11px",
+    display: "flex",
+    alignItems: "center",
     border: "none",
     background: "transparent",
     color: "var(--accent-text)",
     cursor: "pointer",
-    fontSize: 12,
     transition: "background 0.15s ease",
   },
 
@@ -2441,6 +1552,9 @@ const styles = {
 
   syncBtn: {
     padding: "6px 10px",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
     borderRadius: "var(--radius-md)",
     border: "1px solid rgba(var(--accent-rgb),0.25)",
     background: "rgba(var(--panel-deep-rgb),0.85)",
@@ -2449,6 +1563,10 @@ const styles = {
     fontSize: 12,
     fontWeight: 600,
     transition: "all 0.15s ease",
+  },
+
+  syncBtnIcon: {
+    flexShrink: 0,
   },
 
   syncAllBtn: {
@@ -2489,21 +1607,12 @@ const styles = {
     flexDirection: "column",
   },
 
-  sectionTitle: { marginBottom: 12, color: "var(--accent-text)" },
-
-  // Título+contagem numa linha, filtro por baixo — em vez de tudo espremido
-  // numa única linha (o segGroup ficava a competir por espaço com o título
-  // em ecrãs mais estreitos), agora cada peça tem sempre a largura toda.
+  // Filtro + contagem na mesma linha — sem título "Coleção" em cima (a tab
+  // já se chama assim), o cabeçalho fica só com o essencial.
   collectionHeader: {
     display: "flex",
-    flexDirection: "column",
-    gap: 10,
-  },
-
-  collectionTitleRow: {
-    display: "flex",
+    alignItems: "center",
     justifyContent: "space-between",
-    alignItems: "baseline",
     gap: 10,
   },
 
@@ -2511,19 +1620,27 @@ const styles = {
     fontSize: 12,
     fontWeight: 600,
     color: "var(--text-muted)",
+    flexShrink: 0,
   },
 
   segGroup: {
     display: "flex",
     gap: 2,
     padding: 2,
-    alignSelf: "flex-start",
     borderRadius: "var(--radius-md)",
     background: "rgba(var(--panel-deep-rgb),0.9)",
     border: "1px solid rgba(var(--border-rgb),0.4)",
   },
 
+  // "flex:1" em todos os botões — antes cada um só tinha a largura do seu
+  // próprio texto ("Com vitória" bem mais largo que "Todos"), o que fazia o
+  // grupo parecer desproporcional. Agora os três dividem sempre o mesmo
+  // espaço por igual, seja qual for o comprimento do rótulo.
   segBtn: {
+    flex: 1,
+    minWidth: 84,
+    textAlign: "center",
+    whiteSpace: "nowrap",
     padding: "6px 12px",
     borderRadius: "var(--radius-sm)",
     border: "none",
@@ -2566,6 +1683,12 @@ const styles = {
     outline: "none",
     background: "transparent",
     color: "var(--text-body)",
+  },
+
+  searchIcon: {
+    display: "inline-flex",
+    flexShrink: 0,
+    color: "var(--text-muted)",
   },
 
   shortcutHint: {

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Tooltip from "./Tooltip";
 import ConfirmDialog from "./ConfirmDialog";
-import { useLanguage } from "./i18n";
+import { useLanguage } from "../lib/i18n";
 
 // Tags mais comuns da Riot (o servidor de origem já vem embutido nelas) —
 // escolher a tag certa já define sozinho o servidor certo para a Riot API,

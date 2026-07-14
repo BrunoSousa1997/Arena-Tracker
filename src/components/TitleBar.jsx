@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Minus, Square, Copy, X } from "lucide-react";
 
 export default function TitleBar() {
     if (!window.electron) return null;
@@ -21,15 +22,15 @@ export default function TitleBar() {
 
             <div style={styles.controls}>
                 <button onClick={() => window.electron.minimize()} style={styles.btn}>
-                    ─
+                    <Minus size={11} strokeWidth={2.5} />
                 </button>
 
                 <button onClick={() => window.electron.maximize()} style={styles.btn}>
-                    {isMaximized ? "❐" : "□"}
+                    {isMaximized ? <Copy size={10} strokeWidth={2.25} /> : <Square size={10} strokeWidth={2.25} />}
                 </button>
 
                 <button onClick={() => window.electron.close()} style={styles.close}>
-                    ✕
+                    <X size={11} strokeWidth={2.5} />
                 </button>
             </div>
         </div>
@@ -63,10 +64,8 @@ const styles = {
         WebkitAppRegion: "no-drag",
     },
 
-    // fontSize/lineHeight explícitos (não herdados) e centragem via flex —
-    // sem isto, um botão tão pequeno (22x16) fica à mercê do tamanho de letra
-    // global da app (18px/145%), que não cabe nem de perto nesta altura e
-    // desformata o glifo lá dentro.
+    // Centragem via flex — um botão tão pequeno (22x16) precisa disto para o
+    // ícone (lucide-react) não ficar desalinhado lá dentro.
     btn: {
         width: 22,
         height: 16,
@@ -78,8 +77,6 @@ const styles = {
         color: "var(--accent-text)",
         borderRadius: "var(--radius-sm)",
         cursor: "pointer",
-        fontSize: 10,
-        lineHeight: 1,
         padding: 0,
     },
 
@@ -94,8 +91,6 @@ const styles = {
         color: "var(--accent-solid-text)",
         borderRadius: "var(--radius-sm)",
         cursor: "pointer",
-        fontSize: 10,
-        lineHeight: 1,
         padding: 0,
     },
 };

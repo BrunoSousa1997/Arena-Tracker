@@ -1,10 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { placementColor, placementBg, placementBorder } from "./placement";
-import { augmentRarityStyle } from "./augments";
-import { useLanguage } from "./i18n";
-import Tooltip from "./Tooltip";
-import Toast from "./Toast";
+import { Search, ChevronUp, ChevronDown } from "lucide-react";
+import { placementColor, placementBg, placementBorder } from "../lib/placement";
+import { augmentRarityStyle } from "../lib/augments";
+import { useLanguage } from "../lib/i18n";
+import Tooltip from "../components/Tooltip";
 
 function timeAgo(iso, lang) {
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -106,27 +106,30 @@ function resultColor(m) {
   return m.win ? "var(--place-good)" : "var(--place-low)";
 }
 
-// Baldes usados no filtro por posição e na ordenação — 4º-6º e 7º-8º
-// porque é assim que a Arena os agrupa (7º/8º só existe no formato de 8
-// equipas de 2, ver placement.js).
+// Uma opção por cada posição possível (1º-8º, o máximo que a Arena já teve
+// no formato de 8 equipas de 2 — ver placement.js) em vez dos baldes 4º-6º/
+// 7º-8º de antes: já não precisa de poupar espaço (é um <select>, não
+// chips), por isso mostrar cada lugar individual é mais direto do que
+// agrupar. "Sem dados de lugar" foi removido a pedido — partidas antigas só
+// com Live Client Data (sem lugar exato) ficam de fora deste filtro, mas
+// continuam visíveis com "ALL".
 function getPlacementFilters(t) {
   return [
     { key: "ALL", label: t("filter_all_placements") },
     { key: "1", label: "1º" },
     { key: "2", label: "2º" },
     { key: "3", label: "3º" },
-    { key: "4-6", label: "4º-6º" },
-    { key: "7-8", label: "7º-8º" },
-    { key: "NONE", label: t("filter_no_placement_data") },
+    { key: "4", label: "4º" },
+    { key: "5", label: "5º" },
+    { key: "6", label: "6º" },
+    { key: "7", label: "7º" },
+    { key: "8", label: "8º" },
   ];
 }
 
 function matchesPlacementFilter(m, filter) {
   if (filter === "ALL") return true;
-  if (filter === "NONE") return !m.placement;
   if (!m.placement) return false;
-  if (filter === "4-6") return m.placement >= 4 && m.placement <= 6;
-  if (filter === "7-8") return m.placement >= 7 && m.placement <= 8;
   return m.placement === Number(filter);
 }
 
@@ -166,111 +169,6 @@ function sortMatches(matches, sortBy) {
   }
 }
 
-// Mesmos nomes de campos usados pela Riot na Match-V5 API (championName,
-// kills/deaths/assists, win, item0-6, playerAugment1-4, queueId da Arena),
-// preenchidos com os dados que já temos. placement/augments ficam null
-// enquanto não houver importação via Riot API.
-const ARENA_QUEUE_ID = 1700;
-
-function toRiotFormat(matches, riotAccountName) {
-  return matches.map((m) => {
-    const items = m.items || [];
-    const itemSlots = [0, 1, 2, 3, 4, 5, 6].map((i) => items[i]?.itemID ?? 0);
-    const augments = m.augments || [];
-
-    return {
-      metadata: {
-        matchId: null,
-        dataVersion: "arena-tracker-export-1",
-      },
-      info: {
-        gameMode: "CHERRY",
-        queueId: ARENA_QUEUE_ID,
-        gameEndTimestamp: new Date(m.created_at).getTime(),
-        participants: [
-          {
-            riotIdGameName: riotAccountName || null,
-            championName: m.champion,
-            kills: m.kills || 0,
-            deaths: m.deaths || 0,
-            assists: m.assists || 0,
-            win: !!m.win,
-            placement: m.placement ?? null,
-            playerAugment1: augments[0] ?? null,
-            playerAugment2: augments[1] ?? null,
-            playerAugment3: augments[2] ?? null,
-            playerAugment4: augments[3] ?? null,
-            item0: itemSlots[0],
-            item1: itemSlots[1],
-            item2: itemSlots[2],
-            item3: itemSlots[3],
-            item4: itemSlots[4],
-            item5: itemSlots[5],
-            item6: itemSlots[6],
-          },
-        ],
-      },
-    };
-  });
-}
-
-// CSV simples (uma linha por partida) — pensado para abrir em Excel/Sheets,
-// ao contrário do export em formato Riot que serve para reimportar dados.
-function csvEscape(value) {
-  const str = value == null ? "" : String(value);
-  if (/[",\n;]/.test(str)) return `"${str.replace(/"/g, '""')}"`;
-  return str;
-}
-
-function toCsv(matches, champions) {
-  const champName = (id) => champions.find((c) => c.id === id)?.name || id;
-  const header = [
-    "date",
-    "champion",
-    "format",
-    "placement",
-    "win",
-    "kills",
-    "deaths",
-    "assists",
-    "damage_dealt",
-    "damage_taken",
-    "healing",
-    "max_hp",
-    "gold_earned",
-    "cs",
-    "vision_score",
-    "duration_seconds",
-    "items",
-    "augments",
-  ];
-
-  const rows = matches.map((m) => [
-    m.created_at ? new Date(m.created_at).toISOString() : "",
-    champName(m.champion),
-    m.team_size ? `${m.team_size}v${m.team_size}` : "",
-    m.placement ?? "",
-    m.win ? 1 : 0,
-    m.kills ?? "",
-    m.deaths ?? "",
-    m.assists ?? "",
-    m.damage_dealt ?? "",
-    m.damage_taken ?? "",
-    m.healing ?? "",
-    m.max_hp ?? "",
-    m.gold_earned ?? "",
-    m.cs ?? "",
-    m.vision_score ?? "",
-    m.game_duration ?? "",
-    (m.items || []).map((it) => it?.name || it?.itemID).filter(Boolean).join(" | "),
-    (m.augments || []).join(" | "),
-  ]);
-
-  return [header, ...rows]
-    .map((row) => row.map(csvEscape).join(","))
-    .join("\n");
-}
-
 export default function MatchHistory({
   matches,
   champions,
@@ -279,7 +177,6 @@ export default function MatchHistory({
   summonerSpellsMap,
   itemsMap,
   theme,
-  riotAccountName,
 }) {
   const { t, lang } = useLanguage();
   const PLACEMENT_FILTERS = getPlacementFilters(t);
@@ -294,58 +191,50 @@ export default function MatchHistory({
   // Antes era um <select> com um campeão exato à escolha — uma busca por
   // texto encontra logo qualquer campeão que contenha o que se escreve
   // (ex: "vi" apanha Vi/Viktor/Viego de uma vez), sem precisar de abrir uma
-  // lista com 170+ opções.
+  // lista com 170+ opções. A lista de sugestões por baixo (ver
+  // championSuggestions) junta o melhor dos dois: continua a ser texto
+  // livre, mas mostra logo com quem é que esse texto está a corresponder.
   const [championSearch, setChampionSearch] = useState("");
+  const [searchFocused, setSearchFocused] = useState(false);
+  const [highlightedSuggestion, setHighlightedSuggestion] = useState(-1);
   const [formatFilter, setFormatFilter] = useState("ALL");
   const [sortBy, setSortBy] = useState("date_desc");
   const [expanded, setExpanded] = useState(null);
-  const [exporting, setExporting] = useState(false);
-  const [toast, setToast] = useState(null);
-
-  const handleExport = async () => {
-    if (!window.electron?.exportFile) return;
-
-    setExporting(true);
-    try {
-      const payload = toRiotFormat(matches, riotAccountName);
-      const content = JSON.stringify(payload, null, 2);
-      const defaultName = `arena-tracker-export-${new Date().toISOString().slice(0, 10)}.json`;
-
-      const res = await window.electron.exportFile({ defaultName, content });
-
-      if (res.success) {
-        setToast({ kind: "success", message: `${t("export_success")}:\n${res.path}` });
-      } else if (res.error) {
-        setToast({ kind: "error", message: `${t("export_error")}: ${res.error}` });
-      }
-    } finally {
-      setExporting(false);
-    }
-  };
-
-  const [exportingCsv, setExportingCsv] = useState(false);
-
-  const handleExportCsv = async () => {
-    if (!window.electron?.exportFile) return;
-
-    setExportingCsv(true);
-    try {
-      const content = toCsv(matches, champions);
-      const defaultName = `arena-tracker-export-${new Date().toISOString().slice(0, 10)}.csv`;
-
-      const res = await window.electron.exportFile({ defaultName, content });
-
-      if (res.success) {
-        setToast({ kind: "success", message: `${t("export_success")}:\n${res.path}` });
-      } else if (res.error) {
-        setToast({ kind: "error", message: `${t("export_error")}: ${res.error}` });
-      }
-    } finally {
-      setExportingCsv(false);
-    }
-  };
 
   const champName = (id) => champions.find((c) => c.id === id)?.name || id;
+
+  const championSuggestions = useMemo(() => {
+    const q = championSearch.trim().toLowerCase();
+    if (!q) return [];
+    return champions.filter((c) => c.name.toLowerCase().includes(q)).slice(0, 8);
+  }, [championSearch, champions]);
+
+  const showSuggestions = searchFocused && championSuggestions.length > 0;
+
+  const selectChampionSuggestion = (champion) => {
+    setChampionSearch(champion.name);
+    setSearchFocused(false);
+    setHighlightedSuggestion(-1);
+  };
+
+  const handleSearchKeyDown = (e) => {
+    if (!showSuggestions) return;
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setHighlightedSuggestion((i) => Math.min(i + 1, championSuggestions.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setHighlightedSuggestion((i) => Math.max(i - 1, 0));
+    } else if (e.key === "Enter") {
+      if (highlightedSuggestion >= 0 && championSuggestions[highlightedSuggestion]) {
+        e.preventDefault();
+        selectChampionSuggestion(championSuggestions[highlightedSuggestion]);
+      }
+    } else if (e.key === "Escape") {
+      setSearchFocused(false);
+    }
+  };
 
   const filteredMatches = useMemo(() => {
     const q = championSearch.trim().toLowerCase();
@@ -364,99 +253,107 @@ export default function MatchHistory({
     return sortMatches(filtered, sortBy);
   }, [matches, placementFilter, championSearch, formatFilter, sortBy, champions]);
 
+  // "Load more" em vez de paginação clássica (páginas 1/2/3...) — a lista já
+  // vive dentro do scroll único da própria tab (ver App.jsx), sem scroll
+  // próprio, por isso trocar de página exigiria voltar ao topo sempre; isto
+  // deixa continuar exatamente onde se estava. Reinicia sempre que os
+  // filtros mudam, para nunca mostrar "carregar mais" de uma lista antiga.
+  const PAGE_SIZE = 20;
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [placementFilter, championSearch, formatFilter, sortBy]);
+
+  const visibleMatches = filteredMatches.slice(0, visibleCount);
+  const hasMore = visibleCount < filteredMatches.length;
+
   if (!matches.length) {
     return <div style={styles.empty}>{t("history_empty")}</div>;
   }
 
   return (
     <div style={styles.wrap}>
-      {/* Painel único de filtros — busca + exportar em cima, grupos de chips
-          (lugar/formato/ordenação) em baixo, tudo dentro do mesmo cartão em
-          vez de campos soltos empilhados (mesma linguagem visual da tab de
-          Estatísticas). */}
+      {/* Barra de filtros compacta — busca, lugar/formato/ordenação (todos em
+          select) numa única fileira, em vez do painel antigo empilhado em
+          várias linhas (busca+exportar, depois um grupo de chips por
+          categoria). Isto liberta bastante altura para a lista de partidas,
+          que é o que importa de verdade no ecrã. */}
       <div style={styles.filterToolbar}>
-        <div style={styles.searchRow}>
-          <div style={{ ...styles.searchBox, marginBottom: 0 }}>
-            <span style={styles.searchIcon}>🔎</span>
-            <input
-              value={championSearch}
-              onChange={(e) => setChampionSearch(e.target.value)}
-              placeholder={t("search_champion_placeholder")}
-              style={styles.searchInput}
-            />
-          </div>
+        <div style={styles.searchBox}>
+          <span style={styles.searchIcon}>
+            <Search size={13} strokeWidth={2.25} />
+          </span>
+          <input
+            value={championSearch}
+            onChange={(e) => {
+              setChampionSearch(e.target.value);
+              setHighlightedSuggestion(-1);
+            }}
+            onFocus={() => setSearchFocused(true)}
+            onBlur={() => setTimeout(() => setSearchFocused(false), 120)}
+            onKeyDown={handleSearchKeyDown}
+            placeholder={t("search_champion_placeholder")}
+            style={styles.searchInput}
+          />
 
-          {window.electron?.exportFile && (
-            <div style={styles.exportBtnGroup}>
-              <button onClick={handleExport} style={styles.exportBtn} disabled={exporting}>
-                {exporting ? t("exporting") : t("export_btn")}
-              </button>
-              <button onClick={handleExportCsv} style={styles.exportBtn} disabled={exportingCsv}>
-                {exportingCsv ? t("exporting") : t("export_csv_btn")}
-              </button>
+          {showSuggestions && (
+            <div style={styles.searchDropdown}>
+              {championSuggestions.map((c, idx) => (
+                <div
+                  key={c.id}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => selectChampionSuggestion(c)}
+                  style={{
+                    ...styles.searchOption,
+                    ...(idx === highlightedSuggestion ? styles.searchOptionActive : null),
+                  }}
+                >
+                  {DRAGON && (
+                    <img src={`${DRAGON}/img/champion/${c.id}.png`} style={styles.searchOptionIcon} />
+                  )}
+                  <span>{c.name}</span>
+                </div>
+              ))}
             </div>
           )}
         </div>
 
-        <div style={styles.filterGroups}>
-          <div style={styles.filterGroup}>
-            <Tooltip label={t("filter_placement_tooltip")}>
-              <span style={styles.filterGroupLabel}>{t("filter_group_placement")}</span>
-            </Tooltip>
-            <div style={styles.chipRow}>
-              {PLACEMENT_FILTERS.map((f) => (
-                <button
-                  key={f.key}
-                  onClick={() => setPlacementFilter(f.key)}
-                  style={{
-                    ...styles.chip,
-                    ...(placementFilter === f.key ? styles.chipActive : {}),
-                  }}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </div>
-          </div>
+        <Tooltip label={t("filter_placement_tooltip")}>
+          <select
+            value={placementFilter}
+            onChange={(e) => setPlacementFilter(e.target.value)}
+            style={styles.filterSelect}
+          >
+            {PLACEMENT_FILTERS.map((f) => (
+              <option key={f.key} value={f.key}>
+                {f.label}
+              </option>
+            ))}
+          </select>
+        </Tooltip>
 
-          <div style={styles.filterGroup}>
-            <Tooltip label={t("filter_format_tooltip")}>
-              <span style={styles.filterGroupLabel}>{t("filter_group_format")}</span>
-            </Tooltip>
-            <div style={styles.chipRow}>
-              {FORMAT_FILTERS.map((f) => (
-                <button
-                  key={f.key}
-                  onClick={() => setFormatFilter(f.key)}
-                  style={{
-                    ...styles.chip,
-                    ...(formatFilter === f.key ? styles.chipActive : {}),
-                  }}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </div>
-          </div>
+        <Tooltip label={t("filter_format_tooltip")}>
+          <select
+            value={formatFilter}
+            onChange={(e) => setFormatFilter(e.target.value === "ALL" ? "ALL" : Number(e.target.value))}
+            style={styles.filterSelect}
+          >
+            {FORMAT_FILTERS.map((f) => (
+              <option key={f.key} value={f.key}>
+                {f.label}
+              </option>
+            ))}
+          </select>
+        </Tooltip>
 
-          <div style={styles.filterGroup}>
-            <span style={styles.filterGroupLabel}>{t("filter_group_sort")}</span>
-            <div style={styles.chipRow}>
-              {SORT_OPTIONS.map((s) => (
-                <button
-                  key={s.key}
-                  onClick={() => setSortBy(s.key)}
-                  style={{
-                    ...styles.chip,
-                    ...(sortBy === s.key ? styles.chipActive : {}),
-                  }}
-                >
-                  {s.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
+        <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} style={styles.filterSelect}>
+          {SORT_OPTIONS.map((s) => (
+            <option key={s.key} value={s.key}>
+              {s.label}
+            </option>
+          ))}
+        </select>
       </div>
 
       {/* LISTA — sem altura/scroll próprios: a área da tab (em App.jsx) é
@@ -466,7 +363,7 @@ export default function MatchHistory({
       ) : (
       <div style={styles.matchList}>
         <AnimatePresence initial={false}>
-          {filteredMatches.map((m, i) => {
+          {visibleMatches.map((m, i) => {
             const rowKey = `${m.champion}-${m.created_at}-${i}`;
             const isOpen = expanded === rowKey;
             const color = resultColor(m);
@@ -474,6 +371,7 @@ export default function MatchHistory({
             return (
               <motion.div
                 key={rowKey}
+                className="historyCard"
                 initial={{ opacity: 0, y: -6 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0 }}
@@ -500,7 +398,7 @@ export default function MatchHistory({
                     {DRAGON && (
                       <img
                         src={`${DRAGON}/img/champion/${m.champion}.png`}
-                        style={styles.matchIcon}
+                        style={{ ...styles.matchIcon, border: `2px solid ${color}` }}
                       />
                     )}
                     {!!m.champ_level && <div style={styles.levelBadge}>{m.champ_level}</div>}
@@ -573,7 +471,9 @@ export default function MatchHistory({
                     <div style={styles.matchTimeAgo}>{timeAgo(m.created_at, lang)}</div>
                   </div>
 
-                  <div style={styles.expandArrow}>{isOpen ? "▲" : "▼"}</div>
+                  <div style={styles.expandArrow}>
+                    {isOpen ? <ChevronUp size={14} strokeWidth={2.25} /> : <ChevronDown size={14} strokeWidth={2.25} />}
+                  </div>
                 </div>
 
                 <AnimatePresence>
@@ -863,8 +763,13 @@ export default function MatchHistory({
       </div>
       )}
 
-      {toast && (
-        <Toast kind={toast.kind} message={toast.message} onDismiss={() => setToast(null)} />
+      {hasMore && (
+        <button
+          onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
+          style={styles.loadMoreBtn}
+        >
+          {t("load_more")} ({filteredMatches.length - visibleCount})
+        </button>
       )}
     </div>
   );
@@ -888,26 +793,28 @@ const styles = {
     borderRadius: "var(--radius-xl)",
   },
 
-  searchRow: {
-    display: "flex",
-    gap: 8,
-    alignItems: "center",
-  },
-
+  // Largura fixa (não "flex:1" como antes) — numa fileira única com os
+  // outros filtros, deixar a busca esticar-se para ocupar todo o espaço
+  // sobrante empurrava tudo o resto para uma segunda linha sempre.
+  // "position: relative" ancora o dropdown de sugestões (searchDropdown)
+  // logo por baixo, sem afetar o resto da fileira de filtros.
   searchBox: {
-    flex: 1,
+    position: "relative",
+    width: 200,
+    flexShrink: 0,
     display: "flex",
     alignItems: "center",
     gap: 8,
-    padding: "8px 12px",
+    padding: "6px 12px",
     borderRadius: "var(--radius-lg)",
     background: "rgba(var(--panel-deep-rgb),0.85)",
     border: "1px solid rgba(var(--accent-rgb),0.25)",
   },
 
   searchIcon: {
-    fontSize: 12,
+    display: "inline-flex",
     flexShrink: 0,
+    color: "var(--text-muted)",
   },
 
   searchInput: {
@@ -919,87 +826,93 @@ const styles = {
     fontSize: 13,
   },
 
-  // Grupos de filtros lado a lado, cada um com um rótulo pequeno + a sua
-  // Painel único para busca/exportar/filtros — em vez de campos soltos
-  // empilhados, ficam agrupados dentro do mesmo cartão com fundo próprio
-  // (mesma linguagem visual da tab de Estatísticas, ver MatchReports.jsx).
-  filterToolbar: {
+  // Lista de sugestões de campeões — "select com input": continua a ser
+  // texto livre (searchInput), mas mostra logo com quem esse texto está a
+  // corresponder, para escolher com um clique em vez de escrever o nome
+  // completo. Ancorada ao searchBox via position:absolute (ver acima).
+  searchDropdown: {
+    position: "absolute",
+    top: "calc(100% + 4px)",
+    left: 0,
+    right: 0,
+    zIndex: 20,
     display: "flex",
     flexDirection: "column",
-    gap: 12,
-    padding: 12,
+    gap: 2,
+    padding: 4,
+    borderRadius: "var(--radius-lg)",
+    background: "rgba(var(--panel-deep-rgb),0.98)",
+    border: "1px solid rgba(var(--border-rgb),0.4)",
+    boxShadow: "0 10px 24px rgba(0,0,0,0.35)",
+  },
+
+  searchOption: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "5px 8px",
+    borderRadius: "var(--radius-md)",
+    fontSize: 12,
+    color: "var(--text-body)",
+    cursor: "pointer",
+  },
+
+  searchOptionActive: {
+    background: "rgba(var(--accent-rgb),0.2)",
+  },
+
+  searchOptionIcon: {
+    width: 20,
+    height: 20,
+    borderRadius: "var(--radius-xs)",
+    flexShrink: 0,
+    pointerEvents: "none",
+  },
+
+  // Painel único de filtros — busca, lugar/formato/ordenação (todos em
+  // select) numa única fileira que só quebra (flexWrap) se a janela for
+  // mesmo estreita. Antes eram 4 linhas empilhadas (busca+exportar, depois
+  // um grupo de chips por categoria) — isto liberta bastante altura para a
+  // lista de partidas, que é o conteúdo que importa de facto.
+  filterToolbar: {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 8,
+    padding: "8px 12px",
     borderRadius: "var(--radius-xl)",
     background: "rgba(var(--panel-deep-rgb),0.4)",
     border: "1px solid rgba(var(--border-rgb),0.35)",
   },
 
-  // fileira de chips — mais fácil de perceber de relance o que pertence a
-  // cada categoria (lugar/formato/ordenação) do que 3 <select> soltos.
-  filterGroups: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: 14,
-  },
-
-  filterGroup: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 5,
-  },
-
-  filterGroupLabel: {
-    fontSize: 10,
-    fontWeight: 700,
-    color: "var(--text-muted)",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-
-  chipRow: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: 5,
-  },
-
-  chip: {
-    padding: "6px 13px",
-    borderRadius: "var(--radius-pill)",
+  // Mesma linguagem visual do <select> de resolução nas Definições.
+  filterSelect: {
+    padding: "5px 8px",
+    borderRadius: "var(--radius-md)",
+    background: "rgba(var(--panel-deep-rgb),0.9)",
     border: "1px solid rgba(var(--border-rgb),0.4)",
-    background: "rgba(var(--panel-deep-rgb),0.7)",
-    color: "var(--text-secondary)",
-    cursor: "pointer",
+    color: "var(--text-body)",
     fontSize: 11,
     fontWeight: 600,
-    transition: "all 0.15s ease",
-  },
-
-  chipActive: {
-    background: "var(--accent-gradient)",
-    borderColor: "var(--accent-solid)",
-    color: "var(--accent-solid-text)",
-    boxShadow: "0 3px 10px rgba(79,70,229,0.4)",
-  },
-
-  exportBtnGroup: {
-    marginLeft: "auto",
-    display: "flex",
-    gap: 6,
-  },
-
-  exportBtn: {
-    padding: "6px 10px",
-    borderRadius: "var(--radius-md)",
-    border: "1px solid rgba(var(--accent-rgb),0.35)",
-    background: "rgba(var(--accent-rgb),0.08)",
-    color: "var(--accent-text)",
     cursor: "pointer",
-    fontSize: 12,
   },
 
   matchList: {
     display: "flex",
     flexDirection: "column",
-    gap: 8,
+    gap: 6,
+  },
+
+  loadMoreBtn: {
+    alignSelf: "center",
+    padding: "8px 20px",
+    borderRadius: "var(--radius-pill)",
+    border: "1px solid rgba(var(--accent-rgb),0.35)",
+    background: "rgba(var(--accent-rgb),0.1)",
+    color: "var(--accent-text)",
+    cursor: "pointer",
+    fontSize: 12,
+    fontWeight: 600,
   },
 
   matchCard: {
@@ -1016,22 +929,22 @@ const styles = {
   matchRow: {
     display: "flex",
     alignItems: "center",
-    gap: 12,
-    padding: "8px 12px",
+    gap: 10,
+    padding: "6px 12px",
     cursor: "pointer",
     background: "rgba(var(--accent-rgb),0.16)",
   },
 
   matchIconWrap: {
     position: "relative",
-    width: 36,
-    height: 36,
+    width: 28,
+    height: 28,
     flexShrink: 0,
   },
 
   matchIcon: {
-    width: 36,
-    height: 36,
+    width: 28,
+    height: 28,
     borderRadius: "var(--radius-md)",
     pointerEvents: "none",
   },
@@ -1040,8 +953,8 @@ const styles = {
     position: "absolute",
     bottom: -4,
     right: -4,
-    minWidth: 16,
-    height: 16,
+    minWidth: 14,
+    height: 14,
     padding: "0 3px",
     borderRadius: 5,
     background: "rgba(var(--panel-deep-rgb),0.95)",
@@ -1062,15 +975,15 @@ const styles = {
   },
 
   spellIcon: {
-    width: 17,
-    height: 17,
+    width: 14,
+    height: 14,
     borderRadius: "var(--radius-xs)",
     border: "1px solid rgba(var(--border-rgb),0.4)",
   },
 
   matchChampName: {
-    width: 120,
-    fontSize: 13,
+    width: 110,
+    fontSize: 12,
     color: "var(--text-body)",
     fontWeight: 600,
   },
@@ -1093,13 +1006,14 @@ const styles = {
   // O elemento mais saliente da linha — substitui as antigas etiquetas de
   // texto (VITÓRIA/TOP 3/DERROTA) por um selo grande só com o lugar em si.
   placementPill: {
-    width: 46,
+    width: 42,
     textAlign: "center",
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: 800,
-    padding: "5px 4px",
+    padding: "3px 4px",
     borderRadius: "var(--radius-md)",
     flexShrink: 0,
+    letterSpacing: -0.3,
   },
 
   // "flex:1" + display:flex para o KDA (à esquerda) e a etiqueta de
@@ -1111,22 +1025,22 @@ const styles = {
     alignItems: "center",
     justifyContent: "space-between",
     gap: 8,
-    fontSize: 13,
+    fontSize: 12,
     color: "var(--text-body)",
     fontWeight: 600,
   },
 
   matchKdaRatio: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: 500,
     color: "var(--text-secondary)",
     marginTop: 1,
   },
 
   matchTime: {
-    fontSize: 11,
+    fontSize: 10,
     color: "var(--text-secondary)",
-    minWidth: 70,
+    minWidth: 60,
     textAlign: "right",
   },
 
@@ -1135,14 +1049,16 @@ const styles = {
   },
 
   expandArrow: {
-    fontSize: 10,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
     color: "var(--text-secondary)",
-    width: 14,
-    textAlign: "center",
+    width: 16,
+    flexShrink: 0,
   },
 
   expandWrap: {
-    padding: "0 12px 12px 58px",
+    padding: "0 12px 10px 50px",
     display: "flex",
     flexDirection: "column",
     gap: 10,

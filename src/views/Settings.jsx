@@ -1,11 +1,29 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { useLanguage } from "./i18n";
-import AccountManager from "./AccountManager";
+import { X } from "lucide-react";
+import { useLanguage } from "../lib/i18n";
+import AccountManager from "../components/AccountManager";
 
 const TABS = [
   { key: "general", labelKey: "settings_tab_general" },
   { key: "accounts", labelKey: "settings_tab_accounts" },
+];
+
+// Resoluções mais comuns — filtradas em runtime (ver maxSize/useEffect
+// abaixo) para nunca mostrar uma maior do que o próprio ecrã suporta.
+// minWidth/minHeight da BrowserWindow (ver electron/window.js) já impõe
+// 900x600 como mínimo absoluto, por isso não há nenhuma opção abaixo disso.
+const RESOLUTION_PRESETS = [
+  { width: 900, height: 600 },
+  { width: 1024, height: 700 },
+  { width: 1152, height: 768 },
+  { width: 1280, height: 800 },
+  { width: 1366, height: 768 },
+  { width: 1440, height: 900 },
+  { width: 1600, height: 900 },
+  { width: 1600, height: 1000 },
+  { width: 1920, height: 1080 },
+  { width: 2560, height: 1440 },
 ];
 
 // Modal único de Definições — antes "Idioma", "Tema", "Compactar cabeçalho"
@@ -31,6 +49,66 @@ export default function Settings({
   const { t } = useLanguage();
   const [tab, setTab] = useState(initialTab);
 
+  // ================= RESOLUÇÃO / ECRÃ INTEIRO =================
+  // "maxSize" é a área útil do ecrã onde a janela está agora (não sempre o
+  // ecrã principal, ver window:getDisplayWorkArea em electron/window.js) —
+  // usada para nunca oferecer uma resolução maior do que o monitor suporta.
+  const [maxSize, setMaxSize] = useState(null);
+  const [currentSize, setCurrentSize] = useState(null);
+  const [isFullScreen, setIsFullScreen] = useState(false);
+
+  useEffect(() => {
+    if (!window.electron?.getDisplayWorkArea) return;
+
+    window.electron.getDisplayWorkArea().then(setMaxSize);
+    window.electron.getSize?.().then((size) => {
+      setCurrentSize(size);
+      setIsFullScreen(size.isFullScreen);
+    });
+
+    // O F11/Escape (ver electron/window.js) também alternam full screen —
+    // sem isto, o toggle aqui ficava dessincronizado do estado real da
+    // janela sempre que a mudança não viesse deste botão.
+    const unsubscribe = window.electron.onFullScreenChanged?.(setIsFullScreen);
+    return unsubscribe;
+  }, []);
+
+  const availableResolutions = maxSize
+    ? RESOLUTION_PRESETS.filter((r) => r.width <= maxSize.width && r.height <= maxSize.height)
+    : [];
+
+  // O valor pré-selecionado é sempre um dos presets — nunca o tamanho real
+  // em pixels da janela (ex: maximizada raramente bate certo com um preset,
+  // ver createWindow em electron/window.js). Escolhe o preset mais próximo
+  // do tamanho atual (menor diferença de área), para a seleção inicial
+  // fazer sentido sem expor um valor "estranho" fora da lista.
+  const closestPreset = useMemo(() => {
+    if (!currentSize || !availableResolutions.length) return null;
+    const currentArea = currentSize.width * currentSize.height;
+    return availableResolutions.reduce((closest, r) => {
+      const diff = Math.abs(r.width * r.height - currentArea);
+      const closestDiff = Math.abs(closest.width * closest.height - currentArea);
+      return diff < closestDiff ? r : closest;
+    }, availableResolutions[0]);
+  }, [currentSize, availableResolutions]);
+
+  const [selectedResolution, setSelectedResolution] = useState(null);
+  const selectedValue = selectedResolution
+    ? `${selectedResolution.width}x${selectedResolution.height}`
+    : closestPreset
+    ? `${closestPreset.width}x${closestPreset.height}`
+    : "";
+
+  const applyResolution = (width, height) => {
+    window.electron?.setResolution?.({ width, height });
+    setSelectedResolution({ width, height });
+  };
+
+  const applyFullScreen = (value) => {
+    window.electron?.setFullScreen?.(value);
+    setIsFullScreen(value);
+  };
+
   return (
     <motion.div
       style={styles.backdrop}
@@ -40,6 +118,7 @@ export default function Settings({
       onClick={onClose}
     >
       <motion.div
+        className="mainScroll"
         style={styles.panel}
         initial={{ opacity: 0, scale: 0.94, y: 10 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -50,7 +129,7 @@ export default function Settings({
         <div style={styles.header}>
           <h2 style={styles.title}>{t("settings_title")}</h2>
           <button onClick={onClose} style={styles.closeBtn}>
-            ✕
+            <X size={15} strokeWidth={2.25} />
           </button>
         </div>
 
@@ -125,6 +204,52 @@ export default function Settings({
                 </button>
               </div>
             </div>
+
+            {window.electron && (
+              <>
+                <div style={styles.row}>
+                  <div style={styles.rowLabel}>{t("settings_display_mode_label")}</div>
+                  <div style={styles.segGroup}>
+                    <button
+                      onClick={() => applyFullScreen(false)}
+                      style={{ ...styles.segBtn, ...(!isFullScreen ? styles.segBtnActive : null) }}
+                    >
+                      {t("settings_display_windowed_opt")}
+                    </button>
+                    <button
+                      onClick={() => applyFullScreen(true)}
+                      style={{ ...styles.segBtn, ...(isFullScreen ? styles.segBtnActive : null) }}
+                    >
+                      {t("settings_display_fullscreen_opt")}
+                    </button>
+                  </div>
+                </div>
+
+                <div style={styles.row}>
+                  <div style={styles.rowLabel}>{t("settings_resolution_label")}</div>
+                  <select
+                    disabled={isFullScreen || !availableResolutions.length}
+                    value={isFullScreen ? "" : selectedValue}
+                    onChange={(e) => {
+                      const [width, height] = e.target.value.split("x").map(Number);
+                      applyResolution(width, height);
+                    }}
+                    style={styles.resolutionSelect}
+                  >
+                    {isFullScreen && (
+                      <option value="" disabled>
+                        {t("settings_resolution_disabled_fullscreen")}
+                      </option>
+                    )}
+                    {availableResolutions.map((r) => (
+                      <option key={`${r.width}x${r.height}`} value={`${r.width}x${r.height}`}>
+                        {r.width} × {r.height}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </>
+            )}
           </div>
         )}
 
@@ -283,5 +408,16 @@ const styles = {
   segBtnActive: {
     background: "var(--accent-solid)",
     color: "var(--accent-solid-text)",
+  },
+
+  resolutionSelect: {
+    padding: "6px 10px",
+    borderRadius: "var(--radius-md)",
+    background: "rgba(var(--panel-deep-rgb),0.9)",
+    border: "1px solid rgba(var(--border-rgb),0.4)",
+    color: "var(--text-body)",
+    fontSize: 12,
+    fontWeight: 600,
+    cursor: "pointer",
   },
 };

@@ -1,7 +1,7 @@
 import { useMemo } from "react";
-import { normalizeChampionId } from "./champions";
-import { useLanguage } from "./i18n";
-import Tooltip from "./Tooltip";
+import { normalizeChampionId } from "../lib/champions";
+import { useLanguage } from "../lib/i18n";
+import Tooltip from "../components/Tooltip";
 
 // Esta tab usa sempre o histórico completo (não o filtrado por formato na
 // barra do topo) — conquistas são marcos de carreira, não devem mudar

@@ -8,6 +8,17 @@ contextBridge.exposeInMainWorld("electron", {
   close: () => ipcRenderer.invoke("window:close"),
    isMaximized: () => ipcRenderer.invoke("window:isMaximized"),
 
+  getDisplayWorkArea: () => ipcRenderer.invoke("window:getDisplayWorkArea"),
+  getSize: () => ipcRenderer.invoke("window:getSize"),
+  isFullScreen: () => ipcRenderer.invoke("window:isFullScreen"),
+  setFullScreen: (value) => ipcRenderer.invoke("window:setFullScreen", value),
+  setResolution: (size) => ipcRenderer.invoke("window:setResolution", size),
+  onFullScreenChanged: (callback) => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on("window:fullScreenChanged", listener);
+    return () => ipcRenderer.removeListener("window:fullScreenChanged", listener);
+  },
+
   getVersion: () => ipcRenderer.invoke("app:getVersion"),
   checkForUpdates: () => ipcRenderer.invoke("updater:check"),
   installUpdate: () => ipcRenderer.invoke("updater:install"),
@@ -41,7 +52,6 @@ contextBridge.exposeInMainWorld("electron", {
     return () => ipcRenderer.removeListener("quickcheck:open", listener);
   },
 
-  exportFile: (payload) => ipcRenderer.invoke("export:saveFile", payload),
   listMatchIds: (payload) => ipcRenderer.invoke("riotapi:listMatchIds", payload),
   fetchMatchDetails: (payload) => ipcRenderer.invoke("riotapi:fetchMatchDetails", payload),
   backfillMatchDetails: (payload) => ipcRenderer.invoke("riotapi:backfillMatchDetails", payload),

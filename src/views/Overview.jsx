@@ -1,10 +1,10 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { placementColor, placementText, isLastPlace, top3Rate as calcTop3Rate } from "./placement";
-import { normalizeChampionId } from "./champions";
-import { buildFormatBuckets, bestFormatAvg, bestFormatKda } from "./formatStats";
-import { useLanguage } from "./i18n";
-import Tooltip from "./Tooltip";
+import { placementColor, placementText, isLastPlace, top3Rate as calcTop3Rate } from "../lib/placement";
+import { normalizeChampionId } from "../lib/champions";
+import { buildFormatBuckets, bestFormatAvg, bestFormatKda } from "../lib/formatStats";
+import { useLanguage } from "../lib/i18n";
+import Tooltip from "../components/Tooltip";
 
 function avgOf(sum, count) {
   return count ? sum / count : null;
@@ -274,6 +274,40 @@ export default function Overview({ matches, wins, champions, DRAGON, onOpenChamp
       return firstDay.toLocaleDateString(lang === "en" ? "en-US" : "pt-PT", { month: "short" });
     });
   }, [heatmapWeeks, lang]);
+
+  // ================= LARGURA RESPONSIVA DO HEATMAP =================
+  // Antes as células tinham um tamanho fixo (16px) e, quando o cartão não
+  // tinha os ~373px necessários para as 18 semanas lado a lado, aparecia um
+  // scroll horizontal — exatamente o que não queremos numa app "sem scroll
+  // do Windows". Em vez disso, medimos a largura real disponível (ver
+  // heatmapContainerRef) e encolhemos as células o suficiente para as 18
+  // semanas caberem sempre inteiras, sem nunca precisar de scroll.
+  const heatmapContainerRef = useRef(null);
+  const [heatmapWidth, setHeatmapWidth] = useState(0);
+
+  useEffect(() => {
+    const el = heatmapContainerRef.current;
+    if (!el) return;
+
+    const observer = new ResizeObserver(([entry]) => {
+      setHeatmapWidth(entry.contentRect.width);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const HEATMAP_CELL_GAP = 4;
+  const HEATMAP_MIN_CELL = 7;
+  const HEATMAP_MAX_CELL = 16;
+  const heatmapCellSize = heatmapWidth
+    ? Math.min(
+        HEATMAP_MAX_CELL,
+        Math.max(
+          HEATMAP_MIN_CELL,
+          Math.floor((heatmapWidth - (HEATMAP_WEEKS - 1) * HEATMAP_CELL_GAP) / HEATMAP_WEEKS)
+        )
+      )
+    : HEATMAP_MAX_CELL;
 
   const perChampion = useMemo(() => {
     const map = {};
@@ -957,29 +991,110 @@ export default function Overview({ matches, wins, champions, DRAGON, onOpenChamp
         </div>
       )}
 
-      {/* ATIVIDADE + SESSÕES + PREMADE lado a lado — as três são cartões
-          curtos (a atividade tem scroll horizontal próprio, ver
-          heatmapScroll), por isso partilham a mesma fileira em vez de cada
-          uma ocupar a largura toda do ecrã (o grid volta a empilhar em
-          colunas menos largas conforme o espaço disponível, ver
-          threeColGrid). */}
+      {/* ATIVIDADE + SESSÕES + PREMADE em "bento grid" — Sessões é sempre o
+          conteúdo mais denso (várias linhas, cada uma com data/hora + 4-5
+          estatísticas), por isso fica na coluna larga; Atividade (heatmap
+          compacto) e Premade empilham na coluna estreita ao lado, cada um
+          só com a altura que o seu próprio conteúdo precisa — já não são
+          forçados à mesma altura um do outro (era isso que deixava um vazio
+          estranho por baixo da Atividade, ver histórico desta secção).
+          Se faltar a Sessões (sem sessões de 2+ jogos ainda), Atividade+
+          Premade passam a ocupar a largura toda, lado a lado em vez de
+          empilhados, para não desperdiçar espaço horizontal. */}
       {(matches.length > 0 || sessions.length > 0 || duoSynergy.length > 0) && (
-        <div style={styles.threeColGrid}>
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+          {/* SESSÕES — partidas seguidas na mesma sentada, agrupadas por um
+              gap máximo entre elas (ver SESSION_GAP_MINUTES); a Arena não dá
+              a hora de início de cada partida, só a de fim, por isso isto é
+              sempre uma aproximação. */}
+          {sessions.length > 0 && (
+            <div
+              className={matches.length > 0 || duoSynergy.length > 0 ? "lg:col-span-7" : "lg:col-span-12"}
+              style={styles.section}
+            >
+              <h2 style={styles.sectionTitle}>⏱️ {t("overview_sessions")}</h2>
+              <div style={styles.sessionList}>
+                {sessions.map((s, i) => (
+                  <div key={i} style={styles.sessionRow}>
+                    <div style={styles.sessionHeader}>
+                      <span style={styles.sessionDate}>
+                        {s.start.toLocaleDateString(lang === "en" ? "en-US" : "pt-PT")}
+                      </span>
+                      <span style={styles.sessionTime}>
+                        {s.start.toLocaleTimeString(lang === "en" ? "en-US" : "pt-PT", { hour: "2-digit", minute: "2-digit" })}
+                        –
+                        {s.end.toLocaleTimeString(lang === "en" ? "en-US" : "pt-PT", { hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                    </div>
+                    <div style={styles.sessionStats}>
+                      <span style={styles.sessionStat}>
+                        {s.games} {lang === "en" ? "games" : "jogos"}
+                      </span>
+                      {s.withPlacementCount > 0 ? (
+                        <>
+                          <span
+                            style={{
+                              ...styles.sessionWinrate,
+                              color: placementColor(Math.round(s.avgPlacement)),
+                            }}
+                          >
+                            {t("session_avg_placement")}: {s.avgPlacement.toFixed(1)}º
+                          </span>
+                          <span style={styles.sessionStat}>
+                            {t("session_best")}: {placementText(s.bestPlacement)}
+                          </span>
+                          <span style={styles.sessionStat}>
+                            {s.top3Count}/{s.withPlacementCount} Top3
+                          </span>
+                          <span style={styles.sessionStat}>
+                            {s.wins}{lang === "en" ? "W" : "V"} ({lang === "en" ? "1st" : "1º"})
+                          </span>
+                        </>
+                      ) : (
+                        <span
+                          style={{
+                            ...styles.sessionWinrate,
+                            color: s.wins >= s.games / 2 ? "var(--place-good)" : "var(--place-low)",
+                          }}
+                        >
+                          {s.wins}{lang === "en" ? "W" : "V"}/{s.games}
+                        </span>
+                      )}
+                      {s.bestTop3Streak > 1 && (
+                        <span style={styles.sessionStreak}>🔥 {s.bestTop3Streak}</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Coluna estreita (Atividade + Premade) — vira uma fileira de 2
+              colunas em vez de empilhar quando a Sessões não existe, para
+              usar a largura toda. */}
+          <div
+            className={
+              sessions.length > 0
+                ? "lg:col-span-5 flex flex-col gap-4"
+                : "lg:col-span-12 grid grid-cols-1 sm:grid-cols-2 gap-4"
+            }
+          >
           {/* ATIVIDADE — grid de contribuições ao estilo GitHub, uma célula
               por dia das últimas ~18 semanas, cor mais forte quanto mais
               partidas jogadas nesse dia. */}
           {matches.length > 0 && (
-            <div style={{ ...styles.section, ...styles.equalHeightCard }}>
+            <div style={styles.section}>
               <h2 style={styles.sectionTitle}>📅 {t("overview_activity")}</h2>
               {/* O gráfico ocupa muito menos altura que as listas de Sessões/
                   Premade ao lado — em vez de deixar um vazio estranho por
                   baixo quando o cartão estica para acompanhar essas duas,
                   centra-se verticalmente no espaço disponível. */}
               <div style={styles.heatmapBody}>
-                <div style={styles.heatmapScroll}>
-                  <div style={styles.heatmapGrid}>
+                <div ref={heatmapContainerRef} style={styles.heatmapScroll}>
+                  <div style={{ ...styles.heatmapGrid, gap: HEATMAP_CELL_GAP }}>
                     {heatmapWeeks.map((week, wi) => (
-                      <div key={wi} style={styles.heatmapCol}>
+                      <div key={wi} style={{ ...styles.heatmapCol, gap: HEATMAP_CELL_GAP }}>
                         <div style={styles.heatmapMonthLabel}>{monthLabels[wi] || ""}</div>
                         {week.map((day) => (
                           <Tooltip
@@ -1000,7 +1115,9 @@ export default function Overview({ matches, wins, champions, DRAGON, onOpenChamp
                           >
                             <div
                               style={{
-                                ...styles.heatmapCell,
+                                width: heatmapCellSize,
+                                height: heatmapCellSize,
+                                borderRadius: "var(--radius-xs)",
                                 background: day.future ? "transparent" : heatColor(day.games),
                                 border: day.future ? "1px dashed rgba(var(--border-rgb),0.25)" : "none",
                               }}
@@ -1022,71 +1139,10 @@ export default function Overview({ matches, wins, champions, DRAGON, onOpenChamp
             </div>
           )}
 
-          {/* SESSÕES — partidas seguidas na mesma sentada, agrupadas por um
-              gap máximo entre elas (ver SESSION_GAP_MINUTES); a Arena não dá
-              a hora de início de cada partida, só a de fim, por isso isto é
-              sempre uma aproximação. */}
-          {sessions.length > 0 && (
-            <div style={{ ...styles.section, ...styles.equalHeightCard }}>
-              <h2 style={styles.sectionTitle}>⏱️ {t("overview_sessions")}</h2>
-              <div style={styles.sessionList}>
-                {sessions.map((s, i) => (
-                  <div key={i} style={styles.sessionRow}>
-                    <div style={styles.sessionDate}>
-                      {s.start.toLocaleDateString(lang === "en" ? "en-US" : "pt-PT")}
-                      <span style={styles.sessionTime}>
-                        {" "}
-                        {s.start.toLocaleTimeString(lang === "en" ? "en-US" : "pt-PT", { hour: "2-digit", minute: "2-digit" })}
-                        –
-                        {s.end.toLocaleTimeString(lang === "en" ? "en-US" : "pt-PT", { hour: "2-digit", minute: "2-digit" })}
-                      </span>
-                    </div>
-                    <span style={styles.sessionStat}>
-                      {s.games} {lang === "en" ? "games" : "jogos"}
-                    </span>
-                    {s.withPlacementCount > 0 ? (
-                      <>
-                        <span
-                          style={{
-                            ...styles.sessionWinrate,
-                            color: placementColor(Math.round(s.avgPlacement)),
-                          }}
-                        >
-                          {t("session_avg_placement")}: {s.avgPlacement.toFixed(1)}º
-                        </span>
-                        <span style={styles.sessionStat}>
-                          {t("session_best")}: {placementText(s.bestPlacement)}
-                        </span>
-                        <span style={styles.sessionStat}>
-                          {s.top3Count}/{s.withPlacementCount} Top3
-                        </span>
-                        <span style={styles.sessionStat}>
-                          {s.wins}{lang === "en" ? "W" : "V"} ({lang === "en" ? "1st" : "1º"})
-                        </span>
-                      </>
-                    ) : (
-                      <span
-                        style={{
-                          ...styles.sessionWinrate,
-                          color: s.wins >= s.games / 2 ? "var(--place-good)" : "var(--place-low)",
-                        }}
-                      >
-                        {s.wins}{lang === "en" ? "W" : "V"}/{s.games}
-                      </span>
-                    )}
-                    {s.bestTop3Streak > 1 && (
-                      <span style={styles.sessionStreak}>🔥 {s.bestTop3Streak}</span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
           {/* PREMADE — conta qualquer colega de equipa repetido, seja em
               2v2 ou 3v3. */}
           {duoSynergy.length > 0 && (
-            <div style={{ ...styles.section, ...styles.equalHeightCard }}>
+            <div style={styles.section}>
               <h2 style={styles.sectionTitle}>🤝 {t("overview_duo_synergy")}</h2>
               <div style={styles.duoList}>
                 {duoSynergy.map((d) => (
@@ -1111,6 +1167,7 @@ export default function Overview({ matches, wins, champions, DRAGON, onOpenChamp
               </div>
             </div>
           )}
+          </div>
         </div>
       )}
 
@@ -1132,7 +1189,7 @@ export default function Overview({ matches, wins, champions, DRAGON, onOpenChamp
               <h3 style={styles.spotlightGroupTitle}>
                 {group.icon} {group.title}
               </h3>
-              <div style={styles.spotlightRow}>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6 gap-2.5">
                 {group.items.map((sp) => (
                   <div
                     key={sp.label}
@@ -1301,29 +1358,6 @@ const styles = {
     whiteSpace: "nowrap",
   },
 
-  // Atividade, sessões e sinergia de duo lado a lado em ecrãs largos (as três
-  // cabem em cartões relativamente curtos) — volta a empilhar em menos
-  // colunas conforme o espaço disponível, sem precisar de media queries.
-  // "alignItems" fica no valor por omissão (stretch) de propósito: os três
-  // cartões esticam sempre para a altura do mais alto da fileira (normalmente
-  // Sessões, com mais linhas), em vez de cada um ficar só do tamanho do seu
-  // próprio conteúdo — era isso que fazia a Atividade (pouco conteúdo) parecer
-  // cortada/estranha ao lado de Sessões.
-  threeColGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-    gap: 16,
-  },
-
-  // Aplicado junto com "section" nos três cartões da threeColGrid — sem isto,
-  // esticar o cartão (grid stretch) só alargava a caixa exterior; o conteúdo
-  // continuava agarrado ao topo, deixando um vazio estranho por baixo em vez
-  // de ocupar o espaço extra de forma intencional.
-  equalHeightCard: {
-    display: "flex",
-    flexDirection: "column",
-  },
-
   progressHeader: {
     display: "flex",
     justifyContent: "space-between",
@@ -1371,23 +1405,40 @@ const styles = {
     gap: 6,
   },
 
+  // Duas camadas em vez de uma única linha "flex-wrap" com tudo misturado —
+  // cabeçalho (data+hora) e estatísticas envolvem (wrap) cada um por si,
+  // independentemente. Numa única linha só, quando "sessionDate" (o único
+  // item com texto que pode precisar de 2 linhas, ver sessionTime) não
+  // cabia, o resto das estatísticas ficava a sobrepor-se ao texto da data
+  // em vez de descer — ver screenshot reportado em ecrãs/janelas estreitas.
   sessionRow: {
     display: "flex",
-    alignItems: "center",
-    flexWrap: "wrap",
-    gap: 10,
+    flexDirection: "column",
+    gap: 4,
     padding: "8px 10px",
     borderRadius: "var(--radius-lg)",
     background: "rgba(var(--panel-deep-rgb),0.7)",
     border: "1px solid rgba(var(--border-rgb),0.4)",
   },
 
+  sessionHeader: {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "baseline",
+    gap: "0 6px",
+  },
+
+  sessionStats: {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 10,
+  },
+
   sessionDate: {
     fontSize: 12.5,
     fontWeight: 700,
     color: "var(--text-body)",
-    flex: 1,
-    minWidth: 0,
   },
 
   sessionTime: {
@@ -1404,8 +1455,6 @@ const styles = {
   sessionWinrate: {
     fontSize: 12.5,
     fontWeight: 800,
-    minWidth: 70,
-    textAlign: "right",
   },
 
   sessionStreak: {
@@ -1459,36 +1508,32 @@ const styles = {
     textAlign: "right",
   },
 
-  // Envolve o gráfico + legenda para poder centrá-los verticalmente quando o
-  // cartão estica para acompanhar a altura de Sessões/Premade ao lado (ver
-  // equalHeightCard).
+  // Envolve o gráfico + legenda, centrados horizontalmente no cartão.
   heatmapBody: {
-    flex: 1,
     display: "flex",
     flexDirection: "column",
-    justifyContent: "center",
     alignItems: "center",
     gap: 4,
     padding: "12px 0",
   },
 
+  // Já não tem overflowX/scroll — o tamanho das células (ver heatmapCellSize
+  // em Overview.jsx) encolhe para as 18 semanas caberem sempre inteiras
+  // nesta largura, medida via ResizeObserver neste próprio elemento.
   heatmapScroll: {
-    overflowX: "auto",
+    width: "100%",
     paddingBottom: 4,
-    maxWidth: "100%",
   },
 
   heatmapGrid: {
     display: "flex",
-    gap: 5,
-    width: "fit-content",
-    margin: "0 auto",
+    width: "100%",
+    justifyContent: "center",
   },
 
   heatmapCol: {
     display: "flex",
     flexDirection: "column",
-    gap: 5,
   },
 
   heatmapMonthLabel: {
@@ -1536,16 +1581,6 @@ const styles = {
     color: "var(--text-secondary)",
     textTransform: "uppercase",
     letterSpacing: 0.3,
-  },
-
-  // Grelha responsiva — cada cartão nunca fica mais estreito que 172px (dava
-  // para cortar valores mais compridos, ex: "Triple Kill" ou números grandes
-  // de dano/ouro, com o mínimo antigo de 150px), e o número de colunas por
-  // linha ajusta-se sozinho à largura da janela.
-  spotlightRow: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fill, minmax(172px, 1fr))",
-    gap: 10,
   },
 
   spotlightCard: {
