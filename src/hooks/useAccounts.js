@@ -107,7 +107,10 @@ export function useAccounts({ onNeedsAccountSetup } = {}) {
     localStorage.setItem("riot-accounts", JSON.stringify(updated));
     localStorage.setItem("active-account", username);
 
-    await ensureUser(username);
+    await ensureUser(
+      username,
+      riotTag ? { riotGameName: riotAccount, riotTagLine: riotTag } : null
+    );
   };
 
   const updateRiotAccountFor = (username, { riotAccount, riotTag, region }) => {

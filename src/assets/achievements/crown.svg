@@ -1,0 +1,7 @@
+<!-- Coroa com gemas — vitória perfeita. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <path d="M2.5 7.5 7 11.5 12 3l5 8.5 4.5-4v10.5h-19z" fill="currentColor" fill-opacity="0.18" />
+  <path d="M2.5 7.5 7 11.5 12 3l5 8.5 4.5-4v10.5h-19z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M2.5 17h19" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M12 7.75h.01M7 12.25h.01M17 12.25h.01" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+</svg>

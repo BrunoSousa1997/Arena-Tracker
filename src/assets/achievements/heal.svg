@@ -1,0 +1,6 @@
+<!-- Coração com cruz — maior cura numa partida. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <path d="M12 20.75S4.75 16 4.75 10.5a4.25 4.25 0 0 1 7.25-3 4.25 4.25 0 0 1 7.25 3c0 5.5-7.25 10.25-7.25 10.25z" fill="currentColor" fill-opacity="0.18" />
+  <path d="M12 20.75S4.75 16 4.75 10.5a4.25 4.25 0 0 1 7.25-3 4.25 4.25 0 0 1 7.25 3c0 5.5-7.25 10.25-7.25 10.25z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M12 8.75v6M9 11.75h6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+</svg>

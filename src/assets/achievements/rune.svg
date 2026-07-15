@@ -1,0 +1,6 @@
+<!-- Runa hexagonal — augments diferentes usados. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <path d="M12 2.5 20 7v10l-8 4.5L4 17V7z" fill="currentColor" fill-opacity="0.18" />
+  <path d="M12 2.5 20 7v10l-8 4.5L4 17V7z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M12 8 15.5 10v4L12 16l-3.5-2v-4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+</svg>

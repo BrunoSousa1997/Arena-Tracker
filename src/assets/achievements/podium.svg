@@ -1,0 +1,6 @@
+<!-- Pódio — total de vezes no Top 3. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <path d="M3 14h5.5v7H3zM9.25 9.5h5.5V21h-5.5zM15.5 16H21v5h-5.5z" fill="currentColor" fill-opacity="0.18" />
+  <path d="M3 14h5.5v7H3zM9.25 9.5h5.5V21h-5.5zM15.5 16H21v5h-5.5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="m12 2.5 1.05 2.15 2.4.35-1.75 1.7.42 2.4L12 8l-2.12 1.1.42-2.4-1.75-1.7 2.4-.35z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+</svg>

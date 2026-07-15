@@ -1,179 +1,54 @@
 import { useMemo } from "react";
-import { normalizeChampionId } from "../lib/champions";
 import { useLanguage } from "../lib/i18n";
 import Tooltip from "../components/Tooltip";
+import AchievementIcon from "../components/AchievementIcon";
+import {
+  computeAchievementStats,
+  buildAchievementCategories,
+  buildBooleanAchievements,
+  summarizeBadges,
+  formatAchievementValue as formatValue,
+  rankForTierIndex,
+  glowFor,
+  ACHIEVEMENT_RANKS,
+} from "../lib/achievementStats";
+
+// As conquistas especiais (sim/não) não têm escada de níveis — quando
+// desbloqueadas valem sempre o escalão mais alto, já que não há progressão
+// nenhuma a distinguir entre elas.
+const SPECIAL_RANK = ACHIEVEMENT_RANKS[ACHIEVEMENT_RANKS.length - 1];
 
 // Esta tab usa sempre o histórico completo (não o filtrado por formato na
 // barra do topo) — conquistas são marcos de carreira, não devem mudar
 // consoante se está a ver "só 2v2" ou "só 3v3" no resto da app.
+// A lógica de cálculo (categorias/tiers/stats) vive em lib/achievementStats.js
+// — partilhada com a tab Comparar, para as duas nunca divergirem.
 
-// Cada categoria é uma escada de níveis (bronze -> ... -> platina, na prática
-// só números) em vez de um simples sim/não, para haver sempre uma próxima
-// meta visível. "unit" controla só a formatação do valor mostrado no badge.
-function formatValue(value, unit) {
-  if (unit === "%") return `${value}%`;
-  if (unit === "k") return value >= 1000 ? `${Math.round(value / 1000)}k` : `${value}`;
-  return `${value}`;
-}
-
-// Agrupa partidas (mais recente primeiro) em "sessões" só para saber qual
-// foi a maior maratona seguida — mesma heurística de gap usada na Visão
-// Geral (ver Overview.jsx/SESSION_GAP_MINUTES), duplicada aqui em versão
-// mínima para não criar uma dependência cruzada entre as duas tabs.
-const SESSION_GAP_MINUTES = 90;
-function longestSessionGames(matches) {
-  const withDate = matches.filter((m) => m.created_at).slice().sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-  if (!withDate.length) return 0;
-
-  let longest = 1;
-  let count = 1;
-  for (let i = 1; i < withDate.length; i++) {
-    const prevTime = new Date(withDate[i - 1].created_at).getTime();
-    const time = new Date(withDate[i].created_at).getTime();
-    if (prevTime - time <= SESSION_GAP_MINUTES * 60000) {
-      count += 1;
-    } else {
-      count = 1;
-    }
-    longest = Math.max(longest, count);
-  }
-  return longest;
+// Escalão mais alto já conquistado numa categoria (null se ainda nenhum) —
+// usado para colorir o ícone e o valor no cabeçalho de cada cartão.
+function currentRankOf(cat) {
+  const unlockedCount = cat.tiers.filter((tier) => cat.value >= tier).length;
+  if (!unlockedCount) return null;
+  return rankForTierIndex(unlockedCount - 1, cat.tiers.length);
 }
 
 export default function Achievements({ matches, champions, wins, DRAGON }) {
-  const { t, lang } = useLanguage();
+  const { t } = useLanguage();
 
-  const stats = useMemo(() => {
-    const totalGames = matches.length;
-    const totalWins = matches.filter((m) => m.win).length;
-    const coveragePct = champions.length ? Math.round((wins.length / champions.length) * 100) : 0;
-
-    // Melhor sequência de vitórias / de Top 3 — percorre tudo (a direção não
-    // importa para o comprimento máximo de uma sequência contígua).
-    let bestWinStreak = 0;
-    let bestTop3Streak = 0;
-    let runWin = 0;
-    let runTop3 = 0;
-    matches.forEach((m) => {
-      if (m.win) {
-        runWin += 1;
-        bestWinStreak = Math.max(bestWinStreak, runWin);
-      } else {
-        runWin = 0;
-      }
-      const isTop3 = m.placement != null ? m.placement <= 3 : m.win;
-      if (isTop3) {
-        runTop3 += 1;
-        bestTop3Streak = Math.max(bestTop3Streak, runTop3);
-      } else {
-        runTop3 = 0;
-      }
-    });
-
-    const tripleKillCount = matches.filter((m) => m.multikill >= 3).length;
-
-    const bestDamage = matches.reduce((max, m) => (m.damage_dealt != null && m.damage_dealt > max ? m.damage_dealt : max), 0);
-    const bestHealing = matches.reduce((max, m) => (m.healing != null && m.healing > max ? m.healing : max), 0);
-
-    // Campeão favorito (mais jogado) e diversidade (quantos campeões
-    // diferentes já foram jogados, ganhando ou não).
-    const champGames = {};
-    matches.forEach((m) => {
-      const champ = normalizeChampionId(m.champion, champions);
-      champGames[champ] = (champGames[champ] || 0) + 1;
-    });
-    const favoriteChampGames = Object.values(champGames).reduce((max, n) => Math.max(max, n), 0);
-    const diversityCount = Object.keys(champGames).length;
-
-    const marathonGames = longestSessionGames(matches);
-
-    // Parceiro premade com mais partidas juntos (2v2 ou 3v3, a Arena já foi
-    // as duas coisas) — mesma lógica da lista de premades na Visão Geral, só
-    // que aqui só interessa o máximo.
-    const duoCounts = {};
-    matches.forEach((m) => {
-      if (!m.participants?.length || m.placement == null) return;
-      const teammates = m.participants.filter((p) => !p.isSelf && p.placement === m.placement);
-      teammates.forEach((teammate) => {
-        const key = teammate.name || "?";
-        duoCounts[key] = (duoCounts[key] || 0) + 1;
-      });
-    });
-    const duoMaxGames = Object.values(duoCounts).reduce((max, n) => Math.max(max, n), 0);
-
-    const wins2v2 = matches.filter((m) => m.win && m.team_size === 2).length;
-    const wins3v3 = matches.filter((m) => m.win && m.team_size === 3).length;
-
-    const hasPerfectVictory = matches.some((m) => m.placement === 1 && m.deaths === 0);
-    const hasEarlyBird = matches.some((m) => {
-      if (!m.created_at) return false;
-      const hour = new Date(m.created_at).getHours();
-      return hour >= 0 && hour <= 5;
-    });
-
-    return {
-      totalGames,
-      totalWins,
-      coveragePct,
-      bestWinStreak,
-      bestTop3Streak,
-      tripleKillCount,
-      bestDamage,
-      bestHealing,
-      favoriteChampGames,
-      diversityCount,
-      marathonGames,
-      duoMaxGames,
-      wins2v2,
-      wins3v3,
-      hasPerfectVictory,
-      hasEarlyBird,
-    };
-  }, [matches, champions, wins]);
+  const stats = useMemo(() => computeAchievementStats(matches, champions, wins), [matches, champions, wins]);
 
   // Cada categoria tem uma escada de níveis (tiers) e sabe ir buscar o valor
   // atual a "stats" — cada nível vira um badge próprio (desbloqueado ou
   // ainda por desbloquear), em vez de só uma barra de progresso genérica.
-  const categories = useMemo(
-    () => [
-      { id: "wins", icon: "🏅", title: t("achv_cat_wins"), value: stats.totalWins, unit: "", tiers: [1, 10, 25, 50, 100, 250, 500] },
-      { id: "games", icon: "🎮", title: t("achv_cat_games"), value: stats.totalGames, unit: "", tiers: [10, 50, 100, 250, 500, 1000] },
-      { id: "coverage", icon: "🗺️", title: t("achv_cat_coverage"), value: stats.coveragePct, unit: "%", tiers: [10, 25, 50, 75, 100] },
-      { id: "winstreak", icon: "🔥", title: t("achv_cat_winstreak"), value: stats.bestWinStreak, unit: "", tiers: [3, 5, 10, 15, 20] },
-      { id: "top3streak", icon: "🥉", title: t("achv_cat_top3streak"), value: stats.bestTop3Streak, unit: "", tiers: [3, 5, 10, 15] },
-      { id: "triplekill", icon: "⚔️", title: t("achv_cat_triplekill"), value: stats.tripleKillCount, unit: "", tiers: [1, 5, 10, 25] },
-      { id: "damage", icon: "💥", title: t("achv_cat_damage"), value: stats.bestDamage, unit: "k", tiers: [20000, 50000, 100000, 150000] },
-      { id: "healing", icon: "✚", title: t("achv_cat_healing"), value: stats.bestHealing, unit: "k", tiers: [10000, 25000, 50000, 100000] },
-      { id: "favorite", icon: "⭐", title: t("achv_cat_favorite"), value: stats.favoriteChampGames, unit: "", tiers: [10, 25, 50, 100] },
-      { id: "diversity", icon: "🎭", title: t("achv_cat_diversity"), value: stats.diversityCount, unit: "", tiers: [10, 25, 50, 100] },
-      { id: "marathon", icon: "⏱️", title: t("achv_cat_marathon"), value: stats.marathonGames, unit: "", tiers: [3, 5, 10, 15] },
-      { id: "duo", icon: "🤝", title: t("achv_cat_duo"), value: stats.duoMaxGames, unit: "", tiers: [5, 10, 25, 50] },
-      { id: "wins2v2", icon: "👥", title: t("achv_cat_wins2v2"), value: stats.wins2v2, unit: "", tiers: [5, 25, 50, 100] },
-      { id: "wins3v3", icon: "👨‍👩‍👦", title: t("achv_cat_wins3v3"), value: stats.wins3v3, unit: "", tiers: [5, 25, 50, 100] },
-    ],
-    [stats, t]
-  );
+  const categories = useMemo(() => buildAchievementCategories(stats, t), [stats, t]);
 
-  // Duas conquistas booleanas (sim/não), à parte da lógica de escada.
-  const booleanAchievements = useMemo(
-    () => [
-      { id: "perfect", icon: "👑", title: t("achv_perfect_title"), desc: t("achv_perfect_desc"), unlocked: stats.hasPerfectVictory },
-      { id: "earlybird", icon: "🌙", title: t("achv_earlybird_title"), desc: t("achv_earlybird_desc"), unlocked: stats.hasEarlyBird },
-    ],
-    [stats, t]
-  );
+  // Conquistas booleanas (sim/não), à parte da lógica de escada.
+  const booleanAchievements = useMemo(() => buildBooleanAchievements(stats, t), [stats, t]);
 
-  const { totalBadges, unlockedBadges } = useMemo(() => {
-    let total = 0;
-    let unlocked = 0;
-    categories.forEach((c) => {
-      total += c.tiers.length;
-      unlocked += c.tiers.filter((tier) => c.value >= tier).length;
-    });
-    total += booleanAchievements.length;
-    unlocked += booleanAchievements.filter((b) => b.unlocked).length;
-    return { totalBadges: total, unlockedBadges: unlocked };
-  }, [categories, booleanAchievements]);
+  const { totalBadges, unlockedBadges } = useMemo(
+    () => summarizeBadges(categories, booleanAchievements),
+    [categories, booleanAchievements]
+  );
 
   // As conquistas mais perto de subir de nível — só as de escada (não as
   // booleanas, que são sim/não e não têm "progresso" a mostrar) e só as que
@@ -181,9 +56,17 @@ export default function Achievements({ matches, champions, wins, DRAGON }) {
   const closestToUnlock = useMemo(() => {
     return categories
       .map((cat) => {
-        const nextTier = cat.tiers.find((tr) => cat.value < tr);
-        if (nextTier == null) return null;
-        return { ...cat, nextTier, progressPct: Math.min(100, Math.round((cat.value / nextTier) * 100)) };
+        const nextTierIdx = cat.tiers.findIndex((tr) => cat.value < tr);
+        if (nextTierIdx === -1) return null;
+        const nextTier = cat.tiers[nextTierIdx];
+        return {
+          ...cat,
+          nextTier,
+          // Escalão do nível que está mesmo a ser perseguido (não o da
+          // categoria em geral) — é isso que se vai desbloquear a seguir.
+          nextRank: rankForTierIndex(nextTierIdx, cat.tiers.length),
+          progressPct: Math.min(100, Math.round((cat.value / nextTier) * 100)),
+        };
       })
       .filter(Boolean)
       .sort((a, b) => b.progressPct - a.progressPct)
@@ -214,108 +97,183 @@ export default function Achievements({ matches, champions, wins, DRAGON }) {
       </div>
 
       {/* Perto de desbloquear — antes a página era só uma parede plana de
-          ~70 badges sem nenhuma indicação de onde focar; isto dá aos 3
-          níveis mais próximos um destaque logo no topo. */}
+          badges sem nenhuma indicação de onde focar; isto dá aos 3 níveis
+          mais próximos um destaque logo no topo. */}
       {closestToUnlock.length > 0 && (
         <div style={styles.section}>
           <div style={styles.sectionHeader}>
-            <span style={styles.sectionIcon}>🎯</span>
+            <span style={styles.sectionIcon}>
+              <AchievementIcon iconId="target" color="var(--accent-text)" size={17} />
+            </span>
             <h3 style={styles.sectionTitle}>{t("achv_closest_title")}</h3>
           </div>
-          <div style={styles.badgeRow}>
+          <div style={styles.closestRow}>
             {closestToUnlock.map((cat) => (
-              <Tooltip
-                key={cat.id}
-                label={`${cat.title} · ${formatValue(cat.value, cat.unit)}/${formatValue(cat.nextTier, cat.unit)}`}
-              >
-                <div
-                  style={{
-                    ...styles.badge,
-                    opacity: 0.9,
-                    borderColor: "rgba(250,204,21,0.55)",
-                    background: "rgba(var(--panel-deep-rgb),0.6)",
-                  }}
-                >
-                  <span style={styles.badgeIcon}>{cat.icon}</span>
-                  <span style={styles.badgeTier}>{formatValue(cat.nextTier, cat.unit)}</span>
+              <div key={cat.id} style={styles.closestCard}>
+                <span style={styles.badgeIcon}>
+                  <AchievementIcon iconId={cat.iconId} color={cat.nextRank.color} size={22} />
+                </span>
+                <div style={styles.closestInfo}>
+                  <div style={styles.closestTitle}>{cat.title}</div>
+                  <div style={styles.closestMeta}>
+                    <span style={{ color: cat.nextRank.color, fontWeight: 800 }}>
+                      {t(cat.nextRank.labelKey)}
+                    </span>
+                    <span style={styles.closestProgress}>
+                      {formatValue(cat.value, cat.unit)} / {formatValue(cat.nextTier, cat.unit)}
+                    </span>
+                  </div>
                   <div style={styles.badgeTrack}>
-                    <div style={{ ...styles.badgeFill, width: `${cat.progressPct}%` }} />
+                    <div
+                      style={{
+                        ...styles.badgeFill,
+                        width: `${cat.progressPct}%`,
+                        background: cat.nextRank.color,
+                      }}
+                    />
                   </div>
                 </div>
-              </Tooltip>
+              </div>
             ))}
           </div>
         </div>
       )}
 
-      {categories.map((cat) => (
-        <div key={cat.id} style={styles.section}>
-          <div style={styles.sectionHeader}>
-            <span style={styles.sectionIcon}>{cat.icon}</span>
-            <h3 style={styles.sectionTitle}>{cat.title}</h3>
-            <span style={styles.sectionValue}>
-              {formatValue(cat.value, cat.unit)}
-            </span>
-          </div>
-          <div style={styles.badgeRow}>
-            {cat.tiers.map((tier) => {
-              const unlocked = cat.value >= tier;
-              const isNext = !unlocked && cat.tiers.find((tr) => cat.value < tr) === tier;
-              const progressPct = isNext ? Math.min(100, Math.round((cat.value / tier) * 100)) : unlocked ? 100 : 0;
+      {/* Grelha em vez de um cartão por linha: cada categoria só precisa de
+          uma fila curta de badges, por isso ocupar a largura toda deixava
+          metade do cartão vazia (sobretudo em monitores largos). */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3 gap-4">
+        {categories.map((cat) => {
+          const rank = currentRankOf(cat);
 
-              return (
-                <Tooltip
-                  key={tier}
-                  label={
-                    unlocked
-                      ? `${cat.title} · ${formatValue(tier, cat.unit)} (${t("achv_unlocked")})`
-                      : `${cat.title} · ${formatValue(cat.value, cat.unit)}/${formatValue(tier, cat.unit)}`
-                  }
-                >
-                  <div
-                    style={{
-                      ...styles.badge,
-                      opacity: unlocked ? 1 : isNext ? 0.85 : 0.4,
-                      borderColor: unlocked ? "rgba(250,204,21,0.55)" : "rgba(var(--border-rgb),0.5)",
-                      background: unlocked
-                        ? "linear-gradient(180deg, rgba(250,204,21,0.16), rgba(250,204,21,0.05))"
-                        : "rgba(var(--panel-deep-rgb),0.6)",
-                    }}
-                  >
-                    <span style={styles.badgeIcon}>{unlocked ? cat.icon : "🔒"}</span>
-                    <span style={styles.badgeTier}>{formatValue(tier, cat.unit)}</span>
-                    {isNext && (
-                      <div style={styles.badgeTrack}>
-                        <div style={{ ...styles.badgeFill, width: `${progressPct}%` }} />
-                      </div>
-                    )}
+          return (
+            <div key={cat.id} style={styles.section}>
+              <div style={styles.catHeader}>
+                <span style={styles.catIconWrap}>
+                  <AchievementIcon
+                    iconId={cat.iconId}
+                    color={rank ? rank.color : "var(--text-muted)"}
+                    size={22}
+                  />
+                </span>
+
+                <div style={styles.catHeadText}>
+                  <h3 style={styles.sectionTitle}>{cat.title}</h3>
+                  {/* Explica o que a categoria conta — sem isto várias delas
+                      eram adivinhação a partir do título. */}
+                  <div style={styles.catDesc}>{cat.desc}</div>
+                </div>
+
+                {/* Valor atual em destaque: é o número que importa e antes
+                    era só texto pequeno e cinzento perdido no canto. */}
+                <div style={styles.catValueWrap}>
+                  <div style={{ ...styles.catValue, color: rank ? rank.color : "var(--text-body)" }}>
+                    {formatValue(cat.value, cat.unit)}
                   </div>
-                </Tooltip>
-              );
-            })}
-          </div>
-        </div>
-      ))}
+                  <div style={styles.catValueLabel}>
+                    {rank ? t(rank.labelKey) : t("achv_locked")}
+                  </div>
+                </div>
+              </div>
+
+              <div style={styles.badgeRow}>
+                {cat.tiers.map((tier, tierIdx) => {
+                  const unlocked = cat.value >= tier;
+                  const isNext = !unlocked && cat.tiers.find((tr) => cat.value < tr) === tier;
+                  const progressPct = isNext ? Math.min(100, Math.round((cat.value / tier) * 100)) : 0;
+                  const tierRank = rankForTierIndex(tierIdx, cat.tiers.length);
+
+                  return (
+                    <Tooltip
+                      key={tier}
+                      label={
+                        unlocked
+                          ? `${t(tierRank.labelKey)} · ${formatValue(tier, cat.unit)} (${t("achv_unlocked")})`
+                          : `${t(tierRank.labelKey)} · ${formatValue(cat.value, cat.unit)}/${formatValue(tier, cat.unit)}`
+                      }
+                    >
+                      <div
+                        style={{
+                          ...styles.badge,
+                          opacity: unlocked ? 1 : isNext ? 0.85 : 0.4,
+                          borderColor: unlocked
+                            ? `color-mix(in srgb, ${tierRank.color} 65%, transparent)`
+                            : "rgba(var(--border-rgb),0.5)",
+                          background: unlocked
+                            ? `linear-gradient(180deg, color-mix(in srgb, ${tierRank.color} 22%, transparent), color-mix(in srgb, ${tierRank.color} 6%, transparent))`
+                            : "rgba(var(--panel-deep-rgb),0.6)",
+                          // Halo a crescer com o escalão (ver glowFor) — um
+                          // Ferro e um Desafiante já não se leem igual.
+                          boxShadow: unlocked ? glowFor(tierRank) : "none",
+                        }}
+                      >
+                        <span style={styles.badgeIcon}>
+                          <AchievementIcon
+                            iconId={cat.iconId}
+                            locked={!unlocked}
+                            color={tierRank.color}
+                            size={18}
+                          />
+                        </span>
+                        <span
+                          style={{ ...styles.badgeTier, color: unlocked ? tierRank.color : "var(--text-body)" }}
+                        >
+                          {formatValue(tier, cat.unit)}
+                        </span>
+                        {isNext && (
+                          <div style={styles.badgeTrack}>
+                            <div
+                              style={{
+                                ...styles.badgeFill,
+                                width: `${progressPct}%`,
+                                background: tierRank.color,
+                              }}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </Tooltip>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
 
       <div style={styles.section}>
         <div style={styles.sectionHeader}>
-          <span style={styles.sectionIcon}>🏆</span>
+          <span style={styles.sectionIcon}>
+            <AchievementIcon iconId="crest" color="var(--accent-text)" size={17} />
+          </span>
           <h3 style={styles.sectionTitle}>{t("achv_cat_special")}</h3>
         </div>
-        <div style={styles.badgeRow}>
+        <div style={styles.catDesc}>{t("achv_special_hint")}</div>
+
+        <div style={{ ...styles.badgeRow, marginTop: 12 }}>
           {booleanAchievements.map((b) => (
             <Tooltip key={b.id} label={b.desc}>
               <div
                 style={{
                   ...styles.specialBadge,
                   opacity: b.unlocked ? 1 : 0.4,
-                  borderColor: b.unlocked ? "rgba(250,204,21,0.55)" : "rgba(var(--border-rgb),0.5)",
+                  borderColor: b.unlocked
+                    ? `color-mix(in srgb, ${SPECIAL_RANK.color} 65%, transparent)`
+                    : "rgba(var(--border-rgb),0.5)",
                   background: b.unlocked
-                    ? "linear-gradient(180deg, rgba(250,204,21,0.16), rgba(250,204,21,0.05))"
+                    ? `linear-gradient(180deg, color-mix(in srgb, ${SPECIAL_RANK.color} 22%, transparent), color-mix(in srgb, ${SPECIAL_RANK.color} 6%, transparent))`
                     : "rgba(var(--panel-deep-rgb),0.6)",
+                  boxShadow: b.unlocked ? glowFor(SPECIAL_RANK) : "none",
                 }}
               >
-                <span style={styles.badgeIcon}>{b.unlocked ? b.icon : "🔒"}</span>
+                <span style={styles.badgeIcon}>
+                  <AchievementIcon
+                    iconId={b.iconId}
+                    locked={!b.unlocked}
+                    color={SPECIAL_RANK.color}
+                    size={22}
+                  />
+                </span>
                 <span style={styles.specialBadgeTitle}>{b.title}</span>
               </div>
             </Tooltip>
@@ -402,7 +360,8 @@ const styles = {
   },
 
   sectionIcon: {
-    fontSize: 16,
+    display: "inline-flex",
+    alignItems: "center",
   },
 
   sectionTitle: {
@@ -410,13 +369,61 @@ const styles = {
     fontWeight: 700,
     color: "var(--accent-text)",
     margin: 0,
-    flex: 1,
   },
 
-  sectionValue: {
-    fontSize: 12,
-    color: "var(--text-secondary)",
-    fontWeight: 600,
+  // ================= CABEÇALHO DE CADA CATEGORIA =================
+  // Ícone | título+descrição | valor. O valor vive à direita, grande e na cor
+  // do escalão atual — antes era texto pequeno e cinzento, e nem se via.
+  catHeader: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: 10,
+    marginBottom: 12,
+  },
+
+  catIconWrap: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 34,
+    height: 34,
+    flexShrink: 0,
+    borderRadius: "var(--radius-md)",
+    background: "rgba(var(--panel-deep-rgb),0.75)",
+    border: "1px solid rgba(var(--border-rgb),0.45)",
+  },
+
+  catHeadText: {
+    flex: 1,
+    minWidth: 0,
+  },
+
+  catDesc: {
+    fontSize: 10.5,
+    lineHeight: 1.35,
+    color: "var(--text-muted)",
+    marginTop: 2,
+  },
+
+  catValueWrap: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "flex-end",
+    flexShrink: 0,
+  },
+
+  catValue: {
+    fontSize: 20,
+    fontWeight: 900,
+    lineHeight: 1.1,
+  },
+
+  catValueLabel: {
+    fontSize: 8.5,
+    fontWeight: 700,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+    color: "var(--text-muted)",
   },
 
   badgeRow: {
@@ -426,7 +433,7 @@ const styles = {
   },
 
   badge: {
-    width: 74,
+    width: 62,
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
@@ -437,15 +444,17 @@ const styles = {
     transition: "opacity 0.15s ease",
   },
 
+  // Os ícones são SVG (ver AchievementIcon.jsx), não emojis — o tamanho vem
+  // do próprio componente ("size"), aqui fica só o alinhamento.
   badgeIcon: {
-    fontSize: 18,
-    lineHeight: 1,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   badgeTier: {
     fontSize: 11,
     fontWeight: 800,
-    color: "var(--text-body)",
   },
 
   badgeTrack: {
@@ -459,17 +468,63 @@ const styles = {
 
   badgeFill: {
     height: "100%",
-    background: "linear-gradient(90deg, #9aa0a6, #facc15)",
     borderRadius: 2,
   },
 
+  // ================= "QUASE LÁ" =================
+  // Cartões largos (ícone + texto + barra) em vez dos badges quadrados —
+  // aqui há espaço para dizer QUAL é a meta e a que distância se está dela.
+  closestRow: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+    gap: 8,
+  },
+
+  closestCard: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    padding: "10px 12px",
+    borderRadius: "var(--radius-lg)",
+    background: "rgba(var(--panel-deep-rgb),0.6)",
+    border: "1px solid rgba(var(--border-rgb),0.45)",
+  },
+
+  closestInfo: {
+    flex: 1,
+    minWidth: 0,
+  },
+
+  closestTitle: {
+    fontSize: 11.5,
+    fontWeight: 700,
+    color: "var(--text-body)",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  },
+
+  closestMeta: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 8,
+    fontSize: 10,
+    marginTop: 1,
+    marginBottom: 4,
+  },
+
+  closestProgress: {
+    color: "var(--text-secondary)",
+    fontWeight: 700,
+  },
+
   specialBadge: {
-    width: 120,
+    width: 118,
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
-    gap: 4,
-    padding: "10px 8px",
+    gap: 5,
+    padding: "12px 8px",
     borderRadius: "var(--radius-lg)",
     border: "1px solid",
     transition: "opacity 0.15s ease",

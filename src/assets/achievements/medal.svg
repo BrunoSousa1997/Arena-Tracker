@@ -1,0 +1,7 @@
+<!-- Medalha com fitas — sequência de Top 3. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <circle cx="12" cy="15" r="6" fill="currentColor" fill-opacity="0.18" />
+  <circle cx="12" cy="15" r="6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M8.5 2.5 11 9M15.5 2.5 13 9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="m12 12 1.1 2.3 2.4.35-1.75 1.7.4 2.4L12 17.6l-2.15 1.15.4-2.4-1.75-1.7 2.4-.35z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+</svg>

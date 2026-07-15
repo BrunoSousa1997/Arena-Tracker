@@ -103,6 +103,33 @@ function findSelfInParticipants(participants, puuid, gameName) {
   return participants.find((p) => p.name && p.name.trim().toLowerCase() === needle) || null;
 }
 
+// Procura, em TODAS as partidas já importadas por qualquer user (não só a
+// tua própria conta), aquelas onde alguém com este nome Riot apareceu como
+// participante — usado pela tab Comparar antes de pedir à Riot API o
+// histórico de um jogador que nunca sincronizou a própria conta na app: se
+// ele já jogou com/contra alguém que já sincronizou, as estatísticas dele
+// nessas partidas já estão guardadas (ver extractAllParticipants em
+// electron.js), mesmo sem existir nenhuma conta dele na app. Não é o
+// histórico completo dele (só as partidas em que cruzou com alguém já
+// conhecido), mas evita gastar pedidos à Riot API quando já há dados.
+// Comparação sem distinguir maiúsculas — feita em SQL (ver
+// search_matches_by_participant_name em supabase/schema.sql), porque o
+// PostgREST não suporta "ILIKE dentro de um array jsonb".
+export async function searchMatchesByParticipantName(gameName) {
+  if (!gameName) return [];
+
+  const { data, error } = await supabase.rpc("search_matches_by_participant_name", {
+    p_name: gameName.trim(),
+  });
+
+  if (error) {
+    console.error("searchMatchesByParticipantName error:", error);
+    return [];
+  }
+
+  return data || [];
+}
+
 // Reconstrói o registo de uma partida (mesmo formato que uma importação
 // normal via Riot API produziria) a partir de uma linha já em cache — sem
 // pedir nada à Riot. Devolve null se não encontrar a nossa entrada (não

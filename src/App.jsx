@@ -12,6 +12,7 @@ import {
   X,
   RotateCw,
   Search,
+  Swords,
 } from "lucide-react";
 import UpdateNotifier from "./components/UpdateNotifier";
 import Loading from "./components/Loading";
@@ -19,6 +20,7 @@ import Overview from "./views/Overview";
 import MatchHistory from "./views/MatchHistory";
 import MatchReports from "./views/MatchReports";
 import Achievements from "./views/Achievements";
+import Compare from "./views/Compare";
 import Settings from "./views/Settings";
 import StatsBar from "./components/StatsBar";
 import Tooltip from "./components/Tooltip";
@@ -40,6 +42,7 @@ export default function App() {
     { key: "history", icon: ScrollText, label: t("tab_history") },
     { key: "stats", icon: TrendingUp, label: t("tab_stats") },
     { key: "achievements", icon: Award, label: t("tab_achievements") },
+    { key: "compare", icon: Swords, label: t("tab_compare") },
   ];
 
   // Formato (Todos/2v2/3v3) — agora ao lado das tabs, na mesma linha (ver
@@ -868,7 +871,7 @@ export default function App() {
 
             {view === "history" && (
               <MatchHistory
-                matches={matches}
+                matches={statsMatches}
                 champions={champions}
                 DRAGON={DRAGON}
                 augmentsMap={augmentsMap}
@@ -895,6 +898,17 @@ export default function App() {
                 champions={champions}
                 wins={wins}
                 DRAGON={DRAGON}
+              />
+            )}
+
+            {view === "compare" && (
+              <Compare
+                matches={matches}
+                champions={champions}
+                wins={wins}
+                DRAGON={DRAGON}
+                ownLabel={activeAccount}
+                teamSizeFilter={teamSizeFilter}
               />
             )}
 

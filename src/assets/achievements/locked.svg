@@ -1,0 +1,7 @@
+<!-- Cadeado — nível ainda por desbloquear. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <rect x="4.5" y="10.5" width="15" height="10.5" rx="2" fill="currentColor" fill-opacity="0.18" />
+  <rect x="4.5" y="10.5" width="15" height="10.5" rx="2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M7.75 10.5V7.25a4.25 4.25 0 0 1 8.5 0v3.25" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M12 14.75v2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+</svg>

@@ -1,0 +1,7 @@
+<!-- Arco do coliseu — partidas jogadas (a Arena em si). -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <path d="M3.5 20v-8.5a8.5 8.5 0 0 1 17 0V20z" fill="currentColor" fill-opacity="0.18" />
+  <path d="M3.5 20v-8.5a8.5 8.5 0 0 1 17 0V20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M8.5 20v-8.5a3.5 3.5 0 0 1 7 0V20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M2 20h20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+</svg>

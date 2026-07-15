@@ -181,11 +181,6 @@ export default function MatchHistory({
   const { t, lang } = useLanguage();
   const PLACEMENT_FILTERS = getPlacementFilters(t);
   const SORT_OPTIONS = getSortOptions(t);
-  const FORMAT_FILTERS = [
-    { key: "ALL", label: t("format_all") },
-    { key: 2, label: t("format_2v2") },
-    { key: 3, label: t("format_3v3") },
-  ];
 
   const [placementFilter, setPlacementFilter] = useState("ALL");
   // Antes era um <select> com um campeão exato à escolha — uma busca por
@@ -197,7 +192,6 @@ export default function MatchHistory({
   const [championSearch, setChampionSearch] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
   const [highlightedSuggestion, setHighlightedSuggestion] = useState(-1);
-  const [formatFilter, setFormatFilter] = useState("ALL");
   const [sortBy, setSortBy] = useState("date_desc");
   const [expanded, setExpanded] = useState(null);
 
@@ -239,19 +233,19 @@ export default function MatchHistory({
   const filteredMatches = useMemo(() => {
     const q = championSearch.trim().toLowerCase();
 
+    // "matches" já vem filtrado pelo formato escolhido na barra do topo
+    // (Todos/2v2/3v3, ver teamSizeFilter em App.jsx) — o Histórico já não
+    // tem um filtro de formato próprio, para não haver dois seletores
+    // independentes a controlar a mesma coisa.
     const filtered = matches.filter((m) => {
       const matchPlacement = matchesPlacementFilter(m, placementFilter);
       const matchChampion = !q || champName(m.champion).toLowerCase().includes(q);
 
-      // A Arena já teve formato de 8 equipas de 2 e de 6 equipas de 3 —
-      // dá para isolar cada um aqui no histórico.
-      const matchFormat = formatFilter === "ALL" || m.team_size === formatFilter;
-
-      return matchPlacement && matchChampion && matchFormat;
+      return matchPlacement && matchChampion;
     });
 
     return sortMatches(filtered, sortBy);
-  }, [matches, placementFilter, championSearch, formatFilter, sortBy, champions]);
+  }, [matches, placementFilter, championSearch, sortBy, champions]);
 
   // "Load more" em vez de paginação clássica (páginas 1/2/3...) — a lista já
   // vive dentro do scroll único da própria tab (ver App.jsx), sem scroll
@@ -263,7 +257,7 @@ export default function MatchHistory({
 
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
-  }, [placementFilter, championSearch, formatFilter, sortBy]);
+  }, [placementFilter, championSearch, sortBy]);
 
   const visibleMatches = filteredMatches.slice(0, visibleCount);
   const hasMore = visibleCount < filteredMatches.length;
@@ -326,20 +320,6 @@ export default function MatchHistory({
             style={styles.filterSelect}
           >
             {PLACEMENT_FILTERS.map((f) => (
-              <option key={f.key} value={f.key}>
-                {f.label}
-              </option>
-            ))}
-          </select>
-        </Tooltip>
-
-        <Tooltip label={t("filter_format_tooltip")}>
-          <select
-            value={formatFilter}
-            onChange={(e) => setFormatFilter(e.target.value === "ALL" ? "ALL" : Number(e.target.value))}
-            style={styles.filterSelect}
-          >
-            {FORMAT_FILTERS.map((f) => (
               <option key={f.key} value={f.key}>
                 {f.label}
               </option>

@@ -35,6 +35,8 @@ function avgOf(sum, count) {
 const SORT_ROW_VALUE = {
   kda_desc: { get: (c) => c.bestKda, format: (v) => v.toFixed(1) },
   worst_kda: { get: (c) => c.worstKda, format: (v) => v.toFixed(1) },
+  best_avg_placement: { get: (c) => c.avgPlacement, format: (v) => `${v.toFixed(1)}º` },
+  worst_avg_placement: { get: (c) => c.avgPlacement, format: (v) => `${v.toFixed(1)}º` },
   most_wins: { get: (c) => c.wins, format: (v) => `${v}` },
   most_top3_count: { get: (c) => c.top3, format: (v) => `${v}` },
   most_below_top3: { get: (c) => c.belowTop3, format: (v) => `${v}` },
@@ -100,6 +102,22 @@ function getSortMeta(t) {
       label: t("spotlight_most_last"),
       compare: (a, b) => b.lastPlace - a.lastPlace,
       qualifies: (c) => c.lastPlace > 0,
+    },
+    // Mínimo de 2 partidas com lugar registado, tal como as outras médias
+    // (ver overviewSpotlights.js) — sem isto uma única partida boa/má
+    // colocava um campeão no topo só por sorte de amostra. "Melhor" = média
+    // mais BAIXA (1º é o melhor lugar), por isso ordena ascendente.
+    {
+      key: "best_avg_placement",
+      label: t("spotlight_best_avg_placement"),
+      compare: (a, b) => (a.avgPlacement ?? Infinity) - (b.avgPlacement ?? Infinity),
+      qualifies: (c) => c.avgPlacement != null && c.placements.length >= 2,
+    },
+    {
+      key: "worst_avg_placement",
+      label: t("spotlight_worst_avg_placement"),
+      compare: (a, b) => (b.avgPlacement ?? -1) - (a.avgPlacement ?? -1),
+      qualifies: (c) => c.avgPlacement != null && c.placements.length >= 2,
     },
     {
       key: "highest_damage",
@@ -471,6 +489,12 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
         name: champName(s.champion),
         winrate: s.games ? Math.round((s.wins / s.games) * 100) : 0,
         top3Rate: s.withPlacement ? Math.round((s.top3 / s.withPlacement) * 100) : 0,
+        // Lugar médio (só partidas com lugar registado) — usado pelos
+        // critérios "Melhor/Pior lugar médio", espelhando os cartões novos
+        // da Visão Geral (ver overviewSpotlights.js).
+        avgPlacement: s.placements.length
+          ? s.placements.reduce((sum, p) => sum + p.placement, 0) / s.placements.length
+          : null,
         avgK: s.k / s.games,
         avgD: s.d / s.games,
         avgA: s.a / s.games,

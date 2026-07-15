@@ -1,0 +1,6 @@
+<!-- Lua com estrela — madrugador. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <path d="M20.5 14.25A8.75 8.75 0 1 1 10.4 2.6a6.9 6.9 0 0 0 10.1 11.65z" fill="currentColor" fill-opacity="0.18" />
+  <path d="M20.5 14.25A8.75 8.75 0 1 1 10.4 2.6a6.9 6.9 0 0 0 10.1 11.65z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="m17.75 3 .65 1.6 1.6.65-1.6.65-.65 1.6-.65-1.6-1.6-.65 1.6-.65z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+</svg>

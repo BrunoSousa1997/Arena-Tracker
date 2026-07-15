@@ -10,6 +10,7 @@ import {
   getMatchCacheByIds,
   buildMatchFromCache,
   buildBackfillDetailsFromCache,
+  setUserRiotIdentity,
 } from "../db/api";
 import { normalizeChampionId } from "../lib/champions";
 
@@ -134,6 +135,16 @@ export function useRiotSync({ accounts, setAccounts, activeAccount, matches, set
         setAccounts(updatedAccounts);
         localStorage.setItem("riot-accounts", JSON.stringify(updatedAccounts));
       }
+
+      // Sempre (não só quando o puuid muda) — garante que qualquer conta com
+      // histórico já importado fica pesquisável pela tab Comparar assim que
+      // sincronizar de novo, incluindo contas criadas antes de esta
+      // identidade Riot existir na Supabase (ver findUsernameByRiotId).
+      setUserRiotIdentity(account.username, {
+        riotGameName: account.riotAccount,
+        riotTagLine: account.riotTag,
+        puuid: listRes.puuid,
+      });
 
       const existingIds = await getImportedMatchIds(account.username);
       const candidateIds = listRes.ids.filter((id) => !existingIds.has(id));

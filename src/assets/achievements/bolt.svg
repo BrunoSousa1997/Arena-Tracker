@@ -1,0 +1,5 @@
+<!-- Relâmpago — maior dano numa partida. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <path d="M13.5 2 4.5 13.75h5.75L9.5 22l9-11.75H12.9z" fill="currentColor" fill-opacity="0.18" />
+  <path d="M13.5 2 4.5 13.75h5.75L9.5 22l9-11.75H12.9z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+</svg>

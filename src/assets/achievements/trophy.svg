@@ -1,0 +1,7 @@
+<!-- Troféu/cálice com asas e base — vitórias totais. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <path d="M6.5 3h11v4.5a5.5 5.5 0 0 1-11 0V3z" fill="currentColor" fill-opacity="0.18" />
+  <path d="M6.5 3h11v4.5a5.5 5.5 0 0 1-11 0V3z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M6.5 4.5H4A2.25 2.25 0 0 0 4 9h2.8M17.5 4.5H20A2.25 2.25 0 0 1 20 9h-2.8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M12 13v3.5M8.75 21h6.5l-.6-4.5h-5.3z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+</svg>
