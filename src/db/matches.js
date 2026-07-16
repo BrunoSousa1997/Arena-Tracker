@@ -152,38 +152,48 @@ export async function recoverOrphanMatches(username, riotGameName, riotTagLine) 
   }
 
   try {
-    // Procura por matches onde:
-    // 1. O jogador aparece em "participants" (pelo nome)
-    // 2. Já tem riot_match_id (foi importado via Riot API)
-    // 3. Ainda NÃO está associado a este username
-    const { data: orphaned, error: searchError } = await supabase
+    console.log(`🔍 Searching for orphaned matches with riot_game_name="${riotGameName}"...`);
+
+    // Estratégia: busca TODOS os matches com participants (foi importado via Riot API)
+    // Depois filtra localmente por nome do jogador
+    const { data: allMatches, error: searchError } = await supabase
       .from("matches")
-      .select("id, riot_match_id, champion, kills, deaths, assists, win, items, placement, augments, team_size, damage_dealt, damage_taken, gold_earned, cs, vision_score, champ_level, game_duration, multikill, double_kills, triple_kills, summoner1, summoner2, healing, participants, created_at")
-      .not("riot_match_id", "is", null)
-      .neq("username", username);
+      .select("id, riot_match_id, champion, kills, deaths, assists, win, items, placement, augments, team_size, damage_dealt, damage_taken, gold_earned, cs, vision_score, champ_level, game_duration, multikill, double_kills, triple_kills, summoner1, summoner2, healing, participants, username, created_at")
+      .not("participants", "is", null);
 
     if (searchError) {
-      console.error("recoverOrphanMatches search error:", searchError);
+      console.error("❌ Search error:", searchError.message);
       return { success: false, error: searchError.message, recovered: 0 };
     }
 
-    // Filtra localmente por nome em "participants"
-    const toRecover = (orphaned || []).filter((match) => {
+    // Filtra localmente: encontra matches onde o jogador está em participants
+    // MAS ainda não está associado ao seu username
+    const searchName = `${riotGameName}${riotTagLine ? '#' + riotTagLine : ''}`.toLowerCase();
+    const searchNameShort = riotGameName.toLowerCase();
+
+    const toRecover = (allMatches || []).filter((match) => {
+      // Skip se já está associado a este username
+      if (match.username === username) return false;
+
       if (!match.participants || !Array.isArray(match.participants)) return false;
-      return match.participants.some((p) =>
-        (p.name || "").toLowerCase() === `${riotGameName}#${riotTagLine}`.toLowerCase() ||
-        (p.name || "").toLowerCase() === riotGameName.toLowerCase()
-      );
+
+      // Procura o jogador em participants (comparar com nome completo e nome curto)
+      return match.participants.some((p) => {
+        const pName = (p.name || "").toLowerCase();
+        return pName === searchName || pName === searchNameShort;
+      });
     });
 
+    console.log(`📊 Found ${toRecover.length} matches where "${riotGameName}" plays but not yet associated`);
+
     if (!toRecover.length) {
-      console.log("recoverOrphanMatches: no orphaned matches found");
       return { success: true, recovered: 0 };
     }
 
-    console.log(`🔍 Found ${toRecover.length} orphaned matches, recovering...`);
+    console.log(`♻️ Reassigning ${toRecover.length} matches to username "${username}"...`);
 
     // Regrava cada match com o username correto
+    let recovered = 0;
     for (const match of toRecover) {
       const { error: updateError } = await supabase
         .from("matches")
@@ -191,15 +201,17 @@ export async function recoverOrphanMatches(username, riotGameName, riotTagLine) 
         .eq("id", match.id);
 
       if (updateError) {
-        console.error(`Failed to recover match ${match.id}:`, updateError);
+        console.error(`❌ Failed to recover match ${match.id}:`, updateError.message);
       } else {
-        console.log(`✅ Recovered match ${match.id} (${match.champion})`);
+        recovered++;
+        console.log(`✅ Recovered: ${match.champion} (match ID: ${match.id})`);
       }
     }
 
-    return { success: true, recovered: toRecover.length };
+    console.log(`🎉 Recovery complete: ${recovered}/${toRecover.length} matches reassigned`);
+    return { success: true, recovered };
   } catch (e) {
-    console.error("recoverOrphanMatches exception:", e.message);
+    console.error("❌ recoverOrphanMatches exception:", e.message);
     return { success: false, error: e.message, recovered: 0 };
   }
 }
