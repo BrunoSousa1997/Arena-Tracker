@@ -110,8 +110,8 @@ export default function App() {
     setShowRepairAllConfirm,
     latestMatchTimestamp,
     syncActiveAccount,
-    syncAllHistory,
     enrichHistory,
+    repairAllData,
   } = useRiotSync({ accounts, setAccounts, activeAccount, matches, setMatches, setWins, champions, patch, t });
 
   // A Arena já teve formatos diferentes (8 equipas de 2 vs 6 equipas de 3) —
@@ -686,15 +686,6 @@ export default function App() {
                         )}
                       </button>
                     </Tooltip>
-                    <Tooltip label={t("sync_all_history_tooltip")}>
-                      <button
-                        onClick={() => syncAllHistory()}
-                        style={styles.syncAllBtn}
-                        disabled={syncStatus?.status === "loading"}
-                      >
-                        {t("sync_all_history_btn")}
-                      </button>
-                    </Tooltip>
                     {missingEnrichmentCount > 0 && (
                       <Tooltip
                         label={t("enrich_history_tooltip").replace("{count}", missingEnrichmentCount)}
@@ -1178,7 +1169,7 @@ export default function App() {
           confirmLabel={t("repair_all_btn")}
           onConfirm={() => {
             setShowRepairAllConfirm(false);
-            enrichHistory(true);
+            repairAllData();
           }}
           onCancel={() => setShowRepairAllConfirm(false)}
         />

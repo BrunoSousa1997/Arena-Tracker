@@ -11,6 +11,8 @@ import {
   buildMatchFromCache,
   buildBackfillDetailsFromCache,
   setUserRiotIdentity,
+  repairMismatchedMatches,
+  deduplicateLiveCaptures,
 } from "../db/api";
 import { normalizeChampionId } from "../lib/champions";
 
@@ -497,10 +499,46 @@ export function useRiotSync({ accounts, setAccounts, activeAccount, matches, set
     }
   };
 
-  // Sincroniza TODO o histórico, ignorando a data do último game
-  // (útil quando games antigos ficam para trás pelo "since" incremental)
-  const syncAllHistory = async () => {
+  // "Reparar dados": o botão para quando algo na conta parece errado.
+  // Encadeia tudo o que pode corrigir, por esta ordem:
+  //  1) traz partidas em falta (ex: jogadas antes do último sync — "since"
+  //     incremental deixa-as sempre para trás, ver syncActiveAccount);
+  //  2) volta a pedir à Riot API TODAS as partidas já importadas, sem usar
+  //     cache partilhada (enrichHistory force);
+  //  3) corrige campos pessoais (campeão/KDA/build/etc.) que não batem
+  //     certo com a própria entrada em "participants" — ver
+  //     repairMismatchedMatches para o porquê disto poder acontecer;
+  //  4) remove duplicados de um jogo guardado ao vivo E depois importado da
+  //     Riot API (ver deduplicateLiveCaptures).
+  const repairAllData = async () => {
+    const account = accounts.find((a) => a.username === activeAccount);
+    if (!account) return;
+
     await syncActiveAccount(true);
+    await enrichHistory(true);
+
+    setSyncStatus({ status: "loading", message: t("repairing_personal_data") });
+    const repairRes = await repairMismatchedMatches(
+      activeAccount,
+      account.riotAccount,
+      account.riotTag,
+      account.puuid
+    );
+
+    setSyncStatus({ status: "loading", message: t("removing_duplicates") });
+    const dedupRes = await deduplicateLiveCaptures(activeAccount);
+
+    getMatches(activeAccount).then((d) => setMatches(d || []));
+
+    const parts = [];
+    if (repairRes.repaired) parts.push(`${repairRes.repaired} ${t("matches_fixed_short")}`);
+    if (dedupRes.removed) parts.push(`${dedupRes.removed} ${t("duplicates_removed_short")}`);
+
+    setSyncStatus({
+      status: "done",
+      message: parts.length ? parts.join(", ") : t("repair_all_done_clean"),
+    });
+    setTimeout(() => setSyncStatus((prev) => (prev?.status === "done" ? null : prev)), 6000);
   };
 
   return {
@@ -510,7 +548,7 @@ export function useRiotSync({ accounts, setAccounts, activeAccount, matches, set
     setShowRepairAllConfirm,
     latestMatchTimestamp,
     syncActiveAccount,
-    syncAllHistory,
     enrichHistory,
+    repairAllData,
   };
 }

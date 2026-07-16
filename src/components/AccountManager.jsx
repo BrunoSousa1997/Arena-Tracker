@@ -4,7 +4,6 @@ import Tooltip from "./Tooltip";
 import ConfirmDialog from "./ConfirmDialog";
 import { useLanguage } from "../lib/i18n";
 import { TAG_OPTIONS, CUSTOM_TAG, FALLBACK_REGIONS, regionForTag } from "../lib/riotTags";
-import { repairMismatchedMatches } from "../db/api";
 
 export default function AccountManager({
   accounts,
@@ -70,8 +69,6 @@ export default function AccountManager({
   };
 
   const [pendingDelete, setPendingDelete] = useState(null);
-  const [repairing, setRepairing] = useState(false);
-  const [repairMessage, setRepairMessage] = useState(null);
 
   const handleDelete = (username) => {
     setPendingDelete(username);
@@ -80,39 +77,6 @@ export default function AccountManager({
   const confirmDelete = () => {
     onDelete(pendingDelete);
     setPendingDelete(null);
-  };
-
-  const handleRepairMismatched = async () => {
-    if (!activeAccount) return;
-    const account = accounts.find((a) => a.username === activeAccount);
-    if (!account || !account.riotAccount) {
-      setRepairMessage({ type: "error", text: t("no_riot_account") });
-      setTimeout(() => setRepairMessage(null), 3000);
-      return;
-    }
-
-    setRepairing(true);
-    setRepairMessage(null);
-    const result = await repairMismatchedMatches(
-      activeAccount,
-      account.riotAccount,
-      account.riotTag,
-      account.puuid
-    );
-    setRepairing(false);
-
-    if (result.success) {
-      setRepairMessage({
-        type: "success",
-        text: result.repaired > 0
-          ? t("repair_mismatched_success").replace("{count}", result.repaired)
-          : t("repair_mismatched_none"),
-      });
-    } else {
-      setRepairMessage({ type: "error", text: t("repair_mismatched_error").replace("{error}", result.error) });
-    }
-
-    setTimeout(() => setRepairMessage(null), 5000);
   };
 
   return (
@@ -245,31 +209,6 @@ export default function AccountManager({
             })}
           </AnimatePresence>
         </div>
-
-        {/* REPARAR DADOS PESSOAIS (campeão/KDA/build errados) */}
-        {accounts.length > 0 && activeAccount && (
-          <Tooltip label={t("repair_mismatched_tooltip")}>
-            <button
-              onClick={handleRepairMismatched}
-              disabled={repairing}
-              style={{
-                ...styles.repairBtn,
-                ...(repairing ? styles.repairBtnBusy : null),
-              }}
-            >
-              {repairing ? t("repairing_mismatched") : t("repair_mismatched_btn")}
-            </button>
-          </Tooltip>
-        )}
-
-        {repairMessage && (
-          <div style={{
-            ...styles.repairMessage,
-            ...(repairMessage.type === "error" ? styles.repairMessageError : styles.repairMessageSuccess),
-          }}>
-            {repairMessage.text}
-          </div>
-        )}
 
         {/* CRIAR NOVA CONTA */}
         {!showCreate && (
@@ -535,40 +474,5 @@ const styles = {
     color: "var(--text-secondary)",
     cursor: "pointer",
     fontSize: 12,
-  },
-
-  repairBtn: {
-    padding: "10px 14px",
-    borderRadius: "var(--radius-lg)",
-    border: "1px solid rgba(var(--accent-rgb),0.35)",
-    background: "rgba(var(--accent-rgb),0.08)",
-    color: "var(--accent-text)",
-    cursor: "pointer",
-    fontSize: 13,
-  },
-
-  repairBtnBusy: {
-    opacity: 0.7,
-    cursor: "not-allowed",
-  },
-
-  repairMessage: {
-    padding: "10px 12px",
-    borderRadius: "var(--radius-lg)",
-    fontSize: 12,
-    fontWeight: 600,
-    textAlign: "center",
-  },
-
-  repairMessageSuccess: {
-    background: "rgba(76,175,80,0.15)",
-    color: "#4cb150",
-    border: "1px solid rgba(76,175,80,0.35)",
-  },
-
-  repairMessageError: {
-    background: "rgba(226,85,95,0.15)",
-    color: "#e2555f",
-    border: "1px solid rgba(226,85,95,0.35)",
   },
 };

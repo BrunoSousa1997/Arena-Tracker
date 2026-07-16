@@ -588,13 +588,13 @@ const DICTIONARY = {
   },
   repair_all_btn: { pt: "🛠 Reparar dados", en: "🛠 Repair data" },
   repair_all_tooltip: {
-    pt: "Volta a pedir TODAS as tuas partidas diretamente à Riot API, sem usar dados partilhados por outros users — repõe valores corretos caso algo tenha ficado errado (ex: double/triple kills a 0 por engano). Usa mais pedidos e pode demorar.",
-    en: "Re-fetches ALL your matches directly from the Riot API, without using data shared by other users — restores correct values if something went wrong (e.g. double/triple kills wrongly at 0). Uses more requests and may take a while.",
+    pt: "Corrige tudo o que puder estar errado na tua conta: traz partidas em falta, volta a pedir todas à Riot API (sem usar dados partilhados), corrige campeão/KDA/build que não batam certo, e remove duplicados. Usa mais pedidos e pode demorar.",
+    en: "Fixes anything that might be wrong with your account: brings in missing matches, re-fetches everything from the Riot API (without shared data), fixes mismatched champion/KDA/build, and removes duplicates. Uses more requests and may take a while.",
   },
   repair_all_confirm_title: { pt: "Reparar todo o histórico?", en: "Repair your whole history?" },
   repair_all_confirm_message: {
-    pt: "Isto volta a pedir cada partida já importada diretamente à Riot API (ignora dados partilhados por outros users) para repor valores corretos. Pode demorar bastante e gasta mais pedidos do que uma sincronização normal. Só precisas de fazer isto uma vez.",
-    en: "This re-fetches every already-imported match directly from the Riot API (ignoring data shared by other users) to restore correct values. It can take a while and uses more requests than a normal sync. You should only need to do this once.",
+    pt: "Isto traz partidas em falta, volta a pedir cada partida já importada diretamente à Riot API, corrige campeão/KDA/build errados e remove duplicados. Pode demorar bastante e gasta mais pedidos do que uma sincronização normal. Só precisas de fazer isto uma vez.",
+    en: "This brings in missing matches, re-fetches every already-imported match directly from the Riot API, fixes wrong champion/KDA/build, and removes duplicates. It can take a while and uses more requests than a normal sync. You should only need to do this once.",
   },
   define_riot_tag_enrich: {
     pt: 'Define a tag Riot para "{name}" para enriquecer estas partidas via Riot API.',
@@ -627,8 +627,8 @@ const DICTIONARY = {
   no_kda_data_yet: { pt: "Sem dados de KDA ainda", en: "No KDA data yet" },
   wins_count_kda: { pt: "vitória(s) · KDA médio", en: "win(s) · average KDA" },
   enrich_history_tooltip: {
-    pt: '{count} partida(s) sem formato e/ou sem estatísticas detalhadas (dano/ouro/CS/colegas/adversários/etc.) — "Sincronizar tudo" não corrige partidas já importadas, é por isso que este botão existe.',
-    en: '{count} match(es) missing format and/or detailed stats (damage/gold/CS/teammates/opponents/etc.) — "Sync all" does not fix already-imported matches, which is why this button exists.',
+    pt: '{count} partida(s) sem formato e/ou sem estatísticas detalhadas (dano/ouro/CS/colegas/adversários/etc.) — sincronizar não corrige partidas já importadas, é por isso que este botão existe.',
+    en: '{count} match(es) missing format and/or detailed stats (damage/gold/CS/teammates/opponents/etc.) — syncing does not fix already-imported matches, which is why this button exists.',
   },
 
   // ================= GESTÃO DE CONTAS =================
@@ -664,30 +664,15 @@ const DICTIONARY = {
     en: 'Remove "{name}" from the list? Saved history is not deleted.',
   },
 
-  // ================= SINCRONIZAÇÃO =================
-  sync_all_history_btn: { pt: "⏮ Sincronizar tudo", en: "⏮ Sync all history" },
-  sync_all_history_tooltip: {
-    pt: "Sincroniza o histórico completo (útil se games antigos ficaram para trás).",
-    en: "Syncs your full history (useful if old games were left behind).",
+  // ================= REPARAR DADOS (passos extra encadeados no botão) =================
+  repairing_personal_data: {
+    pt: "A corrigir campeão/KDA/build errados…",
+    en: "Fixing wrong champion/KDA/build…",
   },
-
-  // ================= REPARAR DADOS PESSOAIS =================
-  repair_mismatched_btn: { pt: "🩹 Corrigir dados incorretos", en: "🩹 Fix incorrect data" },
-  repairing_mismatched: { pt: "A corrigir…", en: "Fixing…" },
-  repair_mismatched_tooltip: {
-    pt: "Corrige campeão/KDA/build errados nas tuas partidas (compara com os teus dados reais guardados em cada jogo).",
-    en: "Fixes wrong champion/KDA/build in your matches (compares against your real data stored per game).",
-  },
-  repair_mismatched_success: {
-    pt: "🩹 {count} partida(s) corrigida(s)!",
-    en: "🩹 {count} match(es) fixed!",
-  },
-  repair_mismatched_none: { pt: "✓ Sem dados incorretos", en: "✓ No incorrect data found" },
-  repair_mismatched_error: { pt: "❌ Erro: {error}", en: "❌ Error: {error}" },
-  no_riot_account: {
-    pt: "Precisas de um Riot ID definido nesta conta.",
-    en: "You need a Riot ID set on this account.",
-  },
+  removing_duplicates: { pt: "A remover partidas duplicadas…", en: "Removing duplicate matches…" },
+  matches_fixed_short: { pt: "corrigida(s)", en: "fixed" },
+  duplicates_removed_short: { pt: "duplicado(s) removido(s)", en: "duplicate(s) removed" },
+  repair_all_done_clean: { pt: "Tudo em ordem — nada para corrigir.", en: "All good — nothing to fix." },
 };
 
 export function translate(lang, key) {

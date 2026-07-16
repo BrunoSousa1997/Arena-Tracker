@@ -250,6 +250,64 @@ export async function repairMismatchedMatches(username, riotGameName, riotTagLin
   }
 }
 
+// Remove duplicados causados por um jogo ter sido guardado DUAS vezes: uma
+// vez ao vivo (Live Client Data, sem riot_match_id) e outra vez ao
+// sincronizar com a Riot API depois (com riot_match_id) — a deteção de
+// "já importada" (ver getImportedMatchIds) só olha para linhas COM
+// riot_match_id, por isso a linha ao vivo nunca a trava. Junta os dois por
+// campeão + KDA iguais + criados a menos de 1h de distância (a Riot demora
+// algum tempo a disponibilizar a partida depois do fim do jogo) e apaga só a
+// linha sem riot_match_id, mantendo a importada (tem mais dados).
+export async function deduplicateLiveCaptures(username) {
+  try {
+    const { data, error } = await supabase
+      .from("matches")
+      .select("id, riot_match_id, champion, kills, deaths, assists, created_at")
+      .eq("username", username)
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      console.error("❌ deduplicateLiveCaptures fetch error:", error.message);
+      return { success: false, error: error.message, removed: 0 };
+    }
+
+    const rows = data || [];
+    const liveOnly = rows.filter((m) => !m.riot_match_id);
+    const apiRows = rows.filter((m) => m.riot_match_id);
+
+    if (!liveOnly.length || !apiRows.length) {
+      return { success: true, removed: 0 };
+    }
+
+    const WINDOW_MS = 60 * 60 * 1000;
+    const toDelete = [];
+
+    for (const live of liveOnly) {
+      const liveTime = new Date(live.created_at).getTime();
+      const match = apiRows.find((api) => {
+        if (api.champion !== live.champion) return false;
+        if (api.kills !== live.kills || api.deaths !== live.deaths || api.assists !== live.assists) return false;
+        return Math.abs(new Date(api.created_at).getTime() - liveTime) <= WINDOW_MS;
+      });
+      if (match) toDelete.push(live.id);
+    }
+
+    if (!toDelete.length) return { success: true, removed: 0 };
+
+    const { error: deleteError } = await supabase.from("matches").delete().in("id", toDelete);
+    if (deleteError) {
+      console.error("❌ deduplicateLiveCaptures delete error:", deleteError.message);
+      return { success: false, error: deleteError.message, removed: 0 };
+    }
+
+    console.log(`🧹 Removed ${toDelete.length} duplicate live-capture match(es) for ${username}`);
+    return { success: true, removed: toDelete.length };
+  } catch (e) {
+    console.error("❌ deduplicateLiveCaptures exception:", e.message);
+    return { success: false, error: e.message, removed: 0 };
+  }
+}
+
 // ================= CORRIGIR FORMATO (team_size) EM FALTA =================
 // Algumas partidas antigas foram guardadas antes de existir a coluna
 // team_size e ficaram com o valor a null. Isto faz a soma "2v2 + 3v3" não
