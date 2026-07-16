@@ -13,6 +13,7 @@ import {
   RotateCw,
   Search,
   Swords,
+  Users,
 } from "lucide-react";
 import UpdateNotifier from "./components/UpdateNotifier";
 import Loading from "./components/Loading";
@@ -21,10 +22,13 @@ import MatchHistory from "./views/MatchHistory";
 import MatchReports from "./views/MatchReports";
 import Achievements from "./views/Achievements";
 import Compare from "./views/Compare";
+import Challenges from "./views/Challenges";
 import Settings from "./views/Settings";
 import StatsBar from "./components/StatsBar";
 import Tooltip from "./components/Tooltip";
 import ConfirmDialog from "./components/ConfirmDialog";
+import NotificationBell from "./components/NotificationBell";
+import AchievementToasts from "./components/AchievementToasts";
 import { normalizeChampionId } from "./lib/champions";
 import { useLanguage, LANGUAGES } from "./lib/i18n";
 import { useStaticData } from "./hooks/useStaticData";
@@ -32,6 +36,7 @@ import { useTheme } from "./hooks/useTheme";
 import { useAccounts } from "./hooks/useAccounts";
 import { useLiveGame } from "./hooks/useLiveGame";
 import { useRiotSync } from "./hooks/useRiotSync";
+import { useNotifications } from "./hooks/useNotifications";
 
 export default function App() {
   const { t, lang, setLang } = useLanguage();
@@ -43,6 +48,7 @@ export default function App() {
     { key: "stats", icon: TrendingUp, label: t("tab_stats") },
     { key: "achievements", icon: Award, label: t("tab_achievements") },
     { key: "compare", icon: Swords, label: t("tab_compare") },
+    { key: "challenges", icon: Users, label: t("tab_challenges") },
   ];
 
   // Formato (Todos/2v2/3v3) — agora ao lado das tabs, na mesma linha (ver
@@ -137,6 +143,9 @@ export default function App() {
   const {
     liveChampionAlert,
     setLiveChampionAlert,
+    liveBannerHidden,
+    setLiveBannerHidden,
+    liveSessionActive,
     liveBannerPos,
     liveBannerRef,
     liveBannerJustDragged,
@@ -156,11 +165,26 @@ export default function App() {
 
   const { theme, setTheme, headerCompact, setHeaderCompact } = useTheme();
 
+  // Vigia as conquistas da conta ativa e avisa quando alguma sobe — corre
+  // aqui (e não na tab Conquistas) para o aviso chegar logo a seguir a
+  // sincronizar, esteja-se na tab que se estiver.
+  const { notifications, unreadCount, markAllRead, clearAll, toasts, dismissToast } =
+    useNotifications({
+      activeAccount,
+      matches,
+      champions,
+      wins,
+      dataLoading,
+      t,
+    });
+
   const goToChampionInCollection = (championId) => {
     const name = champions.find((c) => c.id === championId)?.name || "";
     setView("wins");
     setSearch(name);
-    setLiveChampionAlert(null);
+    // Esconde (não destrói): a partida continua a decorrer, por isso o botão
+    // no cabeçalho tem de conseguir trazer o banner de volta.
+    setLiveBannerHidden(true);
   };
 
   // Atalho usado pelos destaques da Visão Geral — abre a tab de Estatísticas
@@ -384,7 +408,8 @@ export default function App() {
       const incompleteParticipants =
         Array.isArray(m.participants) &&
         m.participants.length > 0 &&
-        (m.participants[0].damageDealt === undefined || m.participants[0].doubleKills === undefined);
+        (m.participants[0].damageDealt === undefined ||
+          m.participants[0].doubleKills === undefined);
       if (!m.team_size) ids.add(m.id);
       else if (
         m.riot_match_id &&
@@ -435,8 +460,12 @@ export default function App() {
 
       <UpdateNotifier />
 
+      {/* Avisos momentâneos de conquistas novas — renderizam-se num portal
+          (ver AchievementToasts), por isso o sítio na árvore é indiferente. */}
+      <AchievementToasts toasts={toasts} onDismiss={dismissToast} />
+
       <AnimatePresence>
-        {liveChampionAlert && (
+        {liveChampionAlert && !liveBannerHidden && (
           <motion.div
             ref={liveBannerRef}
             // Só a opacidade é animada por aqui — nada de x/y/scale, porque
@@ -550,7 +579,9 @@ export default function App() {
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
-                setLiveChampionAlert(null);
+                // Esconder, não destruir — ver liveBannerHidden em
+                // useLiveGame.js. O botão no cabeçalho traz isto de volta.
+                setLiveBannerHidden(true);
               }}
               style={styles.liveBannerClose}
             >
@@ -705,6 +736,43 @@ export default function App() {
                 soltos neste cluster — agora vivem todos dentro do modal de
                 Definições, e este ⚙ é a única entrada para lá. */}
             <div style={styles.iconCluster}>
+              {/* Só aparece com uma partida MESMO a decorrer e o banner
+                  escondido — é a única forma de o trazer de volta depois de o
+                  fechar (o aviso do campeão só é enviado uma vez por
+                  partida). Ver liveSessionActive: acabado o jogo, o alerta
+                  fica (a mostrar o resultado) mas isto desaparece, senão o
+                  ponto verde ficava a pulsar "ao vivo" fora de jogo. */}
+              {liveChampionAlert && liveBannerHidden && liveSessionActive && (
+                <>
+                  <Tooltip label={t("live_banner_reopen")}>
+                    <button onClick={() => setLiveBannerHidden(false)} style={styles.liveReopenBtn}>
+                      {/* Sem o Data Dragon (arranque sem internet, ver
+                          patchFailed) não há ícone de campeão nenhum na app —
+                          aqui cai para um símbolo genérico em vez de deixar o
+                          botão praticamente vazio. */}
+                      {DRAGON ? (
+                        <img
+                          src={`${DRAGON}/img/champion/${liveChampionAlert.championId}.png`}
+                          style={styles.liveReopenIcon}
+                          alt=""
+                        />
+                      ) : (
+                        <Swords size={14} strokeWidth={2.25} color="var(--accent-text)" />
+                      )}
+                      <span style={styles.liveReopenDot} />
+                    </button>
+                  </Tooltip>
+                  <div style={styles.iconClusterDivider} />
+                </>
+              )}
+
+              <NotificationBell
+                notifications={notifications}
+                unreadCount={unreadCount}
+                markAllRead={markAllRead}
+                clearAll={clearAll}
+              />
+              <div style={styles.iconClusterDivider} />
               <Tooltip label={t("open_settings")}>
                 <button onClick={() => openSettings("general")} style={styles.iconClusterBtn}>
                   <SettingsIcon size={14} strokeWidth={2.25} />
@@ -910,6 +978,10 @@ export default function App() {
                 ownLabel={activeAccount}
                 teamSizeFilter={teamSizeFilter}
               />
+            )}
+
+            {view === "challenges" && (
+              <Challenges activeAccount={activeAccount} accounts={accounts} matches={matches} champions={champions} />
             )}
 
             {view === "wins" && (
@@ -1534,6 +1606,46 @@ const styles = {
     border: "1px solid rgba(var(--accent-rgb),0.25)",
     background: "rgba(var(--panel-deep-rgb),0.85)",
     overflow: "hidden",
+  },
+
+  // Botão para reabrir o banner da partida ao vivo — mostra o ícone do
+  // próprio campeão (mais direto do que um símbolo genérico) com um ponto
+  // verde a piscar, para se perceber que há mesmo jogo a decorrer.
+  liveReopenBtn: {
+    position: "relative",
+    padding: "6px 10px",
+    display: "flex",
+    alignItems: "center",
+    border: "none",
+    background: "transparent",
+    cursor: "pointer",
+  },
+
+  liveReopenIcon: {
+    width: 18,
+    height: 18,
+    borderRadius: "var(--radius-sm)",
+    display: "block",
+  },
+
+  liveReopenDot: {
+    position: "absolute",
+    top: 4,
+    right: 6,
+    width: 7,
+    height: 7,
+    borderRadius: "50%",
+    background: "var(--place-good)",
+    border: "1.5px solid rgba(var(--panel-deep-rgb),0.95)",
+    animation: "livePulse 1.6s ease-in-out infinite",
+  },
+
+  // Separa a campainha do ⚙ dentro do mesmo cluster — sem isto os dois
+  // ícones colavam-se e liam-se como um só botão largo.
+  iconClusterDivider: {
+    width: 1,
+    alignSelf: "stretch",
+    background: "rgba(var(--accent-rgb),0.2)",
   },
 
   iconClusterBtn: {

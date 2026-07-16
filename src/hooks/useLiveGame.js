@@ -24,6 +24,22 @@ export function useLiveGame({
   // ir procurar manualmente na tab Coleção. null = sem aviso ativo.
   const [liveChampionAlert, setLiveChampionAlert] = useState(null);
 
+  // Fechar o banner no "X" apenas o ESCONDE — os dados continuam aqui e a
+  // atualizar-se, e o cabeçalho passa a mostrar um botão para o trazer de
+  // volta (ver liveBannerHidden em App.jsx). Antes o "X" fazia
+  // setLiveChampionAlert(null) e não havia forma nenhuma de o reabrir: o
+  // aviso do campeão só é enviado uma vez por partida (ver
+  // liveChampionAnnounced em electron/liveGame.js), por isso fechá-lo sem
+  // querer significava ficar sem banner o resto do jogo.
+  const [liveBannerHidden, setLiveBannerHidden] = useState(false);
+
+  // Há mesmo uma partida a decorrer agora? É diferente de "há alerta": no fim
+  // do jogo o alerta FICA (a mostrar o resultado e o lembrete para
+  // sincronizar), mas a sessão já morreu. Sem esta distinção, o botão de
+  // reabrir no cabeçalho continuava a pulsar "ao vivo" muito depois do jogo
+  // ter acabado, até à partida seguinte.
+  const [liveSessionActive, setLiveSessionActive] = useState(false);
+
   // Posição da caixa de aviso, só depois de o utilizador a arrastar pelo
   // menos uma vez — persistida, para não voltar sempre ao centro depois de
   // reiniciar a app. null = ainda na posição por omissão (centrada no topo).
@@ -139,6 +155,8 @@ export function useLiveGame({
         summoner1,
         summoner2,
         maxHp,
+        killStreaks,
+        assistStreaks,
       } = result || {};
 
       if (!liveChampionName) return;
@@ -186,11 +204,14 @@ export function useLiveGame({
         summoner1,
         summoner2,
         maxHp,
+        killStreaks,
+        assistStreaks,
       };
 
       await ensureUser(matchedUsername);
       if (didWin) await addWin(matchedUsername, championId);
-      await addMatch(matchedUsername, championId, kills, deaths, assists, didWin, items, teamSize, extra);
+      const matchResult = await addMatch(matchedUsername, championId, kills, deaths, assists, didWin, items, teamSize, extra);
+      console.log("Match added:", { matchedUsername, championId, didWin, matchResult });
 
       if (matchedUsername === activeAccount) {
         if (didWin) {
@@ -218,6 +239,8 @@ export function useLiveGame({
             summoner1: summoner1 ?? null,
             summoner2: summoner2 ?? null,
             max_hp: maxHp ?? null,
+            kill_streaks: killStreaks ?? null,
+            assist_streaks: assistStreaks ?? null,
             created_at: new Date().toISOString(),
           },
           ...prev,
@@ -267,6 +290,10 @@ export function useLiveGame({
         (m) => m.win && normalizeChampionId(m.champion, champions) === championId
       ).length;
 
+      // Partida nova: o banner volta a aparecer mesmo que tenha sido
+      // escondido na partida anterior.
+      setLiveBannerHidden(false);
+      setLiveSessionActive(true);
       setLiveChampionAlert({
         championId,
         hasWin: winCount > 0,
@@ -278,6 +305,33 @@ export function useLiveGame({
 
     return unsubscribe;
   }, [champions, matches, lang]);
+
+  // ================= FIM DA SESSÃO (saiu do jogo / partida desapareceu) =================
+  // Ver endLiveSession em electron/liveGame.js: chega quando a Live Client
+  // Data deixa de responder. Sem isto o banner ficava eternamente a dizer
+  // "a jogar" depois de sair do jogo.
+  useEffect(() => {
+    if (!window.electron?.onSessionEnded) return;
+
+    const unsubscribe = window.electron.onSessionEnded(({ hadResult } = {}) => {
+      // Aconteça o que acontecer ao banner, a sessão morreu — é isto que
+      // apaga o "ao vivo" no botão do cabeçalho.
+      setLiveSessionActive(false);
+
+      // Com resultado (evento GameEnd): não se toca no banner — quem trata
+      // disso é o onMatchResult, que o passa a "partida terminada" com o
+      // resultado e o lembrete para sincronizar. Fechá-lo aqui roubava ao
+      // jogador exatamente a informação que ele quer ver no fim.
+      if (hadResult) return;
+
+      // Sem resultado: saiu-se a meio, o jogo estoirou, ou nunca chegou a
+      // haver partida a sério. Não há nada para mostrar — fora com ele.
+      setLiveChampionAlert(null);
+      setLiveBannerHidden(false);
+    });
+
+    return unsubscribe;
+  }, []);
 
   // KDA + build atuais — chegam à parte (ver sendLiveStats em electron.js),
   // repetidos a cada poll (3 em 3s) enquanto a partida decorre, por isso só
@@ -307,6 +361,9 @@ export function useLiveGame({
   return {
     liveChampionAlert,
     setLiveChampionAlert,
+    liveBannerHidden,
+    setLiveBannerHidden,
+    liveSessionActive,
     liveBannerPos,
     liveBannerRef,
     liveBannerJustDragged,
