@@ -162,6 +162,7 @@ export default function App() {
     setMatches,
     setWins,
     lang,
+    onAutoSync: syncActiveAccount,
   });
 
   const { theme, setTheme, headerCompact, setHeaderCompact } = useTheme();

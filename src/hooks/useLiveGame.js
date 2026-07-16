@@ -18,7 +18,17 @@ export function useLiveGame({
   setMatches,
   setWins,
   lang,
+  // Chamado sozinho depois do fim de uma partida, para não obrigar a
+  // clicar manualmente em "Sincronizar" — ver o setTimeout mais abaixo.
+  onAutoSync,
 }) {
+  // Timers do auto-sync agendado (ver onMatchResult) — guardados para serem
+  // limpos se o componente desmontar antes de dispararem (troca de conta,
+  // fecho da app, etc.), nunca para os cancelar noutra circunstância.
+  const autoSyncTimers = useRef([]);
+  useEffect(() => {
+    return () => autoSyncTimers.current.forEach(clearTimeout);
+  }, []);
   // Aviso do campeão em jogo (Live Client Data) — mostra logo no início da
   // partida se já há ou não vitória com esse campeão, sem o jogador ter de
   // ir procurar manualmente na tab Coleção. null = sem aviso ativo.
@@ -210,8 +220,7 @@ export function useLiveGame({
 
       await ensureUser(matchedUsername);
       if (didWin) await addWin(matchedUsername, championId);
-      const matchResult = await addMatch(matchedUsername, championId, kills, deaths, assists, didWin, items, teamSize, extra);
-      console.log("Match added:", { matchedUsername, championId, didWin, matchResult });
+      await addMatch(matchedUsername, championId, kills, deaths, assists, didWin, items, teamSize, extra);
 
       if (matchedUsername === activeAccount) {
         if (didWin) {
@@ -248,6 +257,16 @@ export function useLiveGame({
       } else if (!activeAccount) {
         localStorage.setItem("active-account", matchedUsername);
         setActiveAccount(matchedUsername);
+      }
+
+      // Sincronização automática: a Riot só disponibiliza os dados
+      // completos da partida (lugar exato, dano, ouro, augments) uns
+      // minutos depois do fim do jogo — sincronizar já a seguir não
+      // encontrava nada de novo. Só agendamos para a conta ativa (é a
+      // única que "syncActiveAccount" sabe sincronizar).
+      if (matchedUsername === activeAccount && onAutoSync) {
+        const timer = setTimeout(() => onAutoSync(), 120000);
+        autoSyncTimers.current.push(timer);
       }
 
       // A partida acabou — se o banner ainda estiver aberto para este
