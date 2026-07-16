@@ -57,8 +57,6 @@ export function useRiotSync({ accounts, setAccounts, activeAccount, matches, set
   // Sincronização com a Riot API para a conta ativa: null = inativo,
   // { status: "loading"|"done"|"error", message }
   const [syncStatus, setSyncStatus] = useState(null);
-  // Flag para "sincronizar todo o histórico" (ignora since, recarrega tudo)
-  const [forceSyncAll, setForceSyncAll] = useState(false);
   // Confirmação antes de "Reparar dados" (enrichHistory em modo force) —
   // gasta mais pedidos do que o normal e reescreve dados já guardados, por
   // isso pede confirmação em vez de disparar logo ao clicar.
@@ -87,7 +85,7 @@ export function useRiotSync({ accounts, setAccounts, activeAccount, matches, set
   // fim uma passagem por enrichHistory(), que corrige/completa só as
   // partidas já importadas que ficaram sem team_size ou sem os dados extra
   // (dano/ouro/CS/etc.) — muito mais leve e sem repetir trabalho.
-  const syncActiveAccount = async () => {
+  const syncActiveAccount = async (forceFullHistory = false) => {
     const account = accounts.find((a) => a.username === activeAccount);
     if (!account || !window.electron?.listMatchIds || !window.electron?.fetchMatchDetails) return;
 
@@ -110,7 +108,7 @@ export function useRiotSync({ accounts, setAccounts, activeAccount, matches, set
         gameName: account.riotAccount,
         tagLine: account.riotTag,
         region: account.region || "europe",
-        since: forceSyncAll ? null : (latestMatchTimestamp || null),
+        since: forceFullHistory ? null : (latestMatchTimestamp || null),
         // Se já sabemos o puuid desta conta (ver abaixo), poupa o pedido a
         // account-v1 que resolveria gameName+tagLine -> puuid outra vez —
         // um Riot ID só muda por ação do próprio jogador (ver
@@ -502,12 +500,7 @@ export function useRiotSync({ accounts, setAccounts, activeAccount, matches, set
   // Sincroniza TODO o histórico, ignorando a data do último game
   // (útil quando games antigos ficam para trás pelo "since" incremental)
   const syncAllHistory = async () => {
-    setForceSyncAll(true);
-    try {
-      await syncActiveAccount();
-    } finally {
-      setForceSyncAll(false);
-    }
+    await syncActiveAccount(true);
   };
 
   return {
