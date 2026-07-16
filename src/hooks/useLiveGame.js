@@ -1,7 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-import { ensureUser, addWin, addMatch } from "../db/api";
+import { ensureUser, addWin, addMatch, hasSyncedMatch } from "../db/api";
 import { normalizeChampionId } from "../lib/champions";
 import { getRoast } from "../lib/roasts";
+
+// Nº máx. de tentativas do auto-sync em "retry" (2º-8º lugar, ver
+// scheduleRetrySync) — rede de segurança para nunca ficar a tentar para
+// sempre (ex: conta apagada a meio, jogo nunca chega a aparecer na Riot
+// API por alguma falha do lado deles). A 5 em 5 min, 24 tentativas = 2h,
+// bem acima do tempo que uma Arena demora a terminar de vez.
+const RETRY_SYNC_MAX_ATTEMPTS = 24;
+const RETRY_SYNC_INTERVAL_MS = 5 * 60 * 1000;
+const WIN_SYNC_DELAY_MS = 10 * 1000;
 
 // Deteção automática de partidas de Arena via Live Client Data (ver
 // electron.js) — cria/atualiza contas e partidas em tempo real, e mostra o
@@ -29,6 +38,26 @@ export function useLiveGame({
   useEffect(() => {
     return () => autoSyncTimers.current.forEach(clearTimeout);
   }, []);
+
+  // Auto-sync para quem NÃO ficou em 1º/2º lugar: a Live Client Data só dá
+  // Win/Lose (não o lugar exato), e um "Lose" tanto pode ser 2º como 8º — a
+  // diferença é que só o 1º e o 2º lugar são decididos na própria ronda
+  // final, quando a partida termina de vez para todos. Quem é eliminado
+  // antes (3º-8º) vê o "GameEnd" no seu próprio cliente bem antes de a
+  // partida real acabar para as equipas que ainda restam, por isso a Riot
+  // API só tem os dados prontos bem mais tarde e um único delay fixo não
+  // chega. Em vez disso, tenta de 5 em 5 min e para assim que a partida
+  // aparecer sincronizada (ver hasSyncedMatch) — com um limite de
+  // tentativas só como rede de segurança (ver RETRY_SYNC_MAX_ATTEMPTS).
+  const scheduleRetrySync = (username, signature, attempt = 1) => {
+    const timer = setTimeout(async () => {
+      await onAutoSync?.();
+      const synced = await hasSyncedMatch(username, signature);
+      if (synced || attempt >= RETRY_SYNC_MAX_ATTEMPTS) return;
+      scheduleRetrySync(username, signature, attempt + 1);
+    }, RETRY_SYNC_INTERVAL_MS);
+    autoSyncTimers.current.push(timer);
+  };
   // Aviso do campeão em jogo (Live Client Data) — mostra logo no início da
   // partida se já há ou não vitória com esse campeão, sem o jogador ter de
   // ir procurar manualmente na tab Coleção. null = sem aviso ativo.
@@ -259,14 +288,26 @@ export function useLiveGame({
         setActiveAccount(matchedUsername);
       }
 
-      // Sincronização automática: a Riot só disponibiliza os dados
-      // completos da partida (lugar exato, dano, ouro, augments) uns
-      // minutos depois do fim do jogo — sincronizar já a seguir não
-      // encontrava nada de novo. Só agendamos para a conta ativa (é a
-      // única que "syncActiveAccount" sabe sincronizar).
+      // Sincronização automática — só agendamos para a conta ativa (é a
+      // única que "syncActiveAccount" sabe sincronizar). "win" (1º lugar) e
+      // só ele é decidido na própria ronda final, quando a partida termina
+      // de vez para todos — a Riot já deve ter os dados prontos passados
+      // uns segundos. Qualquer "Lose" (2º-8º) pode ter acabado bem antes da
+      // partida real terminar para quem sobrou, por isso usa o retry de 5
+      // em 5 min em vez de um único delay fixo (ver scheduleRetrySync).
       if (matchedUsername === activeAccount && onAutoSync) {
-        const timer = setTimeout(() => onAutoSync(), 120000);
-        autoSyncTimers.current.push(timer);
+        if (didWin) {
+          const timer = setTimeout(() => onAutoSync(), WIN_SYNC_DELAY_MS);
+          autoSyncTimers.current.push(timer);
+        } else {
+          scheduleRetrySync(matchedUsername, {
+            champion: championId,
+            kills,
+            deaths,
+            assists,
+            after: new Date().toISOString(),
+          });
+        }
       }
 
       // A partida acabou — se o banner ainda estiver aberto para este

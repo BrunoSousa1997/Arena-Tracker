@@ -121,6 +121,36 @@ export async function addMatchesBulk(username, matches) {
   return { success: true, inserted: rows.length, data };
 }
 
+// Já chegou da Riot API a partida que a Live Client Data reportou ao vivo?
+// Usado pelo auto-sync (ver useLiveGame.js) para saber se deve continuar a
+// tentar: uma partida acabada em 3º-8º lugar só fica disponível na Riot API
+// depois do jogo TERMINAR mesmo para toda a gente (as equipas que ainda não
+// foram eliminadas continuam a jogar), o que pode demorar bem mais do que a
+// sincronização automática de quem ficou em 1º/2º. Compara por
+// campeão+KDA exatos (o suficiente para não confundir com outra partida
+// qualquer, sem precisar do riot_match_id que ainda não existe do lado de
+// cá) e só aceita linhas já com riot_match_id (senão a própria linha ao
+// vivo que estamos à espera de confirmar contava como "já sincronizada").
+export async function hasSyncedMatch(username, { champion, kills, deaths, assists, after }) {
+  const { data, error } = await supabase
+    .from("matches")
+    .select("id")
+    .eq("username", username)
+    .eq("champion", champion)
+    .eq("kills", kills)
+    .eq("deaths", deaths)
+    .eq("assists", assists)
+    .not("riot_match_id", "is", null)
+    .gte("created_at", after)
+    .limit(1);
+
+  if (error) {
+    console.error("hasSyncedMatch error:", error.message);
+    return false;
+  }
+  return (data || []).length > 0;
+}
+
 export async function getMatches(username) {
   const { data, error } = await supabase
     .from("matches")

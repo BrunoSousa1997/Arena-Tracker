@@ -621,8 +621,8 @@ const DICTIONARY = {
   game_ended_win: { pt: "🏆 Partida terminada — 1º lugar!", en: "🏆 Game over — 1st place!" },
   game_ended_lose: { pt: "🏁 Partida terminada — sem ser 1º lugar", en: "🏁 Game over — not 1st place" },
   game_ended_sync_reminder: {
-    pt: "A app sincroniza sozinha dentro de uns minutos para mostrar o lugar exato, dano, ouro e augments.",
-    en: "The app syncs automatically in a couple of minutes to show the exact placement, damage, gold, and augments.",
+    pt: "A app sincroniza sozinha para mostrar o lugar exato, dano, ouro e augments.",
+    en: "The app syncs automatically to show the exact placement, damage, gold, and augments.",
   },
   no_kda_data_yet: { pt: "Sem dados de KDA ainda", en: "No KDA data yet" },
   wins_count_kda: { pt: "vitória(s) · KDA médio", en: "win(s) · average KDA" },
