@@ -152,6 +152,7 @@ export default function App() {
     liveBannerJustDragged,
     isDraggingBanner,
     handleLiveBannerPointerDown,
+    reconcilePendingAutoSyncs,
   } = useLiveGame({
     accounts,
     setAccounts,
@@ -673,7 +674,10 @@ export default function App() {
                   <div style={styles.syncBtnRow}>
                     <Tooltip label={t("sync_btn_tooltip")}>
                       <button
-                        onClick={() => syncActiveAccount()}
+                        onClick={async () => {
+                          await syncActiveAccount();
+                          reconcilePendingAutoSyncs();
+                        }}
                         style={styles.syncBtn}
                         disabled={syncStatus?.status === "loading"}
                       >
@@ -983,7 +987,7 @@ export default function App() {
             )}
 
             {view === "challenges" && (
-              <Challenges activeAccount={activeAccount} accounts={accounts} matches={matches} champions={champions} />
+              <Challenges activeAccount={activeAccount} accounts={accounts} matches={matches} champions={champions} DRAGON={DRAGON} />
             )}
 
             {view === "wins" && (
@@ -1168,9 +1172,10 @@ export default function App() {
           title={t("repair_all_confirm_title")}
           message={t("repair_all_confirm_message")}
           confirmLabel={t("repair_all_btn")}
-          onConfirm={() => {
+          onConfirm={async () => {
             setShowRepairAllConfirm(false);
-            repairAllData();
+            await repairAllData();
+            reconcilePendingAutoSyncs();
           }}
           onCancel={() => setShowRepairAllConfirm(false)}
         />

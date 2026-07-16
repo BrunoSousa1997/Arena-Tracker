@@ -48,6 +48,18 @@ export function useLiveGame({
     return () => autoSyncTimers.current.forEach(clearTimeout);
   }, []);
 
+  // Ciclos de auto-sync ainda "em aberto" (partida ainda não confirmada
+  // sincronizada) — { id, username, signature, timerId }. Existe para o
+  // botão "Sincronizar"/"Reparar dados" (ver reconcilePendingAutoSyncs)
+  // poder cancelar de imediato um ciclo cuja partida já apareceu por uma
+  // sincronização manual, em vez de o deixar sozinho até à tentativa
+  // seguinte (que podia demorar até 5 min).
+  const pendingAutoSyncs = useRef([]);
+
+  const removePendingAutoSync = (id) => {
+    pendingAutoSyncs.current = pendingAutoSyncs.current.filter((p) => p.id !== id);
+  };
+
   // Agenda uma tentativa de auto-sync e, se a partida ainda não aparecer
   // sincronizada (ver hasSyncedMatch), agenda a seguinte — rápida enquanto
   // ainda estivermos dentro de RETRY_DELAYS_MS, depois de 5 em 5 min. Único
@@ -56,15 +68,38 @@ export function useLiveGame({
   // tentativas rápidas decidirem sozinhas — 1º e 2º lugar encontram a
   // partida logo numa delas, 3º-8º só mesmo nas tentativas lentas de
   // depois (ver comentário em RETRY_DELAYS_MS).
-  const scheduleAutoSync = (username, signature, attempt = 0) => {
+  const scheduleAutoSync = (username, signature, attempt = 0, jobId = null) => {
+    const id = jobId ?? `${username}:${signature.champion}:${signature.after}`;
     const delay = attempt < RETRY_DELAYS_MS.length ? RETRY_DELAYS_MS[attempt] : RETRY_SYNC_INTERVAL_MS;
+
     const timer = setTimeout(async () => {
       await onAutoSync?.();
       const synced = await hasSyncedMatch(username, signature);
-      if (synced || attempt + 1 >= RETRY_SYNC_MAX_ATTEMPTS) return;
-      scheduleAutoSync(username, signature, attempt + 1);
+      if (synced || attempt + 1 >= RETRY_SYNC_MAX_ATTEMPTS) {
+        removePendingAutoSync(id);
+        return;
+      }
+      scheduleAutoSync(username, signature, attempt + 1, id);
     }, delay);
     autoSyncTimers.current.push(timer);
+
+    const existing = pendingAutoSyncs.current.find((p) => p.id === id);
+    if (existing) existing.timerId = timer;
+    else pendingAutoSyncs.current.push({ id, username, signature, timerId: timer });
+  };
+
+  // Chamar depois de QUALQUER sincronização manual (botão "Sincronizar" ou
+  // "Reparar dados") — se essa sincronização já trouxe a partida que um
+  // ciclo de auto-sync ainda estava à espera, cancela-o logo em vez de o
+  // deixar continuar até à próxima tentativa agendada.
+  const reconcilePendingAutoSyncs = async () => {
+    for (const job of [...pendingAutoSyncs.current]) {
+      const synced = await hasSyncedMatch(job.username, job.signature);
+      if (synced) {
+        clearTimeout(job.timerId);
+        removePendingAutoSync(job.id);
+      }
+    }
   };
   // Aviso do campeão em jogo (Live Client Data) — mostra logo no início da
   // partida se já há ou não vitória com esse campeão, sem o jogador ter de
@@ -428,5 +463,6 @@ export function useLiveGame({
     liveBannerJustDragged,
     isDraggingBanner,
     handleLiveBannerPointerDown,
+    reconcilePendingAutoSyncs,
   };
 }

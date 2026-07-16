@@ -228,6 +228,48 @@ export async function respondToInvite(inviteId, status) {
   return { success: true };
 }
 
+// ================= PARTIDAS DO DESAFIO (todos os jogadores) =================
+// O placar ao vivo precisa das partidas de TODOS os jogadores da sala, não só
+// da conta ativa neste dispositivo — "matches" não tem dono nenhum (RLS
+// aberta, ver schema.sql), por isso dá para ir buscar diretamente pelos
+// usernames dos jogadores da sala. Só partidas do LiveMode contam (as que
+// entram por aqui têm sempre created_at do momento em que a partida acabou),
+// por isso basta filtrar por data >= início do desafio.
+export async function getRoomMatchesForPlayers(usernames, sinceISO) {
+  if (!usernames?.length) return [];
+
+  const { data, error } = await supabase
+    .from("matches")
+    .select(
+      "id, username, champion, kills, deaths, assists, win, placement, damage_dealt, " +
+        "damage_taken, healing, double_kills, triple_kills, multikill, kill_streaks, assist_streaks, created_at"
+    )
+    .in("username", usernames)
+    .gte("created_at", sinceISO)
+    // Só LiveMode: partidas importadas em lote (riot_match_id) podem ter
+    // created_at retroativo (data do jogo, não da sincronização) e não são
+    // uma amostra "ao vivo" do desafio — ficam de fora da pontuação.
+    .is("riot_match_id", null)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    console.error("getRoomMatchesForPlayers error:", error);
+    return [];
+  }
+  return data || [];
+}
+
+// Nova partida de qualquer conta — sem filtro por username (o Supabase
+// Realtime não filtra por listas "IN"), quem ouve decide se lhe interessa.
+export function subscribeToMatches(onInsert) {
+  const channel = supabase
+    .channel("challenge-live-matches")
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "matches" }, onInsert)
+    .subscribe();
+
+  return () => supabase.removeChannel(channel);
+}
+
 // ================= TEMPO REAL =================
 // Só funciona com as tabelas publicadas em "supabase_realtime" (ver o bloco
 // final de supabase/schema.sql) — sem isso a subscrição liga-se na mesma e

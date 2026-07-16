@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Users, Plus, LogIn, Copy, Check, Crown } from "lucide-react";
+import { Users, Plus, Minus, LogIn, Copy, Check, Crown, Trophy, Loader2 } from "lucide-react";
 import { useLanguage } from "../lib/i18n";
 import Loading from "../components/Loading";
 import ConfirmDialog from "../components/ConfirmDialog";
@@ -18,14 +18,18 @@ import {
   subscribeToInvites,
   searchAccountsByGameName,
   startRoom,
+  getRoomMatchesForPlayers,
+  subscribeToMatches,
 } from "../db/api";
 import { scorePlayer } from "../lib/challengeScoring";
+import { normalizeChampionId } from "../lib/champions";
 
 const PLAYER_OPTIONS = [2, 3, 4, 6, 8];
-const GAME_OPTIONS = [3, 5, 10, 15, 20];
+const MIN_GAMES = 1;
+const MAX_GAMES = 10;
 
 // idle = escolher entre criar/entrar · creating = formulário · lobby = já numa sala
-export default function Challenges({ activeAccount, accounts, matches = [], champions = [] }) {
+export default function Challenges({ activeAccount, accounts, matches = [], champions = [], DRAGON }) {
   const { t } = useLanguage();
 
   const [screen, setScreen] = useState("idle");
@@ -205,6 +209,7 @@ export default function Challenges({ activeAccount, accounts, matches = [], cham
           onClose={handleClose}
           matches={matches}
           champions={champions}
+          DRAGON={DRAGON}
         />
       )}
     </div>
@@ -256,6 +261,31 @@ function IdleScreen({ onCreate, onJoin, error, busy }) {
         </div>
       </div>
     </>
+  );
+}
+
+// ================= STEPPER (nº de jogos, 1-10) =================
+function Stepper({ value, onChange, min, max }) {
+  return (
+    <div style={styles.stepperRow}>
+      <button
+        type="button"
+        onClick={() => onChange(Math.max(min, value - 1))}
+        disabled={value <= min}
+        style={{ ...styles.stepperBtn, ...(value <= min ? styles.stepperBtnDisabled : null) }}
+      >
+        <Minus size={15} strokeWidth={2.5} />
+      </button>
+      <div style={styles.stepperValue}>{value}</div>
+      <button
+        type="button"
+        onClick={() => onChange(Math.min(max, value + 1))}
+        disabled={value >= max}
+        style={{ ...styles.stepperBtn, ...(value >= max ? styles.stepperBtnDisabled : null) }}
+      >
+        <Plus size={15} strokeWidth={2.5} />
+      </button>
+    </div>
   );
 }
 
@@ -311,17 +341,7 @@ function CreateForm({ hostUsername, identity, onCancel, onCreated }) {
 
         <div>
           <label style={styles.label}>{t("chal_games")}</label>
-          <div style={styles.segRow}>
-            {GAME_OPTIONS.map((n) => (
-              <button
-                key={n}
-                onClick={() => setTargetGames(n)}
-                style={{ ...styles.seg, ...(targetGames === n ? styles.segActive : null) }}
-              >
-                {n}
-              </button>
-            ))}
-          </div>
+          <Stepper value={targetGames} onChange={setTargetGames} min={MIN_GAMES} max={MAX_GAMES} />
           <div style={styles.fieldHint}>{t("chal_games_hint")}</div>
         </div>
       </div>
@@ -362,7 +382,7 @@ function CreateForm({ hostUsername, identity, onCancel, onCreated }) {
 }
 
 // ================= LOBBY (+ convidar) =================
-function Lobby({ room, players, activeAccount, onLeave, onClose, matches, champions }) {
+function Lobby({ room, players, activeAccount, onLeave, onClose, matches, champions, DRAGON }) {
   const { t } = useLanguage();
   const [confirmClose, setConfirmClose] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -371,15 +391,40 @@ function Lobby({ room, players, activeAccount, onLeave, onClose, matches, champi
 
   const emptySlots = Math.max(0, room.max_players - players.length);
 
-  const handleStart = async () => {
+  const handleStart = useCallback(async () => {
     setBusy(true);
     await startRoom(room.id);
     setBusy(false);
-  };
+  }, [room.id]);
+
+  // Assim que a sala atinge o nº máximo de jogadores, o anfitrião arranca o
+  // desafio automaticamente — ninguém precisa de clicar em nada. A ref evita
+  // disparar outra vez se "full" oscilar (ex: alguém sai e entra de volta).
+  const autoStartedRef = useRef(false);
+  useEffect(() => {
+    if (room.status !== "lobby") return;
+    if (!full) {
+      autoStartedRef.current = false;
+      return;
+    }
+    if (!isHost || autoStartedRef.current || busy) return;
+    autoStartedRef.current = true;
+    handleStart();
+  }, [isHost, full, room.status, busy, handleStart]);
 
   // Se o desafio já começou, mostra o painel de pontuações
   if (room.status === "running") {
-    return <ScoreBoard room={room} players={players} activeAccount={activeAccount} onLeave={onLeave} matches={matches} champions={champions} />;
+    return (
+      <ScoreBoard
+        room={room}
+        players={players}
+        activeAccount={activeAccount}
+        onLeave={onLeave}
+        matches={matches}
+        champions={champions}
+        DRAGON={DRAGON}
+      />
+    );
   }
 
   return (
@@ -424,24 +469,23 @@ function Lobby({ room, players, activeAccount, onLeave, onClose, matches, champi
         )}
 
         <div style={styles.statusLine}>
-          {full ? t("chal_room_ready") : t("chal_waiting_players")}
-          <span style={styles.realtimeHint}>· {t("chal_realtime_hint")}</span>
+          {full ? (
+            <span style={styles.statusStarting}>
+              <Loader2 size={13} strokeWidth={2.5} style={styles.spinIcon} /> {t("chal_starting")}
+            </span>
+          ) : (
+            <>
+              {t("chal_waiting_players")}
+              <span style={styles.realtimeHint}>· {t("chal_realtime_hint")}</span>
+            </>
+          )}
         </div>
 
         <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
           {isHost ? (
-            <>
-              <button
-                onClick={handleStart}
-                disabled={!full || busy}
-                style={styles.primaryBtn}
-              >
-                {busy ? t("chal_starting") : t("chal_start")}
-              </button>
-              <button onClick={() => setConfirmClose(true)} style={styles.ghostBtn}>
-                {t("chal_close_room")}
-              </button>
-            </>
+            <button onClick={() => setConfirmClose(true)} style={styles.ghostBtn}>
+              {t("chal_close_room")}
+            </button>
           ) : (
             <button onClick={onLeave} style={styles.ghostBtn}>
               {t("chal_leave")}
@@ -523,63 +567,83 @@ function getGridStyle(totalSlots) {
 }
 
 // ================= PAINEL DE PONTUAÇÕES (Em Curso) =================
-function ScoreBoard({ room, players, activeAccount, onLeave, matches = [], champions = [] }) {
+// Vai buscar diretamente à base de dados as partidas de TODOS os jogadores da
+// sala (não só as da conta ativa neste dispositivo — "matches" é aberta, ver
+// db/rooms.js) e mantém-se em tempo real via subscrição a novas partidas.
+function ScoreBoard({ room, players, activeAccount, onLeave, matches = [], champions = [], DRAGON }) {
   const { t } = useLanguage();
-  const [scores, setScores] = useState({});
+  const [playerMatches, setPlayerMatches] = useState({});
+  const [loaded, setLoaded] = useState(false);
 
-  // Calcula os pontos para cada jogador da sala
-  // Nota: os matches locais só têm os da conta ativa (activeAccount).
-  // Para outros players, mostram 0 até receberem dados via tempo real.
+  const targetGames = room?.target_games || MAX_GAMES;
+  const sinceISO = room?.started_at || new Date().toISOString();
+  const usernames = players.map((p) => p.username);
+  const usernamesKey = usernames.join(",");
+
+  const fetchAll = useCallback(async () => {
+    const rows = await getRoomMatchesForPlayers(usernames, sinceISO);
+    const grouped = {};
+    for (const u of usernames) grouped[u] = [];
+    for (const row of rows) {
+      (grouped[row.username] ||= []).push(row);
+    }
+    for (const u of usernames) grouped[u] = grouped[u].slice(0, targetGames);
+    setPlayerMatches(grouped);
+    setLoaded(true);
+  }, [usernamesKey, sinceISO, targetGames]);
+
   useEffect(() => {
-    const calculateScores = () => {
-      const result = {};
+    fetchAll();
+  }, [fetchAll]);
 
-      // Filtro 1: contar apenas matches feitos depois da sala ter começado
-      const roomStartTime = room?.started_at ? new Date(room.started_at).getTime() : Date.now();
-      const afterStart = matches.filter((m) => {
-        if (!m.created_at) return false;
-        return new Date(m.created_at).getTime() >= roomStartTime;
-      });
+  // Nova partida de qualquer conta da sala — refaz o placar sem precisar de
+  // clicar em nada, é o que torna isto "ao vivo".
+  useEffect(() => {
+    const unsubscribe = subscribeToMatches((payload) => {
+      if (usernames.includes(payload?.new?.username)) fetchAll();
+    });
+    return unsubscribe;
+  }, [usernamesKey, fetchAll]);
 
-      // Filtro 2: limitar ao número de jogos alvo (target_games)
-      // Ordena por data para pegar nos PRIMEIROS N jogos
-      const sorted = afterStart.sort((a, b) =>
-        new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-      );
-      const challengeMatches = sorted.slice(0, room?.target_games || 999);
+  // A própria conta pode ter uma partida otimista em "matches" (App.jsx) uns
+  // instantes antes de a base de dados a confirmar de volta — evita esperar
+  // pelo round-trip para ver o próprio resultado aparecer.
+  useEffect(() => {
+    if (!activeAccount) return;
+    const sinceTime = new Date(sinceISO).getTime();
+    const own = matches
+      .filter((m) => m.created_at && new Date(m.created_at).getTime() >= sinceTime)
+      .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+      .slice(0, targetGames);
 
-      for (const player of players) {
-        if (player.username === activeAccount) {
-          // Conta ativa: temos os matches locais da sala
-          if (challengeMatches.length > 0) {
-            const scored = scorePlayer(challengeMatches, { champions, rules: {} });
-            result[player.username] = Math.round(scored.total);
-          } else {
-            result[player.username] = 0;
-          }
-        } else {
-          // Outros players: sem acesso local aos dados (viriam por subscrição tempo real)
-          result[player.username] = 0;
-        }
-      }
+    setPlayerMatches((prev) => {
+      if (own.length <= (prev[activeAccount]?.length || 0)) return prev;
+      return { ...prev, [activeAccount]: own };
+    });
+  }, [matches, activeAccount, sinceISO, targetGames]);
 
-      setScores(result);
-    };
+  const champName = (id) => champions.find((c) => c.id === normalizeChampionId(id, champions))?.name || id;
 
-    calculateScores();
-  }, [players, matches, champions, activeAccount, room?.started_at, room?.target_games]);
+  const scored = {};
+  for (const p of players) {
+    const ms = playerMatches[p.username] || [];
+    scored[p.username] = ms.length
+      ? scorePlayer(ms, { champions, rules: {} })
+      : { total: 0, games: [], countedGames: 0 };
+  }
 
-  // Ordena os jogadores por pontos (descendente)
-  const sortedPlayers = [...players].sort((a, b) => {
-    return (scores[b.username] || 0) - (scores[a.username] || 0);
-  });
+  const sortedPlayers = [...players].sort(
+    (a, b) => (scored[b.username]?.total || 0) - (scored[a.username]?.total || 0)
+  );
 
   return (
     <>
       <div style={styles.card}>
         <div style={styles.scoreboardHeader}>
           <div>
-            <div style={styles.kicker}>{t("chal_in_progress")}</div>
+            <div style={styles.kicker}>
+              <span style={styles.liveDot} /> {t("chal_in_progress")}
+            </div>
             <h2 style={styles.title}>{room.name}</h2>
           </div>
           <div style={styles.scoreboardMeta}>
@@ -592,30 +656,69 @@ function ScoreBoard({ room, players, activeAccount, onLeave, matches = [], champ
           </div>
         </div>
 
-        <div style={styles.scoreboardGrid}>
-          {sortedPlayers.map((p, idx) => (
-            <div key={p.username} style={styles.scoreRow}>
-              <div style={styles.scoreRank}>#{idx + 1}</div>
-              <div style={styles.scorePlayer}>
-                <div style={styles.playerName}>
-                  {p.riot_game_name && p.riot_tag_line
-                    ? `${p.riot_game_name}#${p.riot_tag_line}`
-                    : p.username}
-                </div>
-                {p.username === room.host_username && (
-                  <span style={styles.hostTag}>
-                    <Crown size={10} strokeWidth={2.5} /> {t("chal_host")}
-                  </span>
-                )}
-              </div>
-              <div style={styles.scoreValue}>{scores[p.username] || 0} pts</div>
-            </div>
-          ))}
-        </div>
+        {!loaded ? (
+          <div style={styles.scoreboardLoading}>
+            <Loader2 size={16} strokeWidth={2.5} style={styles.spinIcon} /> {t("loading_generic")}
+          </div>
+        ) : (
+          <div style={styles.scoreboardGrid}>
+            {sortedPlayers.map((p, idx) => {
+              const games = scored[p.username]?.games || [];
+              const emptyGames = Math.max(0, targetGames - games.length);
+              return (
+                <div key={p.username} style={styles.scoreRow}>
+                  <RankBadge rank={idx} />
+                  <div style={styles.scorePlayer}>
+                    <div style={styles.scorePlayerTop}>
+                      <div style={styles.playerName}>
+                        {p.riot_game_name && p.riot_tag_line
+                          ? `${p.riot_game_name}#${p.riot_tag_line}`
+                          : p.username}
+                      </div>
+                      {p.username === room.host_username && (
+                        <span style={styles.hostTag}>
+                          <Crown size={10} strokeWidth={2.5} /> {t("chal_host")}
+                        </span>
+                      )}
+                    </div>
 
-        <div style={styles.scoreboardNote}>
-          {t("chal_scoring_in_progress")}
-        </div>
+                    <div style={styles.champStrip}>
+                      {games.map((g, i) => (
+                        <div
+                          key={i}
+                          style={{
+                            ...styles.champChip,
+                            borderColor: g.match.win ? "rgba(88,199,120,0.55)" : "rgba(226,85,95,0.5)",
+                          }}
+                          title={`${champName(g.match.champion)} · ${g.match.kills}/${g.match.deaths}/${g.match.assists} · ${Math.round(g.score.total)} pts`}
+                        >
+                          {DRAGON && (
+                            <img
+                              src={`${DRAGON}/img/champion/${normalizeChampionId(g.match.champion, champions)}.png`}
+                              style={styles.champChipIcon}
+                            />
+                          )}
+                        </div>
+                      ))}
+                      {Array.from({ length: emptyGames }).map((_, i) => (
+                        <div key={`e${i}`} style={styles.champChipEmpty} />
+                      ))}
+                    </div>
+                  </div>
+
+                  <div style={styles.scoreValueWrap}>
+                    <div style={styles.scoreValue}>{Math.round(scored[p.username]?.total || 0)}</div>
+                    <div style={styles.scoreValueSub}>
+                      {games.length}/{targetGames}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <div style={styles.scoreboardNote}>{t("chal_scoring_in_progress")}</div>
 
         <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
           <button onClick={onLeave} style={styles.ghostBtn}>
@@ -625,6 +728,25 @@ function ScoreBoard({ room, players, activeAccount, onLeave, matches = [], champ
       </div>
     </>
   );
+}
+
+// ================= MEDALHA DE POSIÇÃO =================
+function RankBadge({ rank }) {
+  const styleByRank = [
+    { bg: "linear-gradient(135deg, #f5c451, #b8860b)", color: "#3a2a00" },
+    { bg: "linear-gradient(135deg, #d8d8e0, #8a8a96)", color: "#26262e" },
+    { bg: "linear-gradient(135deg, #d99a63, #8a5a2e)", color: "#2e1c08" },
+  ];
+  const medal = styleByRank[rank];
+
+  if (medal) {
+    return (
+      <div style={{ ...styles.rankMedal, background: medal.bg, color: medal.color }}>
+        <Trophy size={14} strokeWidth={2.5} />
+      </div>
+    );
+  }
+  return <div style={styles.rankPlain}>#{rank + 1}</div>;
 }
 
 // ================= PAINEL DE CONVITE =================
@@ -1131,27 +1253,104 @@ const styles = {
     border: "1px solid rgba(var(--border-rgb),0.4)",
   },
 
-  scoreRank: {
-    fontSize: 13,
-    fontWeight: 900,
-    color: "var(--accent-text)",
-    minWidth: 32,
-    textAlign: "center",
+  rankMedal: {
+    width: 30,
+    height: 30,
+    minWidth: 30,
+    borderRadius: "50%",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    boxShadow: "0 2px 6px rgba(0,0,0,0.25)",
+  },
+
+  rankPlain: {
+    width: 30,
+    height: 30,
+    minWidth: 30,
+    borderRadius: "50%",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: 12,
+    fontWeight: 800,
+    color: "var(--text-muted)",
+    background: "rgba(var(--panel-deep-rgb),0.9)",
+    border: "1px solid rgba(var(--border-rgb),0.4)",
   },
 
   scorePlayer: {
     flex: 1,
+    minWidth: 0,
     display: "flex",
     flexDirection: "column",
-    gap: 3,
+    gap: 6,
+  },
+
+  scorePlayerTop: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+  },
+
+  champStrip: {
+    display: "flex",
+    gap: 4,
+    flexWrap: "wrap",
+  },
+
+  champChip: {
+    width: 22,
+    height: 22,
+    borderRadius: "var(--radius-sm, 5px)",
+    overflow: "hidden",
+    border: "1.5px solid",
+    background: "rgba(var(--panel-deep-rgb),0.9)",
+  },
+
+  champChipIcon: {
+    width: "100%",
+    height: "100%",
+    objectFit: "cover",
+    display: "block",
+  },
+
+  champChipEmpty: {
+    width: 22,
+    height: 22,
+    borderRadius: "var(--radius-sm, 5px)",
+    border: "1.5px dashed rgba(var(--border-rgb),0.4)",
+    opacity: 0.5,
+  },
+
+  scoreValueWrap: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "flex-end",
+    minWidth: 52,
   },
 
   scoreValue: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: 800,
     color: "var(--accent-text)",
-    minWidth: 60,
     textAlign: "right",
+    lineHeight: 1.1,
+  },
+
+  scoreValueSub: {
+    fontSize: 10,
+    fontWeight: 600,
+    color: "var(--text-muted)",
+  },
+
+  scoreboardLoading: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "18px 0",
+    fontSize: 12,
+    color: "var(--text-secondary)",
   },
 
   scoreboardNote: {
@@ -1159,5 +1358,58 @@ const styles = {
     color: "var(--text-muted)",
     fontStyle: "italic",
     marginBottom: 12,
+  },
+
+  liveDot: {
+    display: "inline-block",
+    width: 7,
+    height: 7,
+    borderRadius: "50%",
+    background: "#58c778",
+    marginRight: 5,
+    animation: "livePulse 1.6s ease-in-out infinite",
+  },
+
+  statusStarting: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    color: "var(--accent-text)",
+  },
+
+  spinIcon: {
+    animation: "spin 0.9s linear infinite",
+  },
+
+  stepperRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+  },
+
+  stepperBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: "var(--radius-md)",
+    border: "1px solid rgba(var(--border-rgb),0.45)",
+    background: "rgba(var(--panel-deep-rgb),0.7)",
+    color: "var(--accent-text)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+  },
+
+  stepperBtnDisabled: {
+    opacity: 0.35,
+    cursor: "not-allowed",
+  },
+
+  stepperValue: {
+    minWidth: 34,
+    textAlign: "center",
+    fontSize: 18,
+    fontWeight: 800,
+    color: "var(--text-body)",
   },
 };
