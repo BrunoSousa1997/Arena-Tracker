@@ -110,6 +110,7 @@ export default function App() {
     setShowRepairAllConfirm,
     latestMatchTimestamp,
     syncActiveAccount,
+    syncAllHistory,
     enrichHistory,
   } = useRiotSync({ accounts, setAccounts, activeAccount, matches, setMatches, setWins, champions, patch, t });
 
@@ -683,6 +684,15 @@ export default function App() {
                             {t("sync_btn")}
                           </>
                         )}
+                      </button>
+                    </Tooltip>
+                    <Tooltip label={t("sync_all_history_tooltip")}>
+                      <button
+                        onClick={() => syncAllHistory()}
+                        style={styles.syncAllBtn}
+                        disabled={syncStatus?.status === "loading"}
+                      >
+                        {t("sync_all_history_btn")}
                       </button>
                     </Tooltip>
                     {missingEnrichmentCount > 0 && (

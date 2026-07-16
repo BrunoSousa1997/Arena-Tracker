@@ -664,15 +664,11 @@ const DICTIONARY = {
     en: 'Remove "{name}" from the list? Saved history is not deleted.',
   },
 
-  // ================= RECUPERAR JOGOS =================
-  recover_matches: { pt: "🔍 Recuperar jogos em falta", en: "🔍 Recover missing matches" },
-  recovering_matches: { pt: "A recuperar jogos…", en: "Recovering matches…" },
-  recovery_success: { pt: "✅ {count} jogo(s) recuperado(s)!", en: "✅ {count} match(es) recovered!" },
-  recovery_no_matches: { pt: "✓ Sem jogos em falta", en: "✓ No missing matches" },
-  recovery_error: { pt: "❌ Erro: {error}", en: "❌ Error: {error}" },
-  no_riot_account: {
-    pt: "Precisas de um Riot ID para recuperar jogos.",
-    en: "You need a Riot ID to recover matches.",
+  // ================= SINCRONIZAÇÃO =================
+  sync_all_history_btn: { pt: "⏮ Sincronizar tudo", en: "⏮ Sync all history" },
+  sync_all_history_tooltip: {
+    pt: "Sincroniza o histórico completo (útil se games antigos ficaram para trás).",
+    en: "Syncs your full history (useful if old games were left behind).",
   },
 };
 
