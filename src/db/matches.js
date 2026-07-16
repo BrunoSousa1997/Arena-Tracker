@@ -195,16 +195,24 @@ export async function recoverOrphanMatches(username, riotGameName, riotTagLine) 
     // Regrava cada match com o username correto
     let recovered = 0;
     for (const match of toRecover) {
+      // Encontra o participant com o nome correto para extrair o campeão
+      const playerParticipant = (match.participants || []).find((p) => {
+        const pName = (p.name || "").toLowerCase();
+        return pName === searchName || pName === searchNameShort;
+      });
+
+      const correctChampion = playerParticipant?.champion || match.champion;
+
       const { error: updateError } = await supabase
         .from("matches")
-        .update({ username })
+        .update({ username, champion: correctChampion })
         .eq("id", match.id);
 
       if (updateError) {
         console.error(`❌ Failed to recover match ${match.id}:`, updateError.message);
       } else {
         recovered++;
-        console.log(`✅ Recovered: ${match.champion} (match ID: ${match.id})`);
+        console.log(`✅ Recovered: ${correctChampion} (match ID: ${match.id})`);
       }
     }
 
