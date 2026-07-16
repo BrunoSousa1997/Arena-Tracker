@@ -159,8 +159,8 @@ export async function recoverOrphanMatches(username, riotGameName, riotTagLine) 
     const { data: orphaned, error: searchError } = await supabase
       .from("matches")
       .select("id, riot_match_id, champion, kills, deaths, assists, win, items, placement, augments, team_size, damage_dealt, damage_taken, gold_earned, cs, vision_score, champ_level, game_duration, multikill, double_kills, triple_kills, summoner1, summoner2, healing, participants, created_at")
-      .filter("riot_match_id", "is.not", null)
-      .filter("username", "neq", username);
+      .not("riot_match_id", "is", null)
+      .neq("username", username);
 
     if (searchError) {
       console.error("recoverOrphanMatches search error:", searchError);
