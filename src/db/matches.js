@@ -141,86 +141,112 @@ export async function getMatches(username) {
   return data || [];
 }
 
-// Recuperar jogos em falta: procura por jogos onde o jogador está em
-// "participants" mas não está ainda associado ao seu username. Útil quando
-// a Live Client Data falha mas a Riot API tem os dados (ex: reiniciou a app
-// a meio do jogo).
-export async function recoverOrphanMatches(username, riotGameName, riotTagLine) {
+// Encontra a nossa própria entrada dentro de "participants" — puuid primeiro
+// (estável, nunca muda), nome como fallback (ver findSelfInParticipants em
+// matchCache.js, mesma lógica).
+function findSelfEntry(participants, puuid, riotGameName, riotTagLine) {
+  if (puuid) {
+    const byPuuid = participants.find((p) => p.puuid && p.puuid === puuid);
+    if (byPuuid) return byPuuid;
+  }
+  if (!riotGameName) return null;
+  const full = `${riotGameName}${riotTagLine ? "#" + riotTagLine : ""}`.toLowerCase();
+  const short = riotGameName.toLowerCase();
+  return (
+    participants.find((p) => (p.name || "").toLowerCase() === full) ||
+    participants.find((p) => (p.name || "").toLowerCase() === short) ||
+    null
+  );
+}
+
+// Repara partidas de UM jogador cujos campos pessoais (campeão, KDA, lugar,
+// build, dano, etc.) não batem certo com o que realmente diz "participants"
+// para ele. Existe por causa de um bug já corrigido: uma versão anterior de
+// "recuperar jogos em falta" fazia UPDATE numa linha que já era de OUTRO
+// jogador (trocando só username/champion), o que deixava o KDA/build/dano
+// dessa linha por corrigir — misturando as stats de duas pessoas na mesma
+// linha. Isto não mexe em "participants" nem no dono de nenhuma linha, só
+// reconstrói os campos pessoais da própria conta a partir da própria entrada
+// em "participants" — seguro de correr tantas vezes quantas quiseres.
+export async function repairMismatchedMatches(username, riotGameName, riotTagLine, puuid = null) {
   if (!riotGameName) {
-    console.warn("recoverOrphanMatches: riotGameName is required");
-    return { success: false, error: "riotGameName required", recovered: 0 };
+    return { success: false, error: "riotGameName required", repaired: 0 };
   }
 
   try {
-    console.log(`🔍 Searching for orphaned matches with riot_game_name="${riotGameName}"...`);
-
-    // Estratégia: busca TODOS os matches com participants (foi importado via Riot API)
-    // Depois filtra localmente por nome do jogador
-    const { data: allMatches, error: searchError } = await supabase
+    const { data: myMatches, error: fetchError } = await supabase
       .from("matches")
-      .select("id, riot_match_id, champion, kills, deaths, assists, win, items, placement, augments, team_size, damage_dealt, damage_taken, gold_earned, cs, vision_score, champ_level, game_duration, multikill, double_kills, triple_kills, summoner1, summoner2, healing, participants, username, created_at")
+      .select(
+        "id, champion, kills, deaths, assists, win, items, placement, augments, damage_dealt, " +
+          "damage_taken, gold_earned, cs, vision_score, champ_level, healing, multikill, double_kills, " +
+          "triple_kills, summoner1, summoner2, participants"
+      )
+      .eq("username", username)
       .not("participants", "is", null);
 
-    if (searchError) {
-      console.error("❌ Search error:", searchError.message);
-      return { success: false, error: searchError.message, recovered: 0 };
+    if (fetchError) {
+      console.error("❌ repairMismatchedMatches fetch error:", fetchError.message);
+      return { success: false, error: fetchError.message, repaired: 0 };
     }
 
-    // Filtra localmente: encontra matches onde o jogador está em participants
-    // MAS ainda não está associado ao seu username
-    const searchName = `${riotGameName}${riotTagLine ? '#' + riotTagLine : ''}`.toLowerCase();
-    const searchNameShort = riotGameName.toLowerCase();
+    let repaired = 0;
+    for (const match of myMatches || []) {
+      if (!Array.isArray(match.participants)) continue;
 
-    const toRecover = (allMatches || []).filter((match) => {
-      // Skip se já está associado a este username
-      if (match.username === username) return false;
+      const me = findSelfEntry(match.participants, puuid, riotGameName, riotTagLine);
+      if (!me) continue;
 
-      if (!match.participants || !Array.isArray(match.participants)) return false;
+      const correctChampion = me.champion || match.champion;
+      const correctMultikill = me.tripleKills ? 3 : me.doubleKills ? 2 : match.multikill;
 
-      // Procura o jogador em participants (comparar com nome completo e nome curto)
-      return match.participants.some((p) => {
-        const pName = (p.name || "").toLowerCase();
-        return pName === searchName || pName === searchNameShort;
-      });
-    });
+      const mismatched =
+        correctChampion !== match.champion ||
+        (me.kills ?? match.kills) !== match.kills ||
+        (me.deaths ?? match.deaths) !== match.deaths ||
+        (me.assists ?? match.assists) !== match.assists ||
+        (me.placement ?? match.placement) !== match.placement;
 
-    console.log(`📊 Found ${toRecover.length} matches where "${riotGameName}" plays but not yet associated`);
-
-    if (!toRecover.length) {
-      return { success: true, recovered: 0 };
-    }
-
-    console.log(`♻️ Reassigning ${toRecover.length} matches to username "${username}"...`);
-
-    // Regrava cada match com o username correto
-    let recovered = 0;
-    for (const match of toRecover) {
-      // Encontra o participant com o nome correto para extrair o campeão
-      const playerParticipant = (match.participants || []).find((p) => {
-        const pName = (p.name || "").toLowerCase();
-        return pName === searchName || pName === searchNameShort;
-      });
-
-      const correctChampion = playerParticipant?.champion || match.champion;
+      if (!mismatched) continue;
 
       const { error: updateError } = await supabase
         .from("matches")
-        .update({ username, champion: correctChampion })
+        .update({
+          champion: correctChampion,
+          kills: me.kills ?? match.kills,
+          deaths: me.deaths ?? match.deaths,
+          assists: me.assists ?? match.assists,
+          win: me.placement != null ? me.placement === 1 : match.win,
+          placement: me.placement ?? match.placement,
+          items: me.items?.length ? me.items : match.items,
+          augments: me.augments?.length ? me.augments : match.augments,
+          damage_dealt: me.damageDealt ?? match.damage_dealt,
+          damage_taken: me.damageTaken ?? match.damage_taken,
+          gold_earned: me.goldEarned ?? match.gold_earned,
+          cs: me.cs ?? match.cs,
+          vision_score: me.visionScore ?? match.vision_score,
+          champ_level: me.champLevel ?? match.champ_level,
+          healing: me.healing ?? match.healing,
+          multikill: correctMultikill,
+          double_kills: me.doubleKills ?? match.double_kills,
+          triple_kills: me.tripleKills ?? match.triple_kills,
+          summoner1: me.summoner1 ?? match.summoner1,
+          summoner2: me.summoner2 ?? match.summoner2,
+        })
         .eq("id", match.id);
 
       if (updateError) {
-        console.error(`❌ Failed to recover match ${match.id}:`, updateError.message);
+        console.error(`❌ Failed to repair match ${match.id}:`, updateError.message);
       } else {
-        recovered++;
-        console.log(`✅ Recovered: ${correctChampion} (match ID: ${match.id})`);
+        repaired++;
+        console.log(`✅ Repaired match ${match.id}: now ${correctChampion} (was ${match.champion})`);
       }
     }
 
-    console.log(`🎉 Recovery complete: ${recovered}/${toRecover.length} matches reassigned`);
-    return { success: true, recovered };
+    console.log(`🎉 Repair complete: ${repaired} match(es) fixed`);
+    return { success: true, repaired };
   } catch (e) {
-    console.error("❌ recoverOrphanMatches exception:", e.message);
-    return { success: false, error: e.message, recovered: 0 };
+    console.error("❌ repairMismatchedMatches exception:", e.message);
+    return { success: false, error: e.message, repaired: 0 };
   }
 }
 

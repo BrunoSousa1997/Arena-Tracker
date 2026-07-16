@@ -670,6 +670,24 @@ const DICTIONARY = {
     pt: "Sincroniza o histórico completo (útil se games antigos ficaram para trás).",
     en: "Syncs your full history (useful if old games were left behind).",
   },
+
+  // ================= REPARAR DADOS PESSOAIS =================
+  repair_mismatched_btn: { pt: "🩹 Corrigir dados incorretos", en: "🩹 Fix incorrect data" },
+  repairing_mismatched: { pt: "A corrigir…", en: "Fixing…" },
+  repair_mismatched_tooltip: {
+    pt: "Corrige campeão/KDA/build errados nas tuas partidas (compara com os teus dados reais guardados em cada jogo).",
+    en: "Fixes wrong champion/KDA/build in your matches (compares against your real data stored per game).",
+  },
+  repair_mismatched_success: {
+    pt: "🩹 {count} partida(s) corrigida(s)!",
+    en: "🩹 {count} match(es) fixed!",
+  },
+  repair_mismatched_none: { pt: "✓ Sem dados incorretos", en: "✓ No incorrect data found" },
+  repair_mismatched_error: { pt: "❌ Erro: {error}", en: "❌ Error: {error}" },
+  no_riot_account: {
+    pt: "Precisas de um Riot ID definido nesta conta.",
+    en: "You need a Riot ID set on this account.",
+  },
 };
 
 export function translate(lang, key) {
