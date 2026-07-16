@@ -253,6 +253,21 @@ code {
   }
 }
 
+/* Ponto "ao vivo" no botão que reabre o banner da partida (ver liveReopenDot
+   em App.jsx) — pulsar deixa claro que há jogo a decorrer agora, em vez de
+   parecer um ícone estático qualquer. */
+@keyframes livePulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.82);
+  }
+}
+
 /* Barra de progresso indeterminada, "crescente", usada durante a sincronização */
 @keyframes growSyncBar {
   0% {

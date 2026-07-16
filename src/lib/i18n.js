@@ -16,6 +16,88 @@ const DICTIONARY = {
   tab_stats: { pt: "Estatísticas", en: "Statistics" },
   tab_achievements: { pt: "Conquistas", en: "Achievements" },
   tab_compare: { pt: "Comparar", en: "Compare" },
+  tab_challenges: { pt: "Desafios", en: "Challenges" },
+
+  // ================= DESAFIOS =================
+  chal_page_title: { pt: "Desafios", en: "Challenges" },
+  chal_intro: {
+    pt: "Cria uma sala e desafia amigos: cada um joga as suas partidas de Arena e no fim compara-se o desempenho.",
+    en: "Create a room and challenge friends: everyone plays their own Arena matches, then performance is compared.",
+  },
+  chal_create_room: { pt: "Criar sala", en: "Create room" },
+  chal_join_room: { pt: "Entrar numa sala", en: "Join room" },
+  chal_room_name: { pt: "Nome da sala", en: "Room name" },
+  chal_room_name_placeholder: { pt: "Ex: Noite de Arena", en: "e.g. Arena Night" },
+  chal_players: { pt: "Nº de jogadores", en: "Players" },
+  chal_games: { pt: "Nº de jogos", en: "Games" },
+  chal_games_hint: {
+    pt: "Contam as próximas partidas de cada um a partir do início do desafio.",
+    en: "Counts each player's next matches from the moment the challenge starts.",
+  },
+  chal_rules: { pt: "Regras", en: "Rules" },
+  chal_rules_basic: { pt: "Básicas", en: "Basic" },
+  chal_rules_custom: { pt: "Específicas", en: "Custom" },
+  chal_rules_basic_desc: {
+    pt: "Pontua por lugar, KDA, dano, cura, dano recebido e proteção dos colegas — cada um medido pela tua posição dentro da própria partida.",
+    en: "Scores by placement, KDA, damage, healing, damage taken and teammate protection — each measured by your rank within your own match.",
+  },
+  chal_rules_custom_desc: {
+    pt: "Ainda por definir — por agora comporta-se como as básicas.",
+    en: "Not defined yet — behaves like the basic rules for now.",
+  },
+  chal_create_btn: { pt: "Criar", en: "Create" },
+  chal_creating: { pt: "A criar…", en: "Creating…" },
+  chal_code_placeholder: { pt: "Código da sala", en: "Room code" },
+  chal_join_btn: { pt: "Entrar", en: "Join" },
+  chal_room_not_found: { pt: "Não há nenhuma sala com esse código.", en: "No room with that code." },
+  chal_room_full: { pt: "Essa sala já está cheia.", en: "That room is already full." },
+  chal_room_started: { pt: "Esse desafio já começou.", en: "That challenge has already started." },
+  chal_invite_title: { pt: "Convidar", en: "Invite" },
+  chal_invite_code_hint: {
+    pt: "Partilha este código — quem o tiver entra pela opção \"Entrar numa sala\".",
+    en: "Share this code — anyone with it can join via \"Join room\".",
+  },
+  chal_copy: { pt: "Copiar", en: "Copy" },
+  chal_copied: { pt: "Copiado!", en: "Copied!" },
+  chal_invite_direct: { pt: "Ou convida diretamente", en: "Or invite directly" },
+  chal_invite_search_placeholder: { pt: "Procurar jogador…", en: "Search player…" },
+  chal_invite_btn: { pt: "Convidar", en: "Invite" },
+  chal_invited: { pt: "Convidado", en: "Invited" },
+  chal_lobby: { pt: "Sala", en: "Lobby" },
+  chal_waiting_players: { pt: "À espera de jogadores…", en: "Waiting for players…" },
+  chal_room_ready: { pt: "Sala cheia — prontos para começar.", en: "Room full — ready to start." },
+  chal_host: { pt: "anfitrião", en: "host" },
+  chal_leave: { pt: "Sair da sala", en: "Leave room" },
+  chal_close_room: { pt: "Desfazer sala", en: "Close room" },
+  chal_close_confirm_title: { pt: "Desfazer a sala?", en: "Close the room?" },
+  chal_close_confirm_msg: {
+    pt: "A sala desaparece para toda a gente que lá está e os convites são cancelados.",
+    en: "The room disappears for everyone in it and all invites are cancelled.",
+  },
+  chal_invites_received: { pt: "Convites recebidos", en: "Invites received" },
+  chal_invite_from: { pt: "convidou-te", en: "invited you" },
+  chal_accept: { pt: "Aceitar", en: "Accept" },
+  chal_decline: { pt: "Recusar", en: "Decline" },
+  chal_notif_invite_title: { pt: "Convite para desafio", en: "Challenge invite" },
+  chal_no_account: {
+    pt: "Precisas de uma conta ativa para criar ou entrar numa sala.",
+    en: "You need an active account to create or join a room.",
+  },
+  chal_realtime_hint: {
+    pt: "A sala atualiza-se sozinha — não precisas de recarregar nada.",
+    en: "The room updates by itself — no need to refresh anything.",
+  },
+  chal_soon_scoring: {
+    pt: "O placar e a pontuação chegam a seguir — por agora dá para montar a sala e juntar toda a gente.",
+    en: "Scoring and the leaderboard come next — for now you can set up the room and gather everyone.",
+  },
+  chal_start: { pt: "Iniciar desafio", en: "Start challenge" },
+  chal_starting: { pt: "A iniciar…", en: "Starting…" },
+  chal_in_progress: { pt: "Em curso", en: "In progress" },
+  chal_scoring_in_progress: {
+    pt: "As pontuações atualizam-se automaticamente conforme as partidas são completas.",
+    en: "Scores update automatically as matches complete.",
+  },
 
   // ================= COMPARAR =================
   compare_page_title: { pt: "Comparar jogadores", en: "Compare players" },
@@ -145,6 +227,16 @@ const DICTIONARY = {
   stat_top3_short: { pt: "Top3", en: "Top3" },
   achv_unlocked: { pt: "Conquistado", en: "Unlocked" },
   achv_locked: { pt: "Por conquistar", en: "Locked" },
+  // ================= NOTIFICAÇÕES =================
+  notif_title: { pt: "Notificações", en: "Notifications" },
+  notif_empty: {
+    pt: "Sem notificações. Sincroniza depois de jogar — as conquistas novas aparecem aqui.",
+    en: "No notifications. Sync after playing — new achievements show up here.",
+  },
+  notif_clear: { pt: "Limpar", en: "Clear" },
+  notif_tier_up: { pt: "Subiste a {rank} · {value}", en: "Reached {rank} · {value}" },
+  notif_unlocked: { pt: "Conquista desbloqueada!", en: "Achievement unlocked!" },
+
   achv_rank_iron: { pt: "Ferro", en: "Iron" },
   achv_rank_bronze: { pt: "Bronze", en: "Bronze" },
   achv_rank_silver: { pt: "Prata", en: "Silver" },
@@ -514,6 +606,10 @@ const DICTIONARY = {
     pt: "Sem dados suficientes para recuperar essas partidas (sem lugar 7º/8º nem histórico da Riot API).",
     en: "Not enough data to recover these matches (no 7th/8th placement or Riot API history).",
   },
+  live_banner_reopen: {
+    pt: "Voltar a mostrar a partida em curso",
+    en: "Show the ongoing match again",
+  },
   playing_now: { pt: "A jogar:", en: "Playing:" },
   match_ended_with: { pt: "Partida:", en: "Match:" },
   // Sem o "boa sorte" — já não fazia sentido logo a seguir a um roast
@@ -566,6 +662,17 @@ const DICTIONARY = {
   confirm_remove_account: {
     pt: 'Remover "{name}" da lista? O histórico guardado não é apagado.',
     en: 'Remove "{name}" from the list? Saved history is not deleted.',
+  },
+
+  // ================= RECUPERAR JOGOS =================
+  recover_matches: { pt: "🔍 Recuperar jogos em falta", en: "🔍 Recover missing matches" },
+  recovering_matches: { pt: "A recuperar jogos…", en: "Recovering matches…" },
+  recovery_success: { pt: "✅ {count} jogo(s) recuperado(s)!", en: "✅ {count} match(es) recovered!" },
+  recovery_no_matches: { pt: "✓ Sem jogos em falta", en: "✓ No missing matches" },
+  recovery_error: { pt: "❌ Erro: {error}", en: "❌ Error: {error}" },
+  no_riot_account: {
+    pt: "Precisas de um Riot ID para recuperar jogos.",
+    en: "You need a Riot ID to recover matches.",
   },
 };
 

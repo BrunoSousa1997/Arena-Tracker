@@ -319,3 +319,63 @@ export function summarizeBadges(categories, booleanAchievements) {
   unlocked += booleanAchievements.filter((b) => b.unlocked).length;
   return { totalBadges: total, unlockedBadges: unlocked };
 }
+
+// ================= DETEÇÃO DE PROGRESSO (para as notificações) =================
+// "Fotografia" do estado das conquistas: por categoria, quantos níveis estão
+// conquistados; por especial, se está ou não. É o mínimo para saber, na
+// sincronização seguinte, o que subiu — guardar as conquistas todas seria
+// pesado e não acrescentava nada (ver useNotifications.js).
+export function buildAchievementSnapshot(categories, booleanAchievements) {
+  const snapshot = {};
+  categories.forEach((c) => {
+    snapshot[`cat:${c.id}`] = c.tiers.filter((tier) => c.value >= tier).length;
+  });
+  booleanAchievements.forEach((b) => {
+    snapshot[`bool:${b.id}`] = b.unlocked ? 1 : 0;
+  });
+  return snapshot;
+}
+
+// O que subiu entre a fotografia anterior e o estado atual. Só olha para
+// SUBIDAS: se um valor descer (ex: partidas apagadas à mão na BD), não faz
+// sentido notificar "perdeste uma conquista".
+export function diffAchievements(previousSnapshot, categories, booleanAchievements, t) {
+  const events = [];
+
+  categories.forEach((cat) => {
+    const now = cat.tiers.filter((tier) => cat.value >= tier).length;
+    const before = previousSnapshot[`cat:${cat.id}`] ?? 0;
+    if (now <= before) return;
+
+    // Uma sincronização pode saltar vários níveis de uma vez (ex: importar
+    // 200 partidas antigas) — nesse caso interessa o mais alto atingido, não
+    // uma notificação por cada nível pelo caminho.
+    const rank = rankForTierIndex(now - 1, cat.tiers.length);
+    events.push({
+      type: "achievement",
+      key: `cat:${cat.id}:${now}`,
+      iconId: cat.iconId,
+      color: rank.color,
+      title: cat.title,
+      body: t("notif_tier_up")
+        .replace("{rank}", t(rank.labelKey))
+        .replace("{value}", formatAchievementValue(cat.tiers[now - 1], cat.unit)),
+    });
+  });
+
+  booleanAchievements.forEach((b) => {
+    const before = previousSnapshot[`bool:${b.id}`] ?? 0;
+    if (!b.unlocked || before === 1) return;
+
+    events.push({
+      type: "achievement",
+      key: `bool:${b.id}`,
+      iconId: b.iconId,
+      color: ACHIEVEMENT_RANKS[ACHIEVEMENT_RANKS.length - 1].color,
+      title: b.title,
+      body: t("notif_unlocked"),
+    });
+  });
+
+  return events;
+}

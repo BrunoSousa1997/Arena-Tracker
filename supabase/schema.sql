@@ -36,6 +36,21 @@ alter table public.matches add column if not exists healing int;         -- tota
 alter table public.matches add column if not exists max_hp int;         -- maior "vida máxima" (championStats.maxHealth) vista na partida; só Live Client Data, não vem da Riot API
 alter table public.matches add column if not exists double_kills int;    -- nº de double kills nesta partida (só Riot API)
 alter table public.matches add column if not exists triple_kills int;    -- nº de triple kills nesta partida (só Riot API)
+-- Sequências "sem morrer" medidas ao vivo (só Live Client Data). Guardam a
+-- LISTA de todas as corridas de kills/assists entre mortes (ex: [4,2,5]), não
+-- só a maior — a pontuação soma o bónus de cada uma (ver challengeScoring.js).
+-- Uma versão anterior (curta) guardou isto como int "best_*"; se essas colunas
+-- chegaram a ser criadas, largam-se aqui (não chegaram a ter dados de verdade).
+alter table public.matches drop column if exists best_kill_streak;
+alter table public.matches drop column if exists best_assist_streak;
+alter table public.matches add column if not exists kill_streaks jsonb;
+alter table public.matches add column if not exists assist_streaks jsonb;
+
+-- saves_from_death (participant.challenges.saveAllyFromDeath) chegou a ser
+-- guardado para pontuar revives nos desafios; pedido explícito para não usar
+-- essa variável, por isso a coluna larga-se aqui (não chegou a ter dados de
+-- verdade em produção que valha a pena preservar).
+alter table public.matches drop column if exists saves_from_death;
 
 -- 4) Colegas e adversários (estilo op.gg) — lista de todos os jogadores da
 -- partida (campeão, KDA, lugar da equipa, build, augments), só disponível
@@ -129,3 +144,116 @@ on public.matches
 for all
 using (true)
 with check (true);
+
+-- ============================================================
+-- 9) DESAFIOS — salas, jogadores e convites
+-- ============================================================
+-- Uma "sala" é um desafio combinado entre jogadores: cada um joga as suas
+-- próprias partidas de Arena e, no fim, compara-se o desempenho. Ver
+-- src/db/rooms.js (camada de acesso) e src/views/Challenges.jsx (interface).
+--
+-- AVISO, para quem ler isto e assumir o contrário: NÃO há autenticação
+-- nenhuma nesta app — tudo passa pela chave anónima e as políticas abaixo
+-- são abertas, tal como as de "matches". Ou seja, qualquer cliente pode
+-- escrever qualquer linha em nome de qualquer pessoa. Entre amigos isso é
+-- aceitável (é o compromisso já assumido no resto do projeto), mas se algum
+-- dia isto servir para algo com valor a sério, tem de passar primeiro por
+-- Supabase Auth + políticas por utilizador.
+
+create table if not exists public.challenge_rooms (
+  id bigint generated always as identity primary key,
+  -- Código curto e legível para entrar sem convite (ver generateRoomCode).
+  code text not null unique,
+  name text not null,
+  host_username text not null,
+  max_players int not null default 2,
+  target_games int not null default 5,
+  -- 'basic' = as regras que a app já sabe pontuar. 'custom' fica preparado
+  -- para as regras específicas (a definir), guardadas em rules_config.
+  rules text not null default 'basic',
+  rules_config jsonb,
+  -- lobby -> running -> finished (ou cancelled, se o host desistir)
+  status text not null default 'lobby',
+  created_at timestamptz not null default now(),
+  started_at timestamptz
+);
+
+create table if not exists public.challenge_room_players (
+  id bigint generated always as identity primary key,
+  room_id bigint not null references public.challenge_rooms(id) on delete cascade,
+  username text not null,
+  -- Identidade Riot copiada no momento de entrar: o placar tem de continuar
+  -- a fazer sentido mesmo que a pessoa mude o Riot ID a meio do desafio.
+  riot_game_name text,
+  riot_tag_line text,
+  joined_at timestamptz not null default now(),
+  -- Impede a mesma pessoa de ocupar dois lugares na mesma sala.
+  unique (room_id, username)
+);
+
+create table if not exists public.challenge_invites (
+  id bigint generated always as identity primary key,
+  room_id bigint not null references public.challenge_rooms(id) on delete cascade,
+  from_username text not null,
+  to_username text not null,
+  status text not null default 'pending', -- pending | accepted | declined
+  created_at timestamptz not null default now(),
+  -- Um convite por pessoa por sala — sem isto, carregar duas vezes no botão
+  -- enchia a campainha do outro com o mesmo convite repetido.
+  unique (room_id, to_username)
+);
+
+create index if not exists idx_room_players_room on public.challenge_room_players (room_id);
+create index if not exists idx_room_players_username on public.challenge_room_players (username);
+create index if not exists idx_invites_to on public.challenge_invites (to_username, status);
+
+alter table public.challenge_rooms enable row level security;
+alter table public.challenge_room_players enable row level security;
+alter table public.challenge_invites enable row level security;
+
+drop policy if exists "Allow anon read/write rooms" on public.challenge_rooms;
+create policy "Allow anon read/write rooms" on public.challenge_rooms
+for all using (true) with check (true);
+
+drop policy if exists "Allow anon read/write room players" on public.challenge_room_players;
+create policy "Allow anon read/write room players" on public.challenge_room_players
+for all using (true) with check (true);
+
+drop policy if exists "Allow anon read/write invites" on public.challenge_invites;
+create policy "Allow anon read/write invites" on public.challenge_invites
+for all using (true) with check (true);
+
+-- Por omissão, um evento DELETE só transporta a CHAVE PRIMÁRIA da linha
+-- apagada. As subscrições em src/db/rooms.js filtram por "room_id" e por
+-- "to_username" — que não são chave primária — por isso, sem isto, o filtro
+-- não encontrava nada num DELETE e o evento era descartado: alguém sair da
+-- sala nunca chegava aos outros, e sem erro nenhum a dizer porquê.
+-- "replica identity full" faz o DELETE trazer a linha inteira.
+alter table public.challenge_room_players replica identity full;
+alter table public.challenge_invites replica identity full;
+
+-- Realtime: é isto que faz o lobby e os convites chegarem sozinhos, sem a
+-- app andar a perguntar de X em X segundos. Sem estas linhas as subscrições
+-- em src/db/rooms.js ligam-se com sucesso e simplesmente nunca recebem nada
+-- (falham em silêncio, que é o pior tipo de falha).
+--
+-- Não existe "add table if not exists" para publicações, e repetir o ALTER dá
+-- erro — daí o bloco a apanhar a exceção, para este ficheiro continuar
+-- seguro de correr as vezes que forem precisas.
+do $$
+begin
+  alter publication supabase_realtime add table public.challenge_rooms;
+exception when duplicate_object then null;
+end $$;
+
+do $$
+begin
+  alter publication supabase_realtime add table public.challenge_room_players;
+exception when duplicate_object then null;
+end $$;
+
+do $$
+begin
+  alter publication supabase_realtime add table public.challenge_invites;
+exception when duplicate_object then null;
+end $$;

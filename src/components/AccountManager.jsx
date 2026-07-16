@@ -4,6 +4,7 @@ import Tooltip from "./Tooltip";
 import ConfirmDialog from "./ConfirmDialog";
 import { useLanguage } from "../lib/i18n";
 import { TAG_OPTIONS, CUSTOM_TAG, FALLBACK_REGIONS, regionForTag } from "../lib/riotTags";
+import { recoverOrphanMatches } from "../db/api";
 
 export default function AccountManager({
   accounts,
@@ -69,6 +70,8 @@ export default function AccountManager({
   };
 
   const [pendingDelete, setPendingDelete] = useState(null);
+  const [recovering, setRecovering] = useState(false);
+  const [recoveryMessage, setRecoveryMessage] = useState(null);
 
   const handleDelete = (username) => {
     setPendingDelete(username);
@@ -77,6 +80,34 @@ export default function AccountManager({
   const confirmDelete = () => {
     onDelete(pendingDelete);
     setPendingDelete(null);
+  };
+
+  const handleRecoverOrphanMatches = async () => {
+    if (!activeAccount) return;
+    const account = accounts.find((a) => a.username === activeAccount);
+    if (!account || !account.riotAccount) {
+      setRecoveryMessage({ type: "error", text: t("no_riot_account") });
+      setTimeout(() => setRecoveryMessage(null), 3000);
+      return;
+    }
+
+    setRecovering(true);
+    setRecoveryMessage(null);
+    const result = await recoverOrphanMatches(activeAccount, account.riotAccount, account.riotTag);
+    setRecovering(false);
+
+    if (result.success) {
+      setRecoveryMessage({
+        type: "success",
+        text: result.recovered > 0
+          ? t("recovery_success").replace("{count}", result.recovered)
+          : t("recovery_no_matches"),
+      });
+    } else {
+      setRecoveryMessage({ type: "error", text: t("recovery_error").replace("{error}", result.error) });
+    }
+
+    setTimeout(() => setRecoveryMessage(null), 4000);
   };
 
   return (
@@ -209,6 +240,29 @@ export default function AccountManager({
             })}
           </AnimatePresence>
         </div>
+
+        {/* RECUPERAR JOGOS EM FALTA */}
+        {accounts.length > 0 && activeAccount && (
+          <button
+            onClick={handleRecoverOrphanMatches}
+            disabled={recovering}
+            style={{
+              ...styles.recoveryBtn,
+              ...(recovering ? styles.recoveryBtnBusy : null),
+            }}
+          >
+            {recovering ? "🔄 " + t("recovering_matches") : "🔍 " + t("recover_matches")}
+          </button>
+        )}
+
+        {recoveryMessage && (
+          <div style={{
+            ...styles.recoveryMessage,
+            ...(recoveryMessage.type === "error" ? styles.recoveryMessageError : styles.recoveryMessageSuccess),
+          }}>
+            {recoveryMessage.text}
+          </div>
+        )}
 
         {/* CRIAR NOVA CONTA */}
         {!showCreate && (
@@ -474,5 +528,42 @@ const styles = {
     color: "var(--text-secondary)",
     cursor: "pointer",
     fontSize: 12,
+  },
+
+  recoveryBtn: {
+    padding: "10px 14px",
+    borderRadius: "var(--radius-lg)",
+    border: "1px solid rgba(var(--accent-rgb),0.35)",
+    background: "rgba(var(--accent-rgb),0.08)",
+    color: "var(--accent-text)",
+    cursor: "pointer",
+    fontSize: 13,
+    transition: "all 0.15s ease",
+  },
+
+  recoveryBtnBusy: {
+    opacity: 0.7,
+    cursor: "not-allowed",
+  },
+
+  recoveryMessage: {
+    padding: "10px 12px",
+    borderRadius: "var(--radius-lg)",
+    fontSize: 12,
+    fontWeight: 600,
+    textAlign: "center",
+    animation: "fadeIn 0.2s ease",
+  },
+
+  recoveryMessageSuccess: {
+    background: "rgba(76,175,80,0.15)",
+    color: "#4cb150",
+    border: "1px solid rgba(76,175,80,0.35)",
+  },
+
+  recoveryMessageError: {
+    background: "rgba(226,85,95,0.15)",
+    color: "#e2555f",
+    border: "1px solid rgba(226,85,95,0.35)",
   },
 };

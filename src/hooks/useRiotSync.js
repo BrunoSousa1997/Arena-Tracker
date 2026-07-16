@@ -325,7 +325,8 @@ export function useRiotSync({ accounts, setAccounts, activeAccount, matches, set
     const hasIncompleteParticipants = (m) =>
       Array.isArray(m.participants) &&
       m.participants.length > 0 &&
-      (m.participants[0].damageDealt === undefined || m.participants[0].doubleKills === undefined);
+      (m.participants[0].damageDealt === undefined ||
+        m.participants[0].doubleKills === undefined);
     const missingDetails = force
       ? matches.filter((m) => m.riot_match_id)
       : matches.filter(

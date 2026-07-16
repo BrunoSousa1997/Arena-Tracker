@@ -6,35 +6,50 @@ import { supabase } from "./supabase";
 // disponíveis (ex: dano/ouro só vêm de uma sincronização com a Riot API),
 // por isso tudo aqui tem fallback para null em vez de obrigar o valor.
 export async function addMatch(username, champion, kills, deaths, assists, win, items, teamSize, extra = {}) {
-  const { error } = await supabase.from("matches").insert([
-    {
-      username,
-      champion,
-      kills: kills ?? 0,
-      deaths: deaths ?? 0,
-      assists: assists ?? 0,
-      win: !!win,
-      items: items || [],
-      team_size: teamSize ?? null,
-      cs: extra.cs ?? null,
-      vision_score: extra.visionScore ?? null,
-      champ_level: extra.champLevel ?? null,
-      game_duration: extra.gameDuration ?? null,
-      damage_dealt: extra.damageDealt ?? null,
-      damage_taken: extra.damageTaken ?? null,
-      gold_earned: extra.goldEarned ?? null,
-      multikill: extra.multikill ?? null,
-      double_kills: extra.doubleKills ?? null,
-      triple_kills: extra.tripleKills ?? null,
-      summoner1: extra.summoner1 ?? null,
-      summoner2: extra.summoner2 ?? null,
-      healing: extra.healing ?? null,
-      max_hp: extra.maxHp ?? null,
-    },
-  ]);
+  try {
+    const { data, error } = await supabase.from("matches").insert([
+      {
+        username,
+        champion,
+        kills: kills ?? 0,
+        deaths: deaths ?? 0,
+        assists: assists ?? 0,
+        win: !!win,
+        items: items || [],
+        team_size: teamSize ?? null,
+        cs: extra.cs ?? null,
+        vision_score: extra.visionScore ?? null,
+        champ_level: extra.champLevel ?? null,
+        game_duration: extra.gameDuration ?? null,
+        damage_dealt: extra.damageDealt ?? null,
+        damage_taken: extra.damageTaken ?? null,
+        gold_earned: extra.goldEarned ?? null,
+        multikill: extra.multikill ?? null,
+        double_kills: extra.doubleKills ?? null,
+        triple_kills: extra.tripleKills ?? null,
+        summoner1: extra.summoner1 ?? null,
+        summoner2: extra.summoner2 ?? null,
+        healing: extra.healing ?? null,
+        max_hp: extra.maxHp ?? null,
+        // Lista de TODAS as sequências de kills/assists sem morrer. Só existem
+        // para partidas jogadas com a app aberta (Live Client Data) — as
+        // importadas da Riot API não têm a evolução dos contadores, por isso
+        // ficam null. Ver liveGame.js e challengeScoring.js.
+        kill_streaks: extra.killStreaks ?? null,
+        assist_streaks: extra.assistStreaks ?? null,
+      },
+    ]);
 
-  if (error) {
-    console.error("addMatch error:", error);
+    if (error) {
+      console.error("❌ addMatch DB error:", error.code, error.message, { username, champion, details: error.details });
+      return { success: false, error };
+    }
+
+    console.log("✅ addMatch success:", { username, champion, data });
+    return { success: true, data };
+  } catch (e) {
+    console.error("❌ addMatch exception:", e.message, { username, champion });
+    return { success: false, error: e };
   }
 }
 
@@ -88,17 +103,22 @@ export async function addMatchesBulk(username, matches) {
       : new Date().toISOString(),
   }));
 
-  const { error } = await supabase.from("matches").insert(rows);
+  console.log(`📥 Importing ${rows.length} matches for ${username} from Riot API...`);
+
+  const { error, data } = await supabase.from("matches").insert(rows);
 
   if (error) {
-    console.error("addMatchesBulk error:", error);
-    // Causa mais comum: a tabela "matches" na Supabase ainda não tem as
-    // colunas riot_match_id/items/placement/augments — corre de novo o
-    // supabase/schema.sql mais recente.
+    console.error("❌ addMatchesBulk failed:", error.code, error.message, {
+      username,
+      count: rows.length,
+      details: error.details,
+      hint: error.hint,
+    });
     return { success: false, error: error.message || String(error), inserted: 0 };
   }
 
-  return { success: true, inserted: rows.length };
+  console.log(`✅ addMatchesBulk success: ${rows.length} matches inserted`);
+  return { success: true, inserted: rows.length, data };
 }
 
 export async function getMatches(username) {
@@ -107,7 +127,8 @@ export async function getMatches(username) {
     .select(
       "id, riot_match_id, champion, kills, deaths, assists, win, items, placement, augments, team_size, " +
         "damage_dealt, damage_taken, gold_earned, cs, vision_score, champ_level, game_duration, multikill, " +
-        "double_kills, triple_kills, summoner1, summoner2, healing, max_hp, participants, created_at"
+        "double_kills, triple_kills, summoner1, summoner2, healing, max_hp, kill_streaks, assist_streaks, " +
+        "participants, created_at"
     )
     .eq("username", username)
     .order("created_at", { ascending: false });
@@ -118,6 +139,69 @@ export async function getMatches(username) {
   }
 
   return data || [];
+}
+
+// Recuperar jogos em falta: procura por jogos onde o jogador está em
+// "participants" mas não está ainda associado ao seu username. Útil quando
+// a Live Client Data falha mas a Riot API tem os dados (ex: reiniciou a app
+// a meio do jogo).
+export async function recoverOrphanMatches(username, riotGameName, riotTagLine) {
+  if (!riotGameName) {
+    console.warn("recoverOrphanMatches: riotGameName is required");
+    return { success: false, error: "riotGameName required", recovered: 0 };
+  }
+
+  try {
+    // Procura por matches onde:
+    // 1. O jogador aparece em "participants" (pelo nome)
+    // 2. Já tem riot_match_id (foi importado via Riot API)
+    // 3. Ainda NÃO está associado a este username
+    const { data: orphaned, error: searchError } = await supabase
+      .from("matches")
+      .select("id, riot_match_id, champion, kills, deaths, assists, win, items, placement, augments, team_size, damage_dealt, damage_taken, gold_earned, cs, vision_score, champ_level, game_duration, multikill, double_kills, triple_kills, summoner1, summoner2, healing, participants, created_at")
+      .filter("riot_match_id", "is.not", null)
+      .filter("username", "neq", username);
+
+    if (searchError) {
+      console.error("recoverOrphanMatches search error:", searchError);
+      return { success: false, error: searchError.message, recovered: 0 };
+    }
+
+    // Filtra localmente por nome em "participants"
+    const toRecover = (orphaned || []).filter((match) => {
+      if (!match.participants || !Array.isArray(match.participants)) return false;
+      return match.participants.some((p) =>
+        (p.name || "").toLowerCase() === `${riotGameName}#${riotTagLine}`.toLowerCase() ||
+        (p.name || "").toLowerCase() === riotGameName.toLowerCase()
+      );
+    });
+
+    if (!toRecover.length) {
+      console.log("recoverOrphanMatches: no orphaned matches found");
+      return { success: true, recovered: 0 };
+    }
+
+    console.log(`🔍 Found ${toRecover.length} orphaned matches, recovering...`);
+
+    // Regrava cada match com o username correto
+    for (const match of toRecover) {
+      const { error: updateError } = await supabase
+        .from("matches")
+        .update({ username })
+        .eq("id", match.id);
+
+      if (updateError) {
+        console.error(`Failed to recover match ${match.id}:`, updateError);
+      } else {
+        console.log(`✅ Recovered match ${match.id} (${match.champion})`);
+      }
+    }
+
+    return { success: true, recovered: toRecover.length };
+  } catch (e) {
+    console.error("recoverOrphanMatches exception:", e.message);
+    return { success: false, error: e.message, recovered: 0 };
+  }
 }
 
 // ================= CORRIGIR FORMATO (team_size) EM FALTA =================
