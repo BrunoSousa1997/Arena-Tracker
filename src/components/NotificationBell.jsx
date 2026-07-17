@@ -181,7 +181,7 @@ const styles = {
     zIndex: 99997,
     width: PANEL_WIDTH,
     borderRadius: "var(--radius-lg)",
-    background: "linear-gradient(180deg, rgba(var(--panel-rgb),0.99), rgba(var(--panel-deep-rgb),0.99))",
+    background: "var(--surface-float)",
     border: "1px solid rgba(var(--border-rgb),0.6)",
     boxShadow: "0 10px 30px rgba(0,0,0,0.45)",
     overflow: "hidden",

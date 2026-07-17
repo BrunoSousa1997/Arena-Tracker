@@ -1332,7 +1332,8 @@ const styles = {
   },
 
   card: {
-    background: "linear-gradient(180deg, rgba(var(--panel-rgb),0.92), rgba(var(--panel-deep-rgb),0.96))",
+    background: "var(--panel-bg)",
+    backdropFilter: "var(--panel-blur)",
     border: "1px solid rgba(var(--border-rgb),0.5)",
     borderRadius: "var(--radius-2xl)",
     padding: 16,

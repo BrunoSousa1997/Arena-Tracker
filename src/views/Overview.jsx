@@ -375,7 +375,7 @@ export default function Overview({ matches, wins, champions, DRAGON, onOpenChamp
       {/* FORMA RECENTE — a sequência atual/melhor já aparece no cartão de
           destaque no topo, aqui fica só a fileira visual das últimas partidas. */}
       {recentForm.length > 0 && (
-        <div style={styles.section}>
+        <div className="riseIn" style={styles.section}>
           <h2 style={styles.sectionTitle}>📈 {t("overview_recent_form")}</h2>
           <div style={styles.formRow}>
             {recentForm.map((m, i) => {
@@ -433,7 +433,9 @@ export default function Overview({ matches, wins, champions, DRAGON, onOpenChamp
               sempre uma aproximação. */}
           {sessions.length > 0 && (
             <div
-              className={matches.length > 0 || duoSynergy.length > 0 ? "lg:col-span-7" : "lg:col-span-12"}
+              className={`riseIn ${
+                matches.length > 0 || duoSynergy.length > 0 ? "lg:col-span-7" : "lg:col-span-12"
+              }`}
               style={styles.section}
             >
               <h2 style={styles.sectionTitle}>⏱️ {t("overview_sessions")}</h2>
@@ -508,7 +510,7 @@ export default function Overview({ matches, wins, champions, DRAGON, onOpenChamp
               por dia das últimas ~18 semanas, cor mais forte quanto mais
               partidas jogadas nesse dia. */}
           {matches.length > 0 && (
-            <div style={styles.section}>
+            <div className="riseIn" style={styles.section}>
               <h2 style={styles.sectionTitle}>📅 {t("overview_activity")}</h2>
               {/* O gráfico ocupa muito menos altura que as listas de Sessões/
                   Premade ao lado — em vez de deixar um vazio estranho por
@@ -566,7 +568,7 @@ export default function Overview({ matches, wins, champions, DRAGON, onOpenChamp
           {/* PREMADE — conta qualquer colega de equipa repetido, seja em
               2v2 ou 3v3. */}
           {duoSynergy.length > 0 && (
-            <div style={styles.section}>
+            <div className="riseIn" style={styles.section}>
               <h2 style={styles.sectionTitle}>🤝 {t("overview_duo_synergy")}</h2>
               <div style={styles.duoList}>
                 {duoSynergy.map((d) => (
@@ -614,11 +616,16 @@ export default function Overview({ matches, wins, champions, DRAGON, onOpenChamp
                 {group.icon} {group.title}
               </h3>
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6 gap-2.5">
-                {group.items.map((sp) => (
+                {group.items.map((sp, i) => (
                   <div
                     key={sp.label}
-                    className="clickableCard"
-                    style={styles.spotlightCard}
+                    className="clickableCard riseIn"
+                    // Escalonamento: cada cartão entra 30ms depois do anterior,
+                    // o que lê como a grelha a preencher-se em vez de aparecer
+                    // toda de um golpe. O teto nos 8 é para a cauda não crescer
+                    // sem fim — a partir daí o atraso já não se distingue e só
+                    // fazia o último cartão demorar meio segundo a chegar.
+                    style={{ ...styles.spotlightCard, animationDelay: `${Math.min(i, 8) * 30}ms` }}
                     onClick={() => openStats(sp.champion, sp.sortKey)}
                     role="button"
                     tabIndex={0}
@@ -700,7 +707,8 @@ const styles = {
 
 
   section: {
-    background: "linear-gradient(180deg, rgba(var(--panel-rgb),0.92), rgba(var(--panel-deep-rgb),0.96))",
+    background: "var(--panel-bg)",
+    backdropFilter: "var(--panel-blur)",
     border: "1px solid rgba(var(--border-rgb),0.5)",
     borderRadius: "var(--radius-2xl)",
     padding: 16,
@@ -1007,8 +1015,14 @@ const styles = {
     letterSpacing: 0.3,
   },
 
+  // Translúcido como os outros painéis, mas sem "--panel-blur" de propósito:
+  // ao contrário das secções (que são meia dúzia), estes cartões vêm numa
+  // grelha de até 6 colunas e chegam facilmente a 18 em simultâneo — e um
+  // backdrop-filter por cartão a essa contagem custa GPU no scroll. A aurora
+  // por baixo já é um gradiente suave, por isso o blur aqui quase não se
+  // notava; a translucidez, essa, mantém-se e é o que deixa a cor passar.
   spotlightCard: {
-    background: "linear-gradient(180deg, rgba(var(--panel-rgb),0.92), rgba(var(--panel-deep-rgb),0.96))",
+    background: "var(--panel-bg)",
     border: "1px solid rgba(var(--border-rgb),0.5)",
     borderRadius: "var(--radius-xl)",
     overflow: "hidden",

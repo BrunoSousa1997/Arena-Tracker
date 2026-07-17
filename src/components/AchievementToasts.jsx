@@ -89,7 +89,7 @@ const styles = {
     padding: "11px 13px",
     borderRadius: "var(--radius-lg)",
     border: "1px solid",
-    background: "linear-gradient(180deg, rgba(var(--panel-rgb),0.99), rgba(var(--panel-deep-rgb),0.99))",
+    background: "var(--surface-float)",
     cursor: "pointer",
     // O contentor é "none" para não bloquear cliques no resto da app; cada
     // toast repõe-nos para poder ser dispensado ao clique.

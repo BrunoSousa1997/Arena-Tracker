@@ -54,6 +54,17 @@
   --accent: #818cf8;
   --accent-bg: rgba(129, 140, 248, 0.16);
   --accent-border: rgba(129, 140, 248, 0.55);
+
+  /* No escuro os painéis podem ser bem translúcidos: o fundo por baixo é
+     quase preto, por isso mesmo a 0.74 o cartão continua a ler-se como uma
+     superfície distinta — e é essa folga que deixa a aurora atravessá-la. */
+  --panel-bg: linear-gradient(180deg, rgba(var(--panel-rgb), 0.74), rgba(var(--panel-deep-rgb), 0.82));
+
+  /* Aurora (ver auroraBlob1/2 em App.jsx). Índigo do acento + o dourado do
+     destaque "build vencedora" — a mesma dupla do resto da app. Sobre um
+     fundo quase preto a cor precisa de peso para se ver de todo. */
+  --aurora-1: rgba(99, 102, 241, 0.5);
+  --aurora-2: rgba(250, 204, 21, 0.38);
 }
 
 :root[data-theme="light"] {
@@ -93,6 +104,21 @@
   --accent: #4f46e5;
   --accent-bg: rgba(79, 70, 229, 0.12);
   --accent-border: rgba(79, 70, 229, 0.55);
+
+  /* Muito menos translúcido do que no escuro, de propósito. Aqui o painel é
+     branco sobre uma página cinza-clara, e é só esse contraste que sustenta
+     a hierarquia de 3 níveis descrita acima — baixar o alfa como no tema
+     escuro dissolvia o branco no cinza e dava cabo dela. A 0.88 a aurora
+     ainda se insinua, sem o cartão deixar de ser "o branco por cima". */
+  --panel-bg: linear-gradient(180deg, rgba(var(--panel-rgb), 0.88), rgba(var(--panel-deep-rgb), 0.93));
+
+  /* Mesmas duas matizes do tema escuro, a metade da força. Sobre um cinza
+     claro a cor translúcida puxa a pastel e ganha muito mais presença do
+     que sobre preto: os valores do escuro aqui davam duas nódoas, não uma
+     aurora. O dourado troca #facc15 por âmbar (#f59e0b) pela mesma razão —
+     o amarelo puro sobre cinza claro lê a creme sujo em vez de luz. */
+  --aurora-1: rgba(99, 102, 241, 0.22);
+  --aurora-2: rgba(245, 158, 11, 0.18);
 }
 
 /* --accent-rgb: índigo vívido, só para o que deve mesmo destacar-se (tab
@@ -113,6 +139,23 @@
   --accent-solid-text: #ffffff;
   --accent-gradient: linear-gradient(135deg, var(--accent-solid-light), var(--accent-solid-deep));
   --border-rgb: 148, 154, 166;
+
+  /* ===== SUPERFÍCIES =====
+     Duas famílias, e a diferença entre elas é intencional:
+
+     --panel-bg (definido por tema, acima) é o cartão que vive NA página.
+     É translúcido para a aurora passar, e leva --panel-blur junto para ela
+     chegar como um lavado de cor suave em vez de duas manchas nítidas
+     espreitando através do vidro. O "saturate" compensa a lavagem que o
+     blur faz à cor.
+
+     --surface-float é para o que PAIRA sobre a página (modais, toasts,
+     dropdowns, o banner ao vivo). Fica opaco de propósito: por baixo tem
+     conteúdo arbitrário, não a aurora, e translucidez aí só faz o texto
+     competir com o que está atrás. Os modais já resolvem a separação com o
+     blur no overlay que os cobre. */
+  --panel-blur: blur(14px) saturate(1.15);
+  --surface-float: linear-gradient(180deg, rgba(var(--panel-rgb), 0.98), rgba(var(--panel-deep-rgb), 0.99));
 
   /* Escala de raios usada nos vários cartões/botões/badges (ver estilos
      inline nos componentes) — os valores "avulsos" fora desta escala (ex:
@@ -270,6 +313,25 @@ code {
   background-clip: padding-box;
 }
 
+/* Cartões de equipa do Histórico (colegas/adversários). Vive aqui e não nos
+   estilos inline do MatchHistory.jsx porque precisa mesmo de uma media query:
+   a fileira de cada jogador tem colunas de largura fixa (é o que alinha as
+   stats/build/augments entre equipas — ver teamRowLayout), por isso já não
+   encolhe para caber. Duas equipas lado a lado só quando essa fileira cabe
+   duas vezes; abaixo disso passamos a uma coluna, onde há largura de sobra.
+   Preferimos a secção ficar mais alta a ter colunas cortadas. */
+.teamsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+@media (max-width: 1520px) {
+  .teamsGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* SPINNER (usado em modais de importação/loading) */
 @keyframes spin {
   to {
@@ -319,6 +381,81 @@ code {
   100% {
     width: 5%;
     margin-left: 95%;
+  }
+}
+
+/* Entrada de painéis/cartões quando uma vista monta (ver .riseIn abaixo). */
+@keyframes riseIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Sobe 6px e aparece. O escalonamento faz-se com "animationDelay" inline no
+   sítio de uso (ver spotlightCard em Overview.jsx), que é onde se conhece o
+   índice do cartão.
+
+   "backwards" e não "both", e a diferença aqui não é cosmética: com "both" a
+   animação continua a aplicar o estado final depois de acabar, e uma animação
+   em fill ganha à regra normal do hover — o "translateY(-2px)" de
+   .clickableCard deixava simplesmente de funcionar nestes cartões. Com
+   "backwards" o estado inicial vale durante o delay (senão os cartões
+   piscavam visíveis antes de arrancar) e larga o transform mal termina,
+   devolvendo o hover a quem de direito. */
+.riseIn {
+  animation: riseIn 0.28s ease-out backwards;
+}
+
+/* ================= MOVIMENTO REDUZIDO =================
+   Nada de "*{ animation: none }" à bruta. A regra aqui é: pára o que se
+   DESLOCA sozinho e sem o utilizador ter pedido nada; deixa ficar o que
+   comunica estado.
+
+   Pára:
+   - a aurora, que é o único movimento permanente e a ocupar o ecrã inteiro.
+     "animation: none" (e não um keyframe parado) para o compositor deixar
+     mesmo de trabalhar em cada frame, em vez de animar para lado nenhum.
+   - o "scale" do ponto ao vivo, redefinindo o keyframe: os elementos que o
+     usam são estilizados inline (App.jsx, Challenges.jsx) e não têm classe
+     por onde lhes pegar — redefinir o keyframe apanha-os aos dois sem lhes
+     tocar. Continua a pulsar em opacidade, que é o que diz "há jogo agora".
+
+   Fica:
+   - spin e growSyncBar. São a resposta visual a uma ação que o utilizador
+     pediu, e congelados fazem a app parecer pendurada — pior do que o
+     movimento que se queria evitar.
+   - leaderGlow, que pulsa em cor e não em posição.
+
+   Isto não alcança o framer-motion (anima em JS, ver liveBanner em App.jsx):
+   se um dia for preciso, tem de ser via useReducedMotion no componente. */
+@media (prefers-reduced-motion: reduce) {
+  .auroraBlob {
+    animation: none !important;
+  }
+
+  /* A entrada passa a ser só o fade, sem o deslocamento. */
+  @keyframes riseIn {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes livePulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.45;
+    }
   }
 }
 
