@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { normalizeItems } from "../lib/items";
 
 // ================= MATCHES (histórico de partidas de Arena) =================
 // "extra" carrega as estatísticas ao estilo op.gg que a Live Client Data
@@ -168,7 +169,11 @@ export async function getMatches(username) {
     return [];
   }
 
-  return data || [];
+  // Ponto único onde as partidas entram na app — normalizar a build aqui
+  // garante o formato { itemID, count } a TODOS os consumidores (histórico,
+  // relatórios, comparar), incluindo linhas antigas que ficaram gravadas só
+  // com os ids em bruto. Ver normalizeItems.
+  return (data || []).map((m) => ({ ...m, items: normalizeItems(m.items) }));
 }
 
 // Encontra a nossa própria entrada dentro de "participants" — puuid primeiro
@@ -247,7 +252,7 @@ export async function repairMismatchedMatches(username, riotGameName, riotTagLin
           assists: me.assists ?? match.assists,
           win: me.placement != null ? me.placement === 1 : match.win,
           placement: me.placement ?? match.placement,
-          items: me.items?.length ? me.items : match.items,
+          items: me.items?.length ? normalizeItems(me.items) : normalizeItems(match.items),
           augments: me.augments?.length ? me.augments : match.augments,
           damage_dealt: me.damageDealt ?? match.damage_dealt,
           damage_taken: me.damageTaken ?? match.damage_taken,

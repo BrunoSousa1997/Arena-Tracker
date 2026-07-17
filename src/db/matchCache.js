@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { normalizeItems } from "../lib/items";
 
 // ================= CACHE PARTILHADA DE PARTIDAS (entre users) =================
 // Uma partida de Arena tem sempre vários jogadores reais (16 na de 2, 18 na
@@ -151,7 +152,9 @@ export function buildMatchFromCache(matchId, cached, puuid, gameName) {
     assists: me.assists ?? 0,
     win: me.placement === 1,
     placement: me.placement ?? null,
-    items: me.items || [],
+    // "me" vem de "participants", onde a build são só ids em bruto — a coluna
+    // "items" espera { itemID, count }. Ver normalizeItems.
+    items: normalizeItems(me.items),
     augments: me.augments || [],
     gameEndTimestamp: cached.created_at ? new Date(cached.created_at).getTime() : Date.now(),
     teamSize: cached.team_size ?? null,

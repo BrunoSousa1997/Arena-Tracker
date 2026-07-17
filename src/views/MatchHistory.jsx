@@ -98,6 +98,88 @@ function groupParticipantsByPlacement(participants) {
     .sort((a, b) => (a.placement || 99) - (b.placement || 99));
 }
 
+// ================= COLUNAS DA FILEIRA DE COLEGAS/ADVERSÁRIOS =================
+// Larguras fixas de cada coluna, em px. Fixas (e não a acompanhar o conteúdo)
+// porque o objetivo é comparar jogadores ENTRE cartões de equipa diferentes:
+// com colunas dimensionadas ao conteúdo, cada cartão chegava a um tamanho
+// próprio e o dano de uma equipa não ficava por cima do dano da outra. Os
+// valores saem do texto mais largo que cada coluna chega a ter (ex: "19/15/12"
+// no KDA, "DK×4"+"TK×2" nos multikills, "🛡 131.5k" nas stats).
+const TEAM_COL = {
+  icon: 24,
+  kda: 52,
+  multikill: 75,
+  stat: 46,
+  item: 14,
+  itemGap: 2,
+  augment: 16, // ícone 12 + padding 1 + borda 1, de cada lado
+  augmentGap: 2,
+};
+
+// Decide, para UMA partida, que colunas a fileira de cada jogador vai ter e
+// devolve o "gridTemplateColumns" que TODOS os cartões dessa partida usam —
+// é isso que faz o dano/build/augments de qualquer jogador cair exatamente
+// por baixo do dos outros, mesmo em equipas diferentes.
+//
+// As colunas de conteúdo só existem se ALGUÉM na partida as tiver: partidas
+// antigas (importadas antes de guardarmos dano/ouro/cura, ou sem augments)
+// não ficam com colunas vazias reservadas a nada. Dentro de uma coluna que
+// exista, quem não tem valor fica com a célula vazia — o espaço continua lá,
+// que é o que mantém o alinhamento.
+function teamRowLayout(participants) {
+  const players = participants || [];
+  const any = (fn) => players.some(fn);
+  const maxCount = (fn) => Math.max(0, ...players.map((p) => fn(p)?.length || 0));
+
+  const layout = {
+    multikill: any((p) => p.doubleKills || p.tripleKills),
+    damageDealt: any((p) => p.damageDealt),
+    damageTaken: any((p) => p.damageTaken),
+    goldEarned: any((p) => p.goldEarned),
+    healing: any((p) => p.healing),
+    items: maxCount((p) => p.items),
+    augments: maxCount((p) => p.augments),
+  };
+
+  const groupWidth = (count, size, gap) => count * size + (count - 1) * gap;
+
+  // O nome é a única coluna elástica: leva o espaço que sobrar, o que corta
+  // menos nomes do que os 100px fixos de antes ("DerAufgestande..."). Mas com
+  // um teto — sem ele, num monitor largo ficava com ~250px e abria um vazio
+  // enorme entre o nome e o KDA. O que sobra do teto fica no fim da fileira,
+  // onde não separa nada.
+  const columns = [`${TEAM_COL.icon}px`, "minmax(90px, 170px)", `${TEAM_COL.kda}px`];
+
+  if (layout.multikill) columns.push(`${TEAM_COL.multikill}px`);
+  ["damageDealt", "damageTaken", "goldEarned", "healing"].forEach((key) => {
+    if (layout[key]) columns.push(`${TEAM_COL.stat}px`);
+  });
+  if (layout.items > 0) {
+    columns.push(`${groupWidth(layout.items, TEAM_COL.item, TEAM_COL.itemGap)}px`);
+  }
+  if (layout.augments > 0) {
+    columns.push(`${groupWidth(layout.augments, TEAM_COL.augment, TEAM_COL.augmentGap)}px`);
+  }
+
+  return { ...layout, template: columns.join(" ") };
+}
+
+// Uma célula de stat (dano/ouro/cura) da fileira. É renderizada mesmo sem
+// valor — uma célula vazia continua a ocupar a sua coluna, e é isso que
+// impede as colunas seguintes de deslizarem para a esquerda nas linhas a
+// quem falta um valor.
+function TeamStatCell({ icon, label, value }) {
+  if (!value) return <span style={styles.teamPlayerStat} />;
+
+  return (
+    <Tooltip label={label} style={styles.teamPlayerStatCell}>
+      <span style={styles.teamPlayerStat}>
+        {icon} {formatCompact(value)}
+      </span>
+    </Tooltip>
+  );
+}
+
 // Cor do selo de lugar — mantém a mesma lógica de sempre (pódio a verde,
 // meio a laranja, fundo a vermelho), só já não vem acompanhada de uma
 // etiqueta de texto tipo "VITÓRIA"/"TOP 3"/"DERROTA".
@@ -347,6 +429,10 @@ export default function MatchHistory({
             const rowKey = `${m.champion}-${m.created_at}-${i}`;
             const isOpen = expanded === rowKey;
             const color = resultColor(m);
+            // Calculado uma vez por partida (não por cartão de equipa) — é
+            // exatamente por ser o mesmo para toda a gente que as colunas
+            // alinham entre equipas. Ver teamRowLayout.
+            const teamGrid = isOpen ? teamRowLayout(m.participants) : null;
 
             return (
               <motion.div
@@ -573,7 +659,7 @@ export default function MatchHistory({
                     <div style={styles.expandSection}>
                         <div style={styles.expandLabel}>{t("section_teammates_opponents")}</div>
                         {m.participants?.length ? (
-                          <div style={styles.teamsGrid}>
+                          <div className="teamsGrid">
                             {groupParticipantsByPlacement(m.participants).map((team) => {
                               const teamColor = placementColor(team.placement);
                               return (
@@ -605,6 +691,7 @@ export default function MatchHistory({
                                         key={idx}
                                         style={{
                                           ...styles.teamPlayer,
+                                          gridTemplateColumns: teamGrid.template,
                                           background: p.isSelf ? "rgba(var(--accent-rgb),0.14)" : "transparent",
                                         }}
                                       >
@@ -616,11 +703,15 @@ export default function MatchHistory({
                                             />
                                           )}
                                         </Tooltip>
-                                        {/* Nome e KDA em colunas próprias do grid (ver teamPlayer) —
-                                            começam sempre na mesma posição em todas as linhas, em vez
-                                            de dependerem do que vinha antes numa fileira em flex. */}
+                                        {/* Cada bloco daqui para baixo é UMA célula do grid da linha
+                                            (ver teamPlayer/teamRowLayout) — nome, KDA, multikills, cada
+                                            stat, build e augments têm coluna própria de largura fixa, e
+                                            existem mesmo quando o jogador não tem o valor. É isso que
+                                            põe o dano de cada um debaixo do dano dos outros, em vez de
+                                            uma fileira em flex onde tudo escorregava consoante o que
+                                            vinha antes (um badge DK a mais empurrava a linha inteira). */}
                                         {p.name ? (
-                                          <Tooltip label={p.name}>
+                                          <Tooltip label={p.name} style={styles.teamPlayerNameCell}>
                                             <span style={styles.teamPlayerName}>{p.name}</span>
                                           </Tooltip>
                                         ) : (
@@ -629,99 +720,80 @@ export default function MatchHistory({
                                         <span style={styles.teamPlayerKda}>
                                           {p.kills}/{p.deaths}/{p.assists}
                                         </span>
-                                        {/* Stats/multikills/build/augments continuam numa fileira
-                                            que envolve (wrap) — a última coluna do grid, flexível.
-                                            Cada tipo vive no seu próprio grupo (fundo/gap próprios)
-                                            em vez de tudo solto ao mesmo nível — lê-se como blocos
-                                            distintos (combate / build / augments), não uma míscelânea. */}
-                                        <div style={styles.teamPlayerInfo}>
-                                          {(!!p.doubleKills || !!p.tripleKills) && (
-                                            <div style={styles.multikillGroup}>
-                                              {!!p.doubleKills && (
+                                        {teamGrid.multikill && (
+                                          <div style={styles.multikillGroup}>
+                                            {!!p.doubleKills && (
+                                              <Tooltip
+                                                label={`${MULTIKILL_LABELS[2]}${p.doubleKills > 1 ? ` ×${p.doubleKills}` : ""}`}
+                                              >
+                                                <span style={styles.multikillBadgeSmall}>
+                                                  DK{p.doubleKills > 1 ? `×${p.doubleKills}` : ""}
+                                                </span>
+                                              </Tooltip>
+                                            )}
+                                            {!!p.tripleKills && (
+                                              <Tooltip
+                                                label={`${MULTIKILL_LABELS[3]}${p.tripleKills > 1 ? ` ×${p.tripleKills}` : ""}`}
+                                              >
+                                                <span style={{ ...styles.multikillBadgeSmall, ...styles.multikillBadgeTriple }}>
+                                                  TK{p.tripleKills > 1 ? `×${p.tripleKills}` : ""}
+                                                </span>
+                                              </Tooltip>
+                                            )}
+                                          </div>
+                                        )}
+                                        {teamGrid.damageDealt && (
+                                          <TeamStatCell icon="⚔" label={t("stat_damage_dealt")} value={p.damageDealt} />
+                                        )}
+                                        {teamGrid.damageTaken && (
+                                          <TeamStatCell icon="🛡" label={t("stat_damage_taken")} value={p.damageTaken} />
+                                        )}
+                                        {teamGrid.goldEarned && (
+                                          <TeamStatCell icon="🪙" label={t("stat_gold")} value={p.goldEarned} />
+                                        )}
+                                        {teamGrid.healing && (
+                                          <TeamStatCell icon="✚" label={t("stat_healing")} value={p.healing} />
+                                        )}
+                                        {teamGrid.items > 0 && (
+                                          <div style={styles.teamPlayerItemsGroup}>
+                                            {(p.items || []).map((itemId, i2) => (
+                                              <Tooltip key={`i-${i2}`} label={itemsMap?.[itemId] || `Item #${itemId}`}>
+                                                <img
+                                                  src={`${DRAGON}/img/item/${itemId}.png`}
+                                                  style={styles.teamPlayerItemIcon}
+                                                />
+                                              </Tooltip>
+                                            ))}
+                                          </div>
+                                        )}
+                                        {teamGrid.augments > 0 && (
+                                          <div style={styles.teamPlayerAugmentsGroup}>
+                                            {(p.augments || []).map((augId, i3) => {
+                                              const info = augmentsMap?.[augId];
+                                              const needsDarkIcon = theme === "light" && m.team_size === 3;
+                                              const rarityStyle = augmentRarityStyle(info?.rarity);
+                                              return (
                                                 <Tooltip
-                                                  label={`${MULTIKILL_LABELS[2]}${p.doubleKills > 1 ? ` ×${p.doubleKills}` : ""}`}
+                                                  key={`a-${i3}`}
+                                                  label={info?.name || `Augment #${augId}`}
                                                 >
-                                                  <span style={styles.multikillBadgeSmall}>
-                                                    DK{p.doubleKills > 1 ? `×${p.doubleKills}` : ""}
-                                                  </span>
+                                                  {info?.icon && (
+                                                    <span style={{ ...styles.teamPlayerAugmentWrap, ...rarityStyle }}>
+                                                      <img
+                                                        src={info.icon}
+                                                        style={{
+                                                          ...styles.teamPlayerAugmentIcon,
+                                                          filter: needsDarkIcon ? "brightness(0.35)" : "none",
+                                                        }}
+                                                        onError={(e) => { e.currentTarget.style.display = "none"; }}
+                                                      />
+                                                    </span>
+                                                  )}
                                                 </Tooltip>
-                                              )}
-                                              {!!p.tripleKills && (
-                                                <Tooltip
-                                                  label={`${MULTIKILL_LABELS[3]}${p.tripleKills > 1 ? ` ×${p.tripleKills}` : ""}`}
-                                                >
-                                                  <span style={{ ...styles.multikillBadgeSmall, ...styles.multikillBadgeTriple }}>
-                                                    TK{p.tripleKills > 1 ? `×${p.tripleKills}` : ""}
-                                                  </span>
-                                                </Tooltip>
-                                              )}
-                                            </div>
-                                          )}
-                                          {(!!p.damageDealt || !!p.damageTaken || !!p.goldEarned || !!p.healing) && (
-                                            <div style={styles.teamPlayerStatsGroup}>
-                                              {!!p.damageDealt && (
-                                                <Tooltip label={t("stat_damage_dealt")}>
-                                                  <span style={styles.teamPlayerStat}>⚔ {formatCompact(p.damageDealt)}</span>
-                                                </Tooltip>
-                                              )}
-                                              {!!p.damageTaken && (
-                                                <Tooltip label={t("stat_damage_taken")}>
-                                                  <span style={styles.teamPlayerStat}>🛡 {formatCompact(p.damageTaken)}</span>
-                                                </Tooltip>
-                                              )}
-                                              {!!p.goldEarned && (
-                                                <Tooltip label={t("stat_gold")}>
-                                                  <span style={styles.teamPlayerStat}>🪙 {formatCompact(p.goldEarned)}</span>
-                                                </Tooltip>
-                                              )}
-                                              {!!p.healing && (
-                                                <Tooltip label={t("stat_healing")}>
-                                                  <span style={styles.teamPlayerStat}>✚ {formatCompact(p.healing)}</span>
-                                                </Tooltip>
-                                              )}
-                                            </div>
-                                          )}
-                                          {!!p.items?.length && (
-                                            <div style={styles.teamPlayerItemsGroup}>
-                                              {p.items.map((itemId, i2) => (
-                                                <Tooltip key={`i-${i2}`} label={itemsMap?.[itemId] || `Item #${itemId}`}>
-                                                  <img
-                                                    src={`${DRAGON}/img/item/${itemId}.png`}
-                                                    style={styles.teamPlayerItemIcon}
-                                                  />
-                                                </Tooltip>
-                                              ))}
-                                            </div>
-                                          )}
-                                          {!!p.augments?.length && (
-                                            <div style={styles.teamPlayerAugmentsGroup}>
-                                              {p.augments.map((augId, i3) => {
-                                                const info = augmentsMap?.[augId];
-                                                const needsDarkIcon = theme === "light" && m.team_size === 3;
-                                                const rarityStyle = augmentRarityStyle(info?.rarity);
-                                                return (
-                                                  <Tooltip
-                                                    key={`a-${i3}`}
-                                                    label={info?.name || `Augment #${augId}`}
-                                                  >
-                                                    {info?.icon && (
-                                                      <span style={{ ...styles.teamPlayerAugmentWrap, ...rarityStyle }}>
-                                                        <img
-                                                          src={info.icon}
-                                                          style={{
-                                                            ...styles.teamPlayerAugmentIcon,
-                                                            filter: needsDarkIcon ? "brightness(0.35)" : "none",
-                                                          }}
-                                                          onError={(e) => { e.currentTarget.style.display = "none"; }}
-                                                        />
-                                                      </span>
-                                                    )}
-                                                  </Tooltip>
-                                                );
-                                              })}
-                                            </div>
-                                          )}
-                                        </div>
+                                              );
+                                            })}
+                                          </div>
+                                        )}
                                       </div>
                                     ))}
                                   </div>
@@ -1132,23 +1204,6 @@ const styles = {
     borderRadius: "var(--radius-xs)",
   },
 
-  // Colegas e adversários (estilo op.gg) — um cartão por equipa (agrupada
-  // por lugar final). Antes ficavam empilhadas numa só coluna (até 8
-  // cartões seguidos na Arena de 2, cada um ocupando a largura toda) — o que
-  // tornava a secção enorme. auto-fit deixa entrar mais colunas conforme o
-  // espaço disponível (fixo em 2 antes, mesmo com a coluna agora bem mais
-  // larga em ecrãs grandes — sobrava espaço por usar).
-  // Fixo em 3 colunas (não auto-fit) — com minmax, cartões estreitos
-  // deixavam pouco espaço à coluna de stats/build/augments de cada jogador,
-  // que ia quebrando linha (parecia empilhado na vertical em vez de uma
-  // fileira horizontal). Com sempre 3 por linha, cada cartão fica bem mais
-  // largo e essa fileira cabe sem quebrar.
-  teamsGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(2, 1fr)",
-    gap: 8,
-  },
-
   // Cartão de equipa modernizado: fundo em degradê (como o resto da app) em
   // vez de uma cor plana, com uma barra de destaque à esquerda na cor do
   // lugar (mesmo padrão usado no cartão da partida) em vez de contorno
@@ -1188,14 +1243,14 @@ const styles = {
     gap: 3,
   },
 
-  // Grid de colunas fixas (ícone/nome/KDA) + uma última coluna flexível
-  // (stats/build/augments) — antes era tudo em flex/wrap, o que fazia cada
-  // jogador alinhar num sítio diferente consoante o tamanho do nome (nada
-  // ficava por baixo de nada). Em grid, nome/KDA começam sempre na mesma
-  // posição em todas as linhas de todos os cartões, como uma tabela.
+  // Uma coluna por cada coisa comparável (ícone/nome/KDA/multikills/cada
+  // stat/build/augments), toda de largura fixa — lê-se como uma tabela: para
+  // comparar o dano de dois jogadores basta descer o olhar pela coluna, sem
+  // procurar onde é que o número daquela linha calhou. O "gridTemplateColumns"
+  // vem de fora (ver teamRowLayout), porque depende do que a partida tem e é
+  // igual para todos os cartões de equipa dela.
   teamPlayer: {
     display: "grid",
-    gridTemplateColumns: "24px 100px 46px 1fr",
     alignItems: "center",
     columnGap: 8,
     padding: "3px 5px",
@@ -1209,29 +1264,9 @@ const styles = {
     pointerEvents: "none",
   },
 
-  // Continua a envolver (wrap) KDA/stats/build/augments dentro da sua
-  // coluna — só o alinhamento com o resto da linha é que agora vem do grid
-  // do pai, não de flex a espremer tudo numa fileira só.
-  teamPlayerInfo: {
-    display: "flex",
-    alignItems: "center",
-    flexWrap: "wrap",
-    columnGap: 6,
-    rowGap: 3,
-    minWidth: 0,
-  },
-
-  // Grupo do dano/ouro/cura — antes eram spans soltos ao mesmo nível dos
-  // outros grupos (multikills/build/augments); agrupados assim lêem-se como
-  // um bloco de combate só seu, com o mesmo gap apertado que items/augments.
-  teamPlayerStatsGroup: {
-    display: "flex",
-    alignItems: "center",
-    gap: 5,
-  },
-
   multikillGroup: {
     display: "flex",
+    alignItems: "center",
     gap: 3,
   },
 
@@ -1253,6 +1288,13 @@ const styles = {
     color: "#eab308",
   },
 
+  // O <span> do Tooltip é que é a célula do grid — sem minWidth:0 um nome
+  // longo esticava a coluna flexível do nome e roubava espaço às outras.
+  teamPlayerNameCell: {
+    minWidth: 0,
+    overflow: "hidden",
+  },
+
   teamPlayerName: {
     fontSize: 11.5,
     fontWeight: 600,
@@ -1263,16 +1305,27 @@ const styles = {
     whiteSpace: "nowrap",
   },
 
+  // tabular-nums no KDA e nas stats: por omissão os dígitos têm larguras
+  // diferentes (o "1" é estreito), por isso números da mesma grandeza em
+  // linhas seguidas ficavam com comprimentos visuais diferentes. Com dígitos
+  // de largura fixa, uma coluna de números compara-se de relance.
   teamPlayerKda: {
     fontSize: 11.5,
     fontWeight: 700,
     color: "var(--text-body)",
+    fontVariantNumeric: "tabular-nums",
+  },
+
+  teamPlayerStatCell: {
+    minWidth: 0,
+    overflow: "hidden",
   },
 
   teamPlayerStat: {
     fontSize: 10.5,
     color: "var(--text-secondary)",
     whiteSpace: "nowrap",
+    fontVariantNumeric: "tabular-nums",
   },
 
   // Grupos próprios para items/augments (gap bem mais apertado entre si do
