@@ -1,6 +1,10 @@
 const { app, ipcMain } = require("electron");
 const { autoUpdater } = require("electron-updater");
+const https = require("https");
 const { getWindow } = require("./windowState");
+
+const RELEASES_OWNER = "BrunoSousa1997";
+const RELEASES_REPO = "Arena-Tracker";
 
 // ================= AUTO UPDATE =================
 autoUpdater.autoDownload = true;
@@ -31,7 +35,15 @@ autoUpdater.on("download-progress", (progress) => {
 });
 
 autoUpdater.on("update-downloaded", (info) => {
-  sendUpdaterStatus("downloaded", { version: info?.version });
+  // electron-updater devolve string (release única) ou array de
+  // {version, note} quando o utilizador salta várias versões de uma vez.
+  const notes = Array.isArray(info?.releaseNotes)
+    ? info.releaseNotes.map((n) => n?.note).filter(Boolean).join("\n\n")
+    : typeof info?.releaseNotes === "string"
+    ? info.releaseNotes
+    : null;
+
+  sendUpdaterStatus("downloaded", { version: info?.version, releaseNotes: notes });
 });
 
 autoUpdater.on("error", (err) => {
@@ -49,6 +61,73 @@ ipcMain.handle("updater:install", () => {
 });
 
 ipcMain.handle("app:getVersion", () => app.getVersion());
+
+// ================= HISTÓRICO DE PATCHES =================
+// Feed atom público do GitHub — dá as notas de todas as releases já em
+// HTML pronto (o próprio GitHub converte o markdown do corpo da release),
+// sem precisar de autenticação nem de um parser de markdown à parte.
+function fetchReleasesAtom() {
+  return new Promise((resolve, reject) => {
+    https
+      .get(
+        `https://github.com/${RELEASES_OWNER}/${RELEASES_REPO}/releases.atom`,
+        { headers: { "User-Agent": "arena-tracker-app" } },
+        (res) => {
+          if (res.statusCode !== 200) {
+            res.resume();
+            reject(new Error(`GitHub respondeu ${res.statusCode}`));
+            return;
+          }
+          let data = "";
+          res.on("data", (chunk) => (data += chunk));
+          res.on("end", () => resolve(data));
+        }
+      )
+      .on("error", reject);
+  });
+}
+
+function unescapeXmlEntities(str) {
+  return str
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+
+function parseReleasesAtom(xml) {
+  const releases = [];
+  const entryRegex = /<entry>([\s\S]*?)<\/entry>/g;
+  let entryMatch;
+
+  while ((entryMatch = entryRegex.exec(xml))) {
+    const block = entryMatch[1];
+    const version = /<title>([\s\S]*?)<\/title>/.exec(block)?.[1]?.trim();
+    if (!version) continue;
+
+    const publishedAt = /<updated>([\s\S]*?)<\/updated>/.exec(block)?.[1]?.trim() || null;
+    const rawContent = /<content(?:\s+type="html")?>([\s\S]*?)<\/content>/.exec(block)?.[1] || "";
+    const notesHtml = unescapeXmlEntities(rawContent).trim();
+
+    releases.push({
+      version,
+      publishedAt,
+      notesHtml: notesHtml === "No content." ? "" : notesHtml,
+    });
+  }
+
+  return releases;
+}
+
+ipcMain.handle("updater:history", async () => {
+  try {
+    const xml = await fetchReleasesAtom();
+    return { ok: true, releases: parseReleasesAtom(xml) };
+  } catch (err) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+});
 
 function checkForUpdatesOnStartup() {
   if (!process.env.ELECTRON_START_URL) {

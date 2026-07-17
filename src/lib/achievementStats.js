@@ -33,7 +33,7 @@ function longestSessionGames(matches) {
   return longest;
 }
 
-export function computeAchievementStats(matches, champions, wins) {
+export function computeAchievementStats(matches, champions, wins, challengeWins = 0) {
   const totalGames = matches.length;
   const totalWins = matches.filter((m) => m.win).length;
   const coveragePct = champions.length ? Math.round((wins.length / champions.length) * 100) : 0;
@@ -179,6 +179,7 @@ export function computeAchievementStats(matches, champions, wins) {
     hasTopTankTop3,
     hasTopGold,
     hasTopKills,
+    challengeWins,
   };
 }
 
@@ -277,6 +278,7 @@ export function buildAchievementCategories(stats, t) {
 
     // ---- Marcos de carreira ----
     { id: "top3total", iconId: "podium", title: t("achv_cat_top3total"), desc: t("achv_cat_top3total_desc"), value: stats.top3Total, unit: "", tiers: [5, 25, 50, 100, 250, 500] },
+    { id: "challenge_wins", iconId: "crest", title: t("achv_cat_challenge_wins"), desc: t("achv_cat_challenge_wins_desc"), value: stats.challengeWins, unit: "", tiers: [1, 3, 5, 10, 25] },
     { id: "kills", iconId: "skull", title: t("achv_cat_kills"), desc: t("achv_cat_kills_desc"), value: stats.totalKills, unit: "", tiers: [50, 250, 1000, 2500, 5000, 10000] },
     { id: "augments", iconId: "rune", title: t("achv_cat_augments"), desc: t("achv_cat_augments_desc"), value: stats.distinctAugments, unit: "", tiers: [10, 25, 50, 100, 150] },
     { id: "days", iconId: "calendar", title: t("achv_cat_days"), desc: t("achv_cat_days_desc"), value: stats.daysPlayed, unit: "", tiers: [5, 25, 50, 100, 250] },

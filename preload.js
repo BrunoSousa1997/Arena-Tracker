@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld("electron", {
   getVersion: () => ipcRenderer.invoke("app:getVersion"),
   checkForUpdates: () => ipcRenderer.invoke("updater:check"),
   installUpdate: () => ipcRenderer.invoke("updater:install"),
+  getReleaseHistory: () => ipcRenderer.invoke("updater:history"),
   onUpdaterStatus: (callback) => {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on("updater:status", listener);

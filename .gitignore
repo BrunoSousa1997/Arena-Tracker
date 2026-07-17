@@ -25,4 +25,7 @@ release
 *.njsproj
 *.sln
 *.sw?
-.claude
+# Definições pessoais do Claude Code ficam de fora, mas as skills são
+# conhecimento do projeto (ver .claude/skills/) e vão para o repo.
+.claude/*
+!.claude/skills/

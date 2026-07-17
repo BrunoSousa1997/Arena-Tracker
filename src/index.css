@@ -14,7 +14,15 @@
    em ações/estados ativos, o resto da UI é neutro. Cores de resultado
    (vitória/derrota/lugar) vivem à parte, também com variante por tema —
    ver mais abaixo e placement.js. Trocado via atributo data-theme na tag
-   <html> (ver App.jsx). */
+   <html> (ver App.jsx).
+
+   --info (ciano) é a terceira cor e só serve para o que é informação ou
+   estado do sistema (novidades, atualizações, sync) — coisas que não são
+   nem uma ação a pedir clique (isso é o acento) nem um resultado de jogo.
+   Nunca usar em contexto de lugar/classificação: aí vive o --place-good, e
+   a apenas 37° de matiz de distância os dois confundem-se. É essa regra que
+   justifica a cor existir; sem ela, era só mais um roxo perdido — foi o que
+   aconteceu ao antigo --accent-solid-2, declarado e nunca usado. */
 :root,
 :root[data-theme="dark"] {
   --bg-deep: #0a0b10;
@@ -23,7 +31,7 @@
   --panel-deep-rgb: 15, 16, 21;
   --soft-rgb: 255, 255, 255;
 
-  --accent-text: #ab8bfa;
+  --accent-text: #a5b4fc;
   --text-body: #e9eaee;
   --text-secondary: #9aa0ab;
   --text-secondary-rgb: 154, 160, 171;
@@ -34,14 +42,18 @@
   --place-low: #ff5c5c;
   --place-unknown: #6d7280;
 
+  --info: #22d3ee;
+  --info-bg: rgba(34, 211, 238, 0.14);
+  --info-border: rgba(34, 211, 238, 0.45);
+
   --text: #9ca3af;
   --text-h: #f3f4f6;
   --bg: #16171d;
   --border: #2e303a;
   --code-bg: #1f2028;
-  --accent: #d17bff;
-  --accent-bg: rgba(209, 123, 255, 0.16);
-  --accent-border: rgba(209, 123, 255, 0.55);
+  --accent: #818cf8;
+  --accent-bg: rgba(129, 140, 248, 0.16);
+  --accent-border: rgba(129, 140, 248, 0.55);
 }
 
 :root[data-theme="light"] {
@@ -55,7 +67,7 @@
   --panel-deep-rgb: 243, 244, 247;
   --soft-rgb: 0, 0, 0;
 
-  --accent-text: #6d28d9;
+  --accent-text: #4338ca;
   --text-body: #14161c;
   --text-secondary: #565d6a;
   --text-secondary-rgb: 86, 93, 106;
@@ -66,28 +78,40 @@
   --place-low: #d21f1f;
   --place-unknown: #6b7280;
 
-  --text: #6b6375;
+  --info: #0e7490;
+  --info-bg: rgba(14, 116, 144, 0.1);
+  --info-border: rgba(14, 116, 144, 0.45);
+
+  /* Neutros frios (slate) a condizer com o subtom azulado do acento — antes
+     estes três estavam cada um a uma temperatura diferente (creme quente no
+     code-bg, cinza com tinta roxa no text, cinza-azul no text-secondary). */
+  --text: #475569;
   --text-h: #08060d;
   --bg: #fff;
-  --border: #e5e4e7;
-  --code-bg: #f4f3ec;
-  --accent: #b347ff;
-  --accent-bg: rgba(179, 71, 255, 0.12);
-  --accent-border: rgba(179, 71, 255, 0.55);
+  --border: #e2e8f0;
+  --code-bg: #f1f5f9;
+  --accent: #4f46e5;
+  --accent-bg: rgba(79, 70, 229, 0.12);
+  --accent-border: rgba(79, 70, 229, 0.55);
 }
 
 /* --accent-rgb: índigo vívido, só para o que deve mesmo destacar-se (tab
    ativa, botão principal, barra de progresso) — usar em poucos sítios de
    propósito, nunca como moldura genérica. --border-rgb é neutro e serve de
    linha subtil para todos os containers/painéis, para não pintar tudo da
-   mesma cor e perder hierarquia visual. */
+   mesma cor e perder hierarquia visual.
+
+   Os tons do acento são os do logo (ver assets/logo.ico): as barras do ícone
+   são exatamente indigo 400/500/600/700, por isso o botão principal é feito
+   das mesmas cores que o ícone na barra de tarefas. Se um dia o logo mudar,
+   estes valores mudam com ele — é essa a âncora, não o gosto do momento. */
 :root {
-  --accent-rgb: 147, 74, 246;
-  --accent-solid: #7c3aed;
-  --accent-solid-light: #a855f7;
-  --accent-solid-2: #d946ef;
+  --accent-rgb: 99, 102, 241;
+  --accent-solid: #4f46e5;
+  --accent-solid-light: #6366f1;
+  --accent-solid-deep: #4338ca;
   --accent-solid-text: #ffffff;
-  --accent-gradient: linear-gradient(135deg, var(--accent-solid-light), var(--accent-solid));
+  --accent-gradient: linear-gradient(135deg, var(--accent-solid-light), var(--accent-solid-deep));
   --border-rgb: 148, 154, 166;
 
   /* Escala de raios usada nos vários cartões/botões/badges (ver estilos
@@ -265,6 +289,20 @@ code {
   50% {
     opacity: 0.45;
     transform: scale(0.82);
+  }
+}
+
+/* Brilho dourado pulsante à volta do card de quem lidera o desafio (ver
+   combatCardLeader em Challenges.jsx) — o resto da UI usa cor sólida para
+   estados normais, mas o 1º lugar do placar ao vivo é o único destaque que
+   vale a pena animar. */
+@keyframes leaderGlow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 1px rgba(245, 196, 81, 0.4), 0 6px 22px rgba(245, 196, 81, 0.16);
+  }
+  50% {
+    box-shadow: 0 0 0 1px rgba(245, 196, 81, 0.7), 0 8px 28px rgba(245, 196, 81, 0.32);
   }
 }
 

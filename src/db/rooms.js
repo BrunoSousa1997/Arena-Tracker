@@ -1,5 +1,19 @@
 import { supabase } from "./supabase";
 
+// O cliente Supabase reutiliza um canal Realtime existente sempre que se
+// pede outro com o MESMO nome (ver RealtimeClient.channel) — em vez de criar
+// um novo, devolve o já aberto. Duas subscrições independentes ao mesmo
+// "tópico" (ex: useNotifications.js, que corre sempre, e Challenges.jsx, só
+// enquanto essa tab está aberta, ambas a pedir "invites-<username>") acabam
+// as duas a mexer no MESMO canal — e registar um `.on(...)` novo num canal
+// que já fez `.subscribe()` LANÇA uma exceção síncrona dentro do useEffect,
+// que sem Error Boundary derruba a app inteira. Um sufixo único por chamada
+// garante que cada `subscribeTo*` tem sempre o seu próprio canal.
+let channelSeq = 0;
+function uniqueChannelName(topic) {
+  return `${topic}-${Date.now()}-${++channelSeq}`;
+}
+
 // ================= DESAFIOS (salas) =================
 // Ver supabase/schema.sql, secção 9, para as tabelas e o aviso sobre não
 // haver autenticação nenhuma nesta app.
@@ -143,6 +157,45 @@ export async function getMyActiveRoom(username) {
   return data?.challenge_rooms || null;
 }
 
+// ================= HISTÓRICO =================
+// Desafios já terminados de que esta conta fez parte, mais recente primeiro
+// — a sala fica na base de dados depois de terminar (ver finishRoom), por
+// isso não precisamos de guardar histórico à parte.
+export async function getChallengeHistory(username, limit = 30) {
+  const { data, error } = await supabase
+    .from("challenge_room_players")
+    .select("room_id, challenge_rooms!inner(*)")
+    .eq("username", username)
+    .eq("challenge_rooms.status", "finished")
+    .order("finished_at", { ascending: false, referencedTable: "challenge_rooms" })
+    .limit(limit);
+
+  if (error) {
+    console.error("getChallengeHistory error:", error);
+    return [];
+  }
+  return (data || []).map((r) => r.challenge_rooms);
+}
+
+// Quantos desafios esta conta já venceu — base da conquista "challenge_wins"
+// (ver lib/achievementStats.js). Um COUNT direto chega, não precisa dos
+// dados todos.
+export async function getChallengeWinCount(username) {
+  if (!username) return 0;
+
+  const { count, error } = await supabase
+    .from("challenge_rooms")
+    .select("id", { count: "exact", head: true })
+    .eq("status", "finished")
+    .eq("winner_username", username);
+
+  if (error) {
+    console.error("getChallengeWinCount error:", error);
+    return 0;
+  }
+  return count || 0;
+}
+
 export async function leaveRoom(roomId, username) {
   const { error } = await supabase
     .from("challenge_room_players")
@@ -172,6 +225,29 @@ export async function startRoom(roomId) {
   return { success: true };
 }
 
+// Termina o desafio — chamado só pelo anfitrião (ver ScoreBoard em
+// Challenges.jsx), assim que TODOS os jogadores atingem target_games. Ao
+// contrário de closeRoom, isto NÃO apaga a sala: fica com status "finished"
+// e vira uma entrada de histórico (ver getChallengeHistory) e conta para a
+// conquista de vitórias em desafios (ver getChallengeWinCount).
+export async function finishRoom(roomId, { winnerUsername, results }) {
+  const { error } = await supabase
+    .from("challenge_rooms")
+    .update({
+      status: "finished",
+      finished_at: new Date().toISOString(),
+      winner_username: winnerUsername || null,
+      results: results || null,
+    })
+    .eq("id", roomId);
+
+  if (error) {
+    console.error("finishRoom error:", error);
+    return { success: false, error: error.message || String(error) };
+  }
+  return { success: true };
+}
+
 // Sair sendo host desfaz a sala: sem host não há quem a comece, e deixar uma
 // sala órfã só ia confundir quem lá estivesse à espera. O "cascade" das
 // tabelas leva jogadores e convites atrás.
@@ -186,13 +262,26 @@ export async function closeRoom(roomId) {
 }
 
 // ================= CONVITES =================
+// "upsert" (não insert) — se já existir uma linha para (room_id, to_username)
+// de uma vez anterior, REPÕE-A a "pending" em vez de a ignorar. Um insert
+// simples com 23505 tratado como sucesso (versão antiga) deixava o convite
+// preso em "declined" para sempre: reconvidar depois de recusado inseria
+// zero linhas novas e o destinatário nunca mais via nada.
 export async function inviteToRoom(roomId, fromUsername, toUsername) {
-  const { error } = await supabase
-    .from("challenge_invites")
-    .insert([{ room_id: roomId, from_username: fromUsername, to_username: toUsername }]);
+  const { error } = await supabase.from("challenge_invites").upsert(
+    [
+      {
+        room_id: roomId,
+        from_username: fromUsername,
+        to_username: toUsername,
+        status: "pending",
+        created_at: new Date().toISOString(),
+      },
+    ],
+    { onConflict: "room_id,to_username" }
+  );
 
-  // 23505 = já convidado. Não é erro para quem carregou no botão outra vez.
-  if (error && error.code !== "23505") {
+  if (error) {
     console.error("inviteToRoom error:", error);
     return { success: false, error: error.message || String(error) };
   }
@@ -263,7 +352,7 @@ export async function getRoomMatchesForPlayers(usernames, sinceISO) {
 // Realtime não filtra por listas "IN"), quem ouve decide se lhe interessa.
 export function subscribeToMatches(onInsert) {
   const channel = supabase
-    .channel("challenge-live-matches")
+    .channel(uniqueChannelName("challenge-live-matches"))
     .on("postgres_changes", { event: "INSERT", schema: "public", table: "matches" }, onInsert)
     .subscribe();
 
@@ -276,7 +365,7 @@ export function subscribeToMatches(onInsert) {
 // nunca recebe nada.
 export function subscribeToRoom(roomId, onChange) {
   const channel = supabase
-    .channel(`room-${roomId}`)
+    .channel(uniqueChannelName(`room-${roomId}`))
     .on(
       "postgres_changes",
       { event: "*", schema: "public", table: "challenge_room_players", filter: `room_id=eq.${roomId}` },
@@ -294,10 +383,28 @@ export function subscribeToRoom(roomId, onChange) {
 
 export function subscribeToInvites(username, onChange) {
   const channel = supabase
-    .channel(`invites-${username}`)
+    .channel(uniqueChannelName(`invites-${username}`))
     .on(
       "postgres_changes",
       { event: "*", schema: "public", table: "challenge_invites", filter: `to_username=eq.${username}` },
+      onChange
+    )
+    .subscribe();
+
+  return () => supabase.removeChannel(channel);
+}
+
+// Convites que ESTA conta enviou (não recebeu) — só usado para a
+// confirmação "convite enviado" nas notificações (ver useNotifications.js).
+// Canal à parte de subscribeToInvites: cada canal do Realtime só filtra por
+// UMA coluna, por isso "de quem enviei" e "quem me convidou" não cabem na
+// mesma subscrição.
+export function subscribeToSentInvites(username, onChange) {
+  const channel = supabase
+    .channel(uniqueChannelName(`invites-sent-${username}`))
+    .on(
+      "postgres_changes",
+      { event: "INSERT", schema: "public", table: "challenge_invites", filter: `from_username=eq.${username}` },
       onChange
     )
     .subscribe();

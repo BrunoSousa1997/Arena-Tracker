@@ -79,6 +79,8 @@ const DICTIONARY = {
   chal_accept: { pt: "Aceitar", en: "Accept" },
   chal_decline: { pt: "Recusar", en: "Decline" },
   chal_notif_invite_title: { pt: "Convite para desafio", en: "Challenge invite" },
+  chal_notif_invite_sent_title: { pt: "Convite enviado", en: "Invite sent" },
+  chal_notif_invite_sent_prefix: { pt: "Convite enviado para", en: "Invite sent to" },
   chal_no_account: {
     pt: "Precisas de uma conta ativa para criar ou entrar numa sala.",
     en: "You need an active account to create or join a room.",
@@ -98,6 +100,27 @@ const DICTIONARY = {
     pt: "As pontuações atualizam-se automaticamente conforme as partidas são completas.",
     en: "Scores update automatically as matches complete.",
   },
+  chal_kills: { pt: "Abates", en: "Kills" },
+  chal_deaths: { pt: "Mortes", en: "Deaths" },
+  chal_assists: { pt: "Assist.", en: "Assists" },
+  chal_avg_kda: { pt: "KDA médio", en: "Avg KDA" },
+  chal_multikills: { pt: "Multikills", en: "Multikills" },
+  chal_no_games_yet: {
+    pt: "Ainda sem partidas neste desafio.",
+    en: "No games in this challenge yet.",
+  },
+  chal_game_pending: { pt: "Por jogar", en: "Not played yet" },
+  chal_win: { pt: "Vitória", en: "Win" },
+  chal_loss: { pt: "Derrota", en: "Loss" },
+  chal_points_breakdown: { pt: "Base × classe", en: "Base × class" },
+  chal_challenge_winner: { pt: "venceu o desafio", en: "won the challenge" },
+  chal_finished: { pt: "Concluído", en: "Finished" },
+  chal_history: { pt: "Histórico", en: "History" },
+  chal_history_empty: {
+    pt: "Ainda não terminaste nenhum desafio.",
+    en: "You haven't finished any challenges yet.",
+  },
+  chal_back: { pt: "Voltar", en: "Back" },
 
   // ================= COMPARAR =================
   compare_page_title: { pt: "Comparar jogadores", en: "Compare players" },
@@ -317,6 +340,11 @@ const DICTIONARY = {
   achv_cat_top3total_desc: {
     pt: "Partidas em que acabaste no Top 3, somadas ao longo da carreira.",
     en: "Matches where you finished Top 3, added up across your career.",
+  },
+  achv_cat_challenge_wins: { pt: "Desafios vencidos", en: "Challenges won" },
+  achv_cat_challenge_wins_desc: {
+    pt: "Salas de Desafios em que ficaste em 1º no placar final, contra outros jogadores.",
+    en: "Challenge rooms where you finished 1st on the final scoreboard, against other players.",
   },
   achv_cat_kills: { pt: "Abates totais", en: "Total kills" },
   achv_cat_kills_desc: {
@@ -673,6 +701,24 @@ const DICTIONARY = {
   matches_fixed_short: { pt: "corrigida(s)", en: "fixed" },
   duplicates_removed_short: { pt: "duplicado(s) removido(s)", en: "duplicate(s) removed" },
   repair_all_done_clean: { pt: "Tudo em ordem — nada para corrigir.", en: "All good — nothing to fix." },
+
+  // ================= WHAT'S NEW (notas de patch) =================
+  whats_new_title: { pt: "Novidades", en: "What's New" },
+  whats_new_empty: {
+    pt: "Sem notas para esta versão.",
+    en: "No notes for this version.",
+  },
+  close_btn: { pt: "Fechar", en: "Close" },
+
+  settings_patch_history_label: { pt: "Histórico de atualizações", en: "Update history" },
+  settings_patch_history_btn: { pt: "Ver anteriores", en: "View previous" },
+  patch_history_title: { pt: "Histórico de patches", en: "Patch history" },
+  patch_history_loading: { pt: "A carregar…", en: "Loading…" },
+  patch_history_error: {
+    pt: "Não foi possível obter o histórico agora. Tenta mais tarde.",
+    en: "Couldn't fetch the history right now. Try again later.",
+  },
+  patch_history_empty: { pt: "Ainda sem releases publicadas.", en: "No releases published yet." },
 };
 
 export function translate(lang, key) {

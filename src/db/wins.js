@@ -5,34 +5,32 @@ import { supabase } from "./supabase";
 // (ver createAccountFromManager em useAccounts.js) — só grava o que já
 // houver; ver setUserRiotIdentity para o preenchimento/atualização feito a
 // cada sincronização (é aí que o puuid fica conhecido).
+//
+// "upsert" com "ignoreDuplicates" (não select-depois-insert) — dois pedidos
+// separados tinham uma janela em que duas chamadas quase simultâneas para o
+// mesmo username (ex: deteção de partida ao vivo + troca de conta) podiam
+// ambas achar que a conta não existia e inserir duas linhas para a mesma
+// pessoa. Isso aparecia como entradas repetidas na pesquisa da tab Desafios
+// e podia mandar um convite para uma linha "fantasma". Precisa da constraint
+// unique(username) em "wins" (ver ponto 6b em supabase/schema.sql) para o
+// conflito ter em quê pegar.
 export async function ensureUser(username, identity = null) {
-  const { data, error } = await supabase
-    .from("wins")
-    .select("username")
-    .eq("username", username);
+  const { error } = await supabase.from("wins").upsert(
+    [
+      {
+        username,
+        champions: [],
+        riot_game_name: identity?.riotGameName || null,
+        riot_tag_line: identity?.riotTagLine || null,
+        puuid: identity?.puuid || null,
+      },
+    ],
+    { onConflict: "username", ignoreDuplicates: true }
+  );
 
   if (error) {
     console.error("ensureUser error:", error);
-    return;
   }
-
-  if (!data || data.length === 0) {
-    const { error: insertError } = await supabase
-      .from("wins")
-      .insert([
-        {
-          username,
-          champions: [],
-          riot_game_name: identity?.riotGameName || null,
-          riot_tag_line: identity?.riotTagLine || null,
-          puuid: identity?.puuid || null,
-        },
-      ]);
-
-    if (insertError) {
-      console.error("ensureUser insert error:", insertError);
-    }
-  }else console.log("criado user")
 }
 
 // ================= IDENTIDADE RIOT (para a tab Comparar) =================

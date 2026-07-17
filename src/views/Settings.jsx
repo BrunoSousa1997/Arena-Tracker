@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { X } from "lucide-react";
 import { useLanguage } from "../lib/i18n";
 import AccountManager from "../components/AccountManager";
+import PatchHistoryModal from "../components/PatchHistoryModal";
 
 const TABS = [
   { key: "general", labelKey: "settings_tab_general" },
@@ -48,6 +49,7 @@ export default function Settings({
 }) {
   const { t } = useLanguage();
   const [tab, setTab] = useState(initialTab);
+  const [showPatchHistory, setShowPatchHistory] = useState(false);
 
   // ================= RESOLUÇÃO / ECRÃ INTEIRO =================
   // "maxSize" é a área útil do ecrã onde a janela está agora (não sempre o
@@ -248,6 +250,13 @@ export default function Settings({
                     ))}
                   </select>
                 </div>
+
+                <div style={styles.row}>
+                  <div style={styles.rowLabel}>{t("settings_patch_history_label")}</div>
+                  <button onClick={() => setShowPatchHistory(true)} style={styles.linkBtn}>
+                    {t("settings_patch_history_btn")}
+                  </button>
+                </div>
               </>
             )}
           </div>
@@ -264,6 +273,8 @@ export default function Settings({
           />
         )}
       </motion.div>
+
+      {showPatchHistory && <PatchHistoryModal onClose={() => setShowPatchHistory(false)} />}
     </motion.div>
   );
 }
@@ -366,6 +377,10 @@ const styles = {
     marginBottom: -2,
   },
 
+  // Mesmo tratamento do champCard em MatchReports.jsx: --panel-deep-rgb, o
+  // nível "recuado" da hierarquia (ver index.css). Era um preto fixo, que só
+  // recua por cima de um tema escuro — no claro dava #bfbfbf, mais escuro que
+  // a própria página.
   row: {
     display: "flex",
     justifyContent: "space-between",
@@ -373,7 +388,7 @@ const styles = {
     gap: 10,
     padding: "12px 14px",
     borderRadius: "var(--radius-lg)",
-    background: "rgba(0,0,0,0.25)",
+    background: "rgba(var(--panel-deep-rgb),0.85)",
     border: "1px solid rgba(var(--accent-rgb),0.15)",
   },
 
@@ -408,6 +423,18 @@ const styles = {
   segBtnActive: {
     background: "var(--accent-solid)",
     color: "var(--accent-solid-text)",
+  },
+
+  linkBtn: {
+    padding: "6px 14px",
+    borderRadius: "var(--radius-md)",
+    border: "1px solid rgba(var(--accent-rgb),0.35)",
+    background: "rgba(var(--accent-rgb),0.12)",
+    color: "var(--accent-text)",
+    cursor: "pointer",
+    fontSize: 12,
+    fontWeight: 600,
+    fontFamily: "Cinzel, serif",
   },
 
   resolutionSelect: {

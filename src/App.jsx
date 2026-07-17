@@ -92,6 +92,8 @@ export default function App() {
     setWins,
     matches,
     setMatches,
+    challengeWins,
+    refreshChallengeWins,
     dataLoading,
     createAccountFromManager,
     updateRiotAccountFor,
@@ -177,6 +179,7 @@ export default function App() {
       matches,
       champions,
       wins,
+      challengeWins,
       dataLoading,
       t,
     });
@@ -972,6 +975,7 @@ export default function App() {
                 champions={champions}
                 wins={wins}
                 DRAGON={DRAGON}
+                challengeWins={challengeWins}
               />
             )}
 
@@ -987,7 +991,14 @@ export default function App() {
             )}
 
             {view === "challenges" && (
-              <Challenges activeAccount={activeAccount} accounts={accounts} matches={matches} champions={champions} DRAGON={DRAGON} />
+              <Challenges
+                activeAccount={activeAccount}
+                accounts={accounts}
+                matches={matches}
+                champions={champions}
+                DRAGON={DRAGON}
+                onChallengeWon={refreshChallengeWins}
+              />
             )}
 
             {view === "wins" && (

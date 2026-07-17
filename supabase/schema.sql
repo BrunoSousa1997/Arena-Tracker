@@ -86,6 +86,27 @@ alter table public.wins add column if not exists puuid text;
 create index if not exists idx_wins_riot_id
   on public.wins (lower(riot_game_name), lower(riot_tag_line));
 
+-- 6b) "ensureUser" (ver src/db/wins.js) fazia "verifica se existe, depois
+-- insere" em dois pedidos separados — sem transação nenhuma a segurar isso,
+-- duas chamadas quase simultâneas para o mesmo username (ex: deteção de
+-- partida ao vivo + troca de conta ao mesmo tempo) podiam ambas ver "não
+-- existe" e inserir DUAS linhas para a mesma conta. É essa duplicação que
+-- aparecia como entradas repetidas na pesquisa da tab Desafios/Comparar, e
+-- podia levar um convite para uma linha "fantasma" que já ninguém usa.
+--
+-- Antes de impedir duplicados novos com uma constraint, limpa os que já
+-- existirem: por cada username repetido, mantém só a linha mais recente
+-- (maior id) e apaga as outras — o "username" que sobra é sempre o mesmo,
+-- por isso nenhuma referência de matches/challenge_room_players/etc parte.
+delete from public.wins w
+using (
+  select id, row_number() over (partition by username order by id desc) as rn
+  from public.wins
+) dup
+where w.id = dup.id and dup.rn > 1;
+
+create unique index if not exists idx_wins_username_unique on public.wins (username);
+
 -- 7) Procura por nome dentro de "participants" (para a tab Comparar) — antes
 -- de pedir à Riot API o histórico de alguém que nunca sincronizou a própria
 -- conta na app, vale a pena ver se ele já aparece como colega/adversário
@@ -110,26 +131,44 @@ $$;
 
 grant execute on function public.search_matches_by_participant_name(text) to anon, authenticated;
 
--- 8) Autocompletar da tab Comparar — escrever um nome (ex: "Skygee") devolve
--- TODAS as contas conhecidas com esse nome (tags/servidores diferentes),
--- para escolher a certa em vez de adivinhar, já com "has_matches" para
--- mostrar logo quais é que já têm dados sincronizados. Procura tanto pelo
--- nome Riot (riot_game_name, quando já foi gravado por uma sincronização
--- recente) como pelo próprio username da conta — contas antigas podem ainda
--- não ter a identidade Riot preenchida, mas o username (que muitas vezes É o
--- nome Riot) existe sempre. "has_matches" tem de ser calculado aqui (não dá
--- para um filtro do PostgREST fazer um EXISTS contra outra tabela).
+-- 8) Autocompletar da tab Comparar/Desafios — escrever um nome (ex: "Skygee")
+-- devolve TODAS as contas conhecidas com esse nome (tags/servidores
+-- diferentes), para escolher a certa em vez de adivinhar, já com
+-- "has_matches" para mostrar logo quais é que já têm dados sincronizados.
+-- Procura tanto pelo nome Riot (riot_game_name, quando já foi gravado por uma
+-- sincronização recente) como pelo próprio username da conta — contas antigas
+-- podem ainda não ter a identidade Riot preenchida, mas o username (que
+-- muitas vezes É o nome Riot) existe sempre. "has_matches" tem de ser
+-- calculado aqui (não dá para um filtro do PostgREST fazer um EXISTS contra
+-- outra tabela).
+--
+-- Uma pessoa pode ter mais do que uma linha em "wins" para a MESMA
+-- identidade Riot (ex: reinstalou a app e criou outra etiqueta local antes
+-- desta versão ter constraint de unicidade em username, ver 6b acima) — sem
+-- filtrar isso aqui, aparecia como "duplicado" na pesquisa e um convite podia
+-- ir parar à conta antiga que já ninguém usa. Fica só a linha mais recente
+-- (maior id) por identidade Riot; contas sem Riot ID conhecido continuam
+-- distintas por username.
 create or replace function public.search_accounts_by_name(p_query text)
 returns table(username text, riot_game_name text, riot_tag_line text, has_matches boolean)
 language sql
 stable
 as $$
-  select w.username, w.riot_game_name, w.riot_tag_line,
-    exists(select 1 from public.matches m where m.username = w.username) as has_matches
-  from public.wins w
-  where w.riot_game_name ilike p_query || '%'
-     or w.username ilike p_query || '%'
-  order by has_matches desc, coalesce(w.riot_game_name, w.username) asc
+  select username, riot_game_name, riot_tag_line, has_matches
+  from (
+    select
+      w.username, w.riot_game_name, w.riot_tag_line,
+      exists(select 1 from public.matches m where m.username = w.username) as has_matches,
+      row_number() over (
+        partition by coalesce(lower(w.riot_game_name) || '#' || lower(w.riot_tag_line), lower(w.username))
+        order by w.id desc
+      ) as rn
+    from public.wins w
+    where w.riot_game_name ilike p_query || '%'
+       or w.username ilike p_query || '%'
+  ) ranked
+  where rn = 1
+  order by has_matches desc, coalesce(riot_game_name, username) asc
   limit 10;
 $$;
 
@@ -178,6 +217,21 @@ create table if not exists public.challenge_rooms (
   started_at timestamptz
 );
 
+-- Preenchidos quando TODOS os jogadores atingem target_games (ver finishRoom
+-- em src/db/rooms.js, chamado só pelo anfitrião a partir do ScoreBoard) — é
+-- o que transforma a sala numa entrada de histórico em vez de desaparecer
+-- como as salas fechadas manualmente (closeRoom continua a apagar a linha).
+-- "alter table" (não dentro do "create table" acima) porque a tabela já
+-- existe em produção — um "create table if not exists" é ignorado nesse
+-- caso e as colunas novas nunca chegariam a ser criadas.
+alter table public.challenge_rooms add column if not exists finished_at timestamptz;
+alter table public.challenge_rooms add column if not exists winner_username text;
+-- Fotografia do placar final: [{username, riot_game_name, riot_tag_line,
+-- total, games_played, rank}, ...] — gravada uma única vez ao terminar, para
+-- o histórico não depender de recalcular sempre a partir de "matches" (que
+-- podem ser reparadas/editadas mais tarde, ver repairMismatchedMatches).
+alter table public.challenge_rooms add column if not exists results jsonb;
+
 create table if not exists public.challenge_room_players (
   id bigint generated always as identity primary key,
   room_id bigint not null references public.challenge_rooms(id) on delete cascade,
@@ -206,6 +260,11 @@ create table if not exists public.challenge_invites (
 create index if not exists idx_room_players_room on public.challenge_room_players (room_id);
 create index if not exists idx_room_players_username on public.challenge_room_players (username);
 create index if not exists idx_invites_to on public.challenge_invites (to_username, status);
+-- Contagem de desafios vencidos (achievement "challenge_wins", ver
+-- getChallengeWinCount em src/db/rooms.js) e lista do histórico por sala
+-- terminada.
+create index if not exists idx_rooms_winner on public.challenge_rooms (winner_username) where status = 'finished';
+create index if not exists idx_rooms_finished_at on public.challenge_rooms (finished_at desc) where status = 'finished';
 
 alter table public.challenge_rooms enable row level security;
 alter table public.challenge_room_players enable row level security;

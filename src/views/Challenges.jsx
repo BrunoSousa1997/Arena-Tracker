@@ -1,11 +1,33 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Users, Plus, Minus, LogIn, Copy, Check, Crown, Trophy, Loader2 } from "lucide-react";
+import {
+  Users,
+  Plus,
+  Minus,
+  LogIn,
+  Copy,
+  Check,
+  Crown,
+  Trophy,
+  Loader2,
+  Swords,
+  Skull,
+  Handshake,
+  Target,
+  Flame,
+  Shield,
+  HeartPulse,
+  Zap,
+  ChevronDown,
+  History,
+  ArrowLeft,
+} from "lucide-react";
 import { useLanguage } from "../lib/i18n";
 import Loading from "../components/Loading";
 import ConfirmDialog from "../components/ConfirmDialog";
 import {
   createRoom,
   joinRoom,
+  getRoom,
   getRoomByCode,
   getRoomPlayers,
   getMyActiveRoom,
@@ -18,8 +40,10 @@ import {
   subscribeToInvites,
   searchAccountsByGameName,
   startRoom,
+  finishRoom,
   getRoomMatchesForPlayers,
   subscribeToMatches,
+  getChallengeHistory,
 } from "../db/api";
 import { scorePlayer } from "../lib/challengeScoring";
 import { normalizeChampionId } from "../lib/champions";
@@ -28,8 +52,34 @@ const PLAYER_OPTIONS = [2, 3, 4, 6, 8];
 const MIN_GAMES = 1;
 const MAX_GAMES = 10;
 
+// Cor de identidade por jogador no placar ao vivo (ver ScoreBoard) — só
+// entra em jogo enquanto o desafio decorre, antes de haver medalhas.
+const PLAYER_COLORS = ["#5b8cff", "#ff6b6b", "#4ade80", "#fbbf24", "#c084fc", "#22d3ee", "#f472b6", "#fb923c"];
+
+// Uma pessoa pode ter mais do que uma conta ("wins.username") para a mesma
+// identidade Riot — reinstalações antigas antes de "wins" ter constraint de
+// unicidade (ver ponto 6b em supabase/schema.sql), ou contas sem Riot ID
+// preenchido. Sem isto, a pesquisa de convite mostrava a mesma pessoa duas
+// vezes e era fácil convidar a conta errada (uma que já ninguém usa). Fica
+// só a primeira ocorrência por identidade — a RPC já devolve por ordem de
+// "has_matches desc", por isso a conta ativa tende a vir primeiro.
+function dedupeByIdentity(rows) {
+  const seen = new Set();
+  const result = [];
+  for (const r of rows) {
+    const key =
+      r.riot_game_name && r.riot_tag_line
+        ? `${r.riot_game_name.toLowerCase()}#${r.riot_tag_line.toLowerCase()}`
+        : r.username.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(r);
+  }
+  return result;
+}
+
 // idle = escolher entre criar/entrar · creating = formulário · lobby = já numa sala
-export default function Challenges({ activeAccount, accounts, matches = [], champions = [], DRAGON }) {
+export default function Challenges({ activeAccount, accounts, matches = [], champions = [], DRAGON, onChallengeWon }) {
   const { t } = useLanguage();
 
   const [screen, setScreen] = useState("idle");
@@ -88,21 +138,24 @@ export default function Challenges({ activeAccount, accounts, matches = [], cham
     // Qualquer mudança na sala ou nos seus jogadores relê o estado. Reler é
     // mais simples (e mais fiável) do que tentar aplicar cada evento à mão —
     // o volume aqui é de meia dúzia de linhas, não vale a complicação.
+    //
+    // "getRoom" por id (não "getMyActiveRoom", que só devolve lobby/running)
+    // — um desafio que acaba de terminar continua a ser ESTA sala, só que
+    // com status "finished"; só voltamos ao início se a sala tiver mesmo
+    // desaparecido (o host desfê-la a meio, ver closeRoom).
     const unsubscribe = subscribeToRoom(room.id, async () => {
-      const [freshPlayers, mine] = await Promise.all([
+      const [freshPlayers, fresh] = await Promise.all([
         getRoomPlayers(room.id),
-        getMyActiveRoom(activeAccount),
+        getRoom(room.id),
       ]);
 
-      // A sala desapareceu (o host desfê-la) — volta ao início em vez de
-      // ficar preso num lobby que já não existe.
-      if (!mine) {
+      if (!fresh) {
         setRoom(null);
         setPlayers([]);
         setScreen("idle");
         return;
       }
-      setRoom(mine);
+      setRoom(fresh);
       setPlayers(freshPlayers);
     });
 
@@ -153,7 +206,14 @@ export default function Challenges({ activeAccount, accounts, matches = [], cham
   };
 
   const handleLeave = async () => {
-    await leaveRoom(room.id, activeAccount);
+    // Um desafio já terminado não tem "sair" nenhum para desfazer — a sala
+    // fica tal como está (é o que alimenta o histórico, ver
+    // getChallengeHistory), só voltamos ao ecrã inicial. Apagar a própria
+    // linha em challenge_room_players faria este desafio desaparecer da
+    // conta no histórico, já que essa é a tabela usada para o encontrar.
+    if (room.status !== "finished") {
+      await leaveRoom(room.id, activeAccount);
+    }
     setRoom(null);
     setPlayers([]);
     setScreen("idle");
@@ -182,9 +242,14 @@ export default function Challenges({ activeAccount, accounts, matches = [], cham
             setScreen("creating");
           }}
           onJoin={handleJoinByCode}
+          onHistory={() => setScreen("history")}
           error={error}
           busy={busy}
         />
+      )}
+
+      {screen === "history" && (
+        <ChallengeHistory activeAccount={activeAccount} onBack={() => setScreen("idle")} />
       )}
 
       {screen === "creating" && (
@@ -210,6 +275,8 @@ export default function Challenges({ activeAccount, accounts, matches = [], cham
           matches={matches}
           champions={champions}
           DRAGON={DRAGON}
+          onChallengeWon={onChallengeWon}
+          onRoomUpdate={setRoom}
         />
       )}
     </div>
@@ -217,15 +284,22 @@ export default function Challenges({ activeAccount, accounts, matches = [], cham
 }
 
 // ================= ECRÃ INICIAL =================
-function IdleScreen({ onCreate, onJoin, error, busy }) {
+function IdleScreen({ onCreate, onJoin, onHistory, error, busy }) {
   const { t } = useLanguage();
   const [code, setCode] = useState("");
 
   return (
     <>
       <div style={styles.card}>
-        <h2 style={styles.title}>{t("chal_page_title")}</h2>
-        <p style={styles.intro}>{t("chal_intro")}</p>
+        <div style={styles.idleHeaderRow}>
+          <div>
+            <h2 style={styles.title}>{t("chal_page_title")}</h2>
+            <p style={styles.intro}>{t("chal_intro")}</p>
+          </div>
+          <button onClick={onHistory} style={styles.ghostBtn}>
+            <History size={13} strokeWidth={2.25} /> {t("chal_history")}
+          </button>
+        </div>
         <div style={styles.hint}>{t("chal_soon_scoring")}</div>
       </div>
 
@@ -261,6 +335,89 @@ function IdleScreen({ onCreate, onJoin, error, busy }) {
         </div>
       </div>
     </>
+  );
+}
+
+// ================= HISTÓRICO DE DESAFIOS =================
+function ChallengeHistory({ activeAccount, onBack }) {
+  const { t } = useLanguage();
+  const [rooms, setRooms] = useState(null); // null = a carregar
+
+  useEffect(() => {
+    let cancelled = false;
+    getChallengeHistory(activeAccount).then((data) => {
+      if (!cancelled) setRooms(data);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeAccount]);
+
+  return (
+    <>
+      <div style={styles.card}>
+        <div style={styles.idleHeaderRow}>
+          <h2 style={styles.title}>{t("chal_history")}</h2>
+          <button onClick={onBack} style={styles.ghostBtn}>
+            <ArrowLeft size={13} strokeWidth={2.25} /> {t("chal_back")}
+          </button>
+        </div>
+
+        {rooms === null && (
+          <div style={styles.scoreboardLoading}>
+            <Loader2 size={16} strokeWidth={2.5} style={styles.spinIcon} /> {t("loading_generic")}
+          </div>
+        )}
+
+        {rooms !== null && rooms.length === 0 && (
+          <div style={styles.hint}>{t("chal_history_empty")}</div>
+        )}
+      </div>
+
+      {rooms?.map((room) => (
+        <HistoryEntry key={room.id} room={room} activeAccount={activeAccount} t={t} />
+      ))}
+    </>
+  );
+}
+
+// Um desafio terminado — usa a fotografia gravada em "results" (ver
+// finishRoom), não recalcula nada: é a mesma pontuação que se viu ao vivo.
+function HistoryEntry({ room, activeAccount, t }) {
+  const results = Array.isArray(room.results) ? room.results : [];
+  const won = room.winner_username === activeAccount;
+
+  return (
+    <div style={{ ...styles.card, ...(won ? styles.combatCardSelf : null) }}>
+      <div style={styles.idleHeaderRow}>
+        <div>
+          <div style={styles.kicker}>
+            {new Date(room.finished_at).toLocaleDateString()} · {room.target_games} {t("chal_games").toLowerCase()}
+          </div>
+          <h3 style={{ ...styles.sectionTitle, margin: "2px 0 0" }}>{room.name}</h3>
+        </div>
+        {won && (
+          <span style={styles.leaderBanner}>
+            <Crown size={13} strokeWidth={2.5} /> {t("chal_challenge_winner")}
+          </span>
+        )}
+      </div>
+
+      <div style={styles.historyResultsList}>
+        {results
+          .slice()
+          .sort((a, b) => a.rank - b.rank)
+          .map((r) => (
+            <div key={r.username} style={styles.historyResultRow}>
+              <RankBadge rank={r.rank - 1} />
+              <div style={styles.playerName}>
+                {r.riot_game_name && r.riot_tag_line ? `${r.riot_game_name}#${r.riot_tag_line}` : r.username}
+              </div>
+              <div style={styles.combatGamePts}>{r.total} pts</div>
+            </div>
+          ))}
+      </div>
+    </div>
   );
 }
 
@@ -382,7 +539,7 @@ function CreateForm({ hostUsername, identity, onCancel, onCreated }) {
 }
 
 // ================= LOBBY (+ convidar) =================
-function Lobby({ room, players, activeAccount, onLeave, onClose, matches, champions, DRAGON }) {
+function Lobby({ room, players, activeAccount, onLeave, onClose, matches, champions, DRAGON, onChallengeWon, onRoomUpdate }) {
   const { t } = useLanguage();
   const [confirmClose, setConfirmClose] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -393,9 +550,18 @@ function Lobby({ room, players, activeAccount, onLeave, onClose, matches, champi
 
   const handleStart = useCallback(async () => {
     setBusy(true);
-    await startRoom(room.id);
+    const startedAt = new Date().toISOString();
+    const res = await startRoom(room.id);
+    // Otimista: passa já para o placar sem esperar pela volta pelo Realtime
+    // (escrever -> Supabase difundir -> Challenges.jsx voltar a ler tudo) —
+    // esse ciclo pode facilmente demorar 1-2s, e quem escreveu a mudança já
+    // sabe o resultado sem precisar de esperar por ela. Os outros jogadores
+    // continuam a receber a transição pela via normal (subscribeToRoom).
+    if (res.success) {
+      onRoomUpdate?.({ ...room, status: "running", started_at: startedAt });
+    }
     setBusy(false);
-  }, [room.id]);
+  }, [room, onRoomUpdate]);
 
   // Assim que a sala atinge o nº máximo de jogadores, o anfitrião arranca o
   // desafio automaticamente — ninguém precisa de clicar em nada. A ref evita
@@ -412,8 +578,10 @@ function Lobby({ room, players, activeAccount, onLeave, onClose, matches, champi
     handleStart();
   }, [isHost, full, room.status, busy, handleStart]);
 
-  // Se o desafio já começou, mostra o painel de pontuações
-  if (room.status === "running") {
+  // Se o desafio já começou (ou já acabou — a sala fica com status
+  // "finished" em vez de ser apagada, ver finishRoom), mostra o painel de
+  // pontuações.
+  if (room.status === "running" || room.status === "finished") {
     return (
       <ScoreBoard
         room={room}
@@ -423,6 +591,7 @@ function Lobby({ room, players, activeAccount, onLeave, onClose, matches, champi
         matches={matches}
         champions={champions}
         DRAGON={DRAGON}
+        onChallengeWon={onChallengeWon}
       />
     );
   }
@@ -566,11 +735,30 @@ function getGridStyle(totalSlots) {
   return { ...base, gridTemplateColumns: "1fr 1fr" };
 }
 
+// Grelha do placar ao vivo — nº de colunas dita pelo nº de jogadores da sala,
+// para os cards ocuparem sempre o espaço todo disponível em vez de
+// depender de "quantos cabem" num minmax. 2 e 4 ficam com cards maiores
+// (2 colunas); 3, 5 e 6 em 3 colunas; 7 e 8 em 4 — mesmos patamares do
+// nº de jogadores permitido na criação da sala (ver PLAYER_OPTIONS).
+function getCombatGridStyle(playerCount) {
+  let cols;
+  if (playerCount <= 2) cols = 2;
+  else if (playerCount === 4) cols = 2;
+  else if (playerCount <= 6) cols = 3;
+  else cols = 4;
+
+  return {
+    display: "grid",
+    gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+    gap: 16,
+  };
+}
+
 // ================= PAINEL DE PONTUAÇÕES (Em Curso) =================
 // Vai buscar diretamente à base de dados as partidas de TODOS os jogadores da
 // sala (não só as da conta ativa neste dispositivo — "matches" é aberta, ver
 // db/rooms.js) e mantém-se em tempo real via subscrição a novas partidas.
-function ScoreBoard({ room, players, activeAccount, onLeave, matches = [], champions = [], DRAGON }) {
+function ScoreBoard({ room, players, activeAccount, onLeave, matches = [], champions = [], DRAGON, onChallengeWon }) {
   const { t } = useLanguage();
   const [playerMatches, setPlayerMatches] = useState({});
   const [loaded, setLoaded] = useState(false);
@@ -597,13 +785,15 @@ function ScoreBoard({ room, players, activeAccount, onLeave, matches = [], champ
   }, [fetchAll]);
 
   // Nova partida de qualquer conta da sala — refaz o placar sem precisar de
-  // clicar em nada, é o que torna isto "ao vivo".
+  // clicar em nada, é o que torna isto "ao vivo". Já não é preciso depois de
+  // o desafio terminar (a fotografia em "results" é que manda a partir daí).
   useEffect(() => {
+    if (room.status === "finished") return;
     const unsubscribe = subscribeToMatches((payload) => {
       if (usernames.includes(payload?.new?.username)) fetchAll();
     });
     return unsubscribe;
-  }, [usernamesKey, fetchAll]);
+  }, [usernamesKey, fetchAll, room.status]);
 
   // A própria conta pode ter uma partida otimista em "matches" (App.jsx) uns
   // instantes antes de a base de dados a confirmar de volta — evita esperar
@@ -636,85 +826,137 @@ function ScoreBoard({ room, players, activeAccount, onLeave, matches = [], champ
     (a, b) => (scored[b.username]?.total || 0) - (scored[a.username]?.total || 0)
   );
 
+  // Cor por jogador — atribuída pela ordem de entrada na sala ("players", já
+  // vem ordenado por joined_at), NUNCA pela posição no placar: se fosse por
+  // rank, a cor de cada um trocava a cada partida em vez de servir para o
+  // identificar de relance.
+  const colorByUsername = {};
+  players.forEach((p, i) => {
+    colorByUsername[p.username] = PLAYER_COLORS[i % PLAYER_COLORS.length];
+  });
+
+  // "Posição dourada" (medalhas, brilho, banner de vencedor) só faz sentido
+  // depois de o desafio acabar de vez — enquanto decorre, ninguém "já
+  // ganhou", por isso os jogadores distinguem-se só pela cor.
+  const challengeFinished =
+    sortedPlayers.length > 0 &&
+    sortedPlayers.every((p) => (scored[p.username]?.games?.length || 0) >= targetGames);
+
+  const leader = sortedPlayers[0];
+
+  // Assim que TODOS os jogadores atingem o nº de jogos alvo, o anfitrião
+  // persiste o fim do desafio — status "finished" + a fotografia do placar
+  // final (ver finishRoom). Mesma convenção do auto-start: só o anfitrião
+  // escreve, todos os outros só leem via subscrição à sala. A ref evita
+  // escrever duas vezes se este efeito voltar a correr antes de "room.status"
+  // chegar via tempo real.
+  const finishedRef = useRef(false);
+  useEffect(() => {
+    if (room.status !== "running" || !challengeFinished) return;
+    const isHost = room.host_username === activeAccount;
+    if (!isHost || finishedRef.current) return;
+    finishedRef.current = true;
+
+    const results = sortedPlayers.map((p, idx) => ({
+      username: p.username,
+      riot_game_name: p.riot_game_name,
+      riot_tag_line: p.riot_tag_line,
+      total: Math.round(scored[p.username]?.total || 0),
+      games_played: scored[p.username]?.games?.length || 0,
+      rank: idx + 1,
+    }));
+
+    finishRoom(room.id, { winnerUsername: sortedPlayers[0]?.username, results });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [challengeFinished, room.status, room.id, room.host_username, activeAccount]);
+
+  // Avisa a conquista de vitórias em desafios assim que a PRÓPRIA conta vê a
+  // sala já persistida como "finished" com "winner_username" a apontar para
+  // ela — em TODOS os clientes (não só o do anfitrião, que é o único que
+  // escreve o finishRoom acima), porque quem ganhou pode não ser o anfitrião.
+  const notifiedWinRef = useRef(false);
+  useEffect(() => {
+    if (room.status !== "finished" || room.winner_username !== activeAccount) return;
+    if (notifiedWinRef.current) return;
+    notifiedWinRef.current = true;
+    onChallengeWon?.();
+  }, [room.status, room.winner_username, activeAccount, onChallengeWon]);
+
   return (
     <>
-      <div style={styles.card}>
+      <div style={styles.epicCard}>
         <div style={styles.scoreboardHeader}>
           <div>
             <div style={styles.kicker}>
-              <span style={styles.liveDot} /> {t("chal_in_progress")}
+              {challengeFinished ? (
+                t("chal_finished")
+              ) : (
+                <>
+                  <span style={styles.liveDot} /> {t("chal_in_progress")}
+                </>
+              )}
             </div>
-            <h2 style={styles.title}>{room.name}</h2>
+            <h2 style={styles.epicTitle}>
+              <Trophy size={20} strokeWidth={2.25} />
+              {room.name}
+            </h2>
           </div>
-          <div style={styles.scoreboardMeta}>
-            <span>
-              <b>{players.length}</b>/{room.max_players} {t("chal_players").toLowerCase()}
+          <div style={styles.metaPills}>
+            <span style={styles.metaPill}>
+              <Users size={12} strokeWidth={2.5} />
+              <b>{players.length}</b>/{room.max_players}
             </span>
-            <span>
+            <span style={styles.metaPill}>
+              <Target size={12} strokeWidth={2.5} />
               <b>{room.target_games}</b> {t("chal_games").toLowerCase()}
+            </span>
+            <span style={styles.metaPill}>
+              {room.rules === "basic" ? t("chal_rules_basic") : t("chal_rules_custom")}
             </span>
           </div>
         </div>
+
+        {loaded && challengeFinished && leader && (
+          <div style={styles.leaderBanner}>
+            <Crown size={15} strokeWidth={2.5} />
+            <span>
+              <b>
+                {leader.riot_game_name && leader.riot_tag_line
+                  ? `${leader.riot_game_name}#${leader.riot_tag_line}`
+                  : leader.username}
+              </b>{" "}
+              {t("chal_challenge_winner")}
+            </span>
+          </div>
+        )}
 
         {!loaded ? (
           <div style={styles.scoreboardLoading}>
             <Loader2 size={16} strokeWidth={2.5} style={styles.spinIcon} /> {t("loading_generic")}
           </div>
         ) : (
-          <div style={styles.scoreboardGrid}>
-            {sortedPlayers.map((p, idx) => {
-              const games = scored[p.username]?.games || [];
-              const emptyGames = Math.max(0, targetGames - games.length);
-              return (
-                <div key={p.username} style={styles.scoreRow}>
-                  <RankBadge rank={idx} />
-                  <div style={styles.scorePlayer}>
-                    <div style={styles.scorePlayerTop}>
-                      <div style={styles.playerName}>
-                        {p.riot_game_name && p.riot_tag_line
-                          ? `${p.riot_game_name}#${p.riot_tag_line}`
-                          : p.username}
-                      </div>
-                      {p.username === room.host_username && (
-                        <span style={styles.hostTag}>
-                          <Crown size={10} strokeWidth={2.5} /> {t("chal_host")}
-                        </span>
-                      )}
-                    </div>
-
-                    <div style={styles.champStrip}>
-                      {games.map((g, i) => (
-                        <div
-                          key={i}
-                          style={{
-                            ...styles.champChip,
-                            borderColor: g.match.win ? "rgba(88,199,120,0.55)" : "rgba(226,85,95,0.5)",
-                          }}
-                          title={`${champName(g.match.champion)} · ${g.match.kills}/${g.match.deaths}/${g.match.assists} · ${Math.round(g.score.total)} pts`}
-                        >
-                          {DRAGON && (
-                            <img
-                              src={`${DRAGON}/img/champion/${normalizeChampionId(g.match.champion, champions)}.png`}
-                              style={styles.champChipIcon}
-                            />
-                          )}
-                        </div>
-                      ))}
-                      {Array.from({ length: emptyGames }).map((_, i) => (
-                        <div key={`e${i}`} style={styles.champChipEmpty} />
-                      ))}
-                    </div>
-                  </div>
-
-                  <div style={styles.scoreValueWrap}>
-                    <div style={styles.scoreValue}>{Math.round(scored[p.username]?.total || 0)}</div>
-                    <div style={styles.scoreValueSub}>
-                      {games.length}/{targetGames}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+          <div style={styles.combatGridWrap}>
+            <div style={getCombatGridStyle(players.length)}>
+              {sortedPlayers.map((p, idx) => (
+                <PlayerCombatCard
+                  key={p.username}
+                  player={p}
+                  rank={idx}
+                  color={colorByUsername[p.username]}
+                  finished={challengeFinished}
+                  isHost={p.username === room.host_username}
+                  isSelf={p.username === activeAccount}
+                  games={scored[p.username]?.games || []}
+                  total={scored[p.username]?.total || 0}
+                  targetGames={targetGames}
+                  DRAGON={DRAGON}
+                  champions={champions}
+                  champName={champName}
+                  t={t}
+                />
+              ))}
+            </div>
+            {players.length === 2 && <div style={styles.vsDivider}>VS</div>}
           </div>
         )}
 
@@ -727,6 +969,186 @@ function ScoreBoard({ room, players, activeAccount, onLeave, matches = [], champ
         </div>
       </div>
     </>
+  );
+}
+
+// ================= CARD DE COMBATE (por jogador) =================
+function PlayerCombatCard({
+  player,
+  rank,
+  color,
+  finished,
+  isHost,
+  isSelf,
+  games,
+  total,
+  targetGames,
+  DRAGON,
+  champions,
+  champName,
+  t,
+}) {
+  const [expandedIdx, setExpandedIdx] = useState(null);
+
+  const name =
+    player.riot_game_name && player.riot_tag_line
+      ? `${player.riot_game_name}#${player.riot_tag_line}`
+      : player.username;
+
+  const agg = games.reduce(
+    (acc, g) => {
+      const m = g.match;
+      acc.kills += m.kills || 0;
+      acc.deaths += m.deaths || 0;
+      acc.assists += m.assists || 0;
+      acc.damageDealt += m.damage_dealt || 0;
+      acc.damageTaken += m.damage_taken || 0;
+      acc.healing += m.healing || 0;
+      acc.multikills += (m.double_kills || 0) + (m.triple_kills || 0);
+      return acc;
+    },
+    { kills: 0, deaths: 0, assists: 0, damageDealt: 0, damageTaken: 0, healing: 0, multikills: 0 }
+  );
+  const kda = agg.deaths > 0 ? (agg.kills + agg.assists) / agg.deaths : agg.kills + agg.assists;
+
+  const emptyGames = Math.max(0, targetGames - games.length);
+  const progressPct = Math.min(100, (games.length / targetGames) * 100);
+
+  return (
+    <div
+      className="historyCard"
+      style={{
+        ...styles.combatCard,
+        borderLeft: `3px solid ${color}`,
+        ...(isSelf ? styles.combatCardSelf : null),
+        ...(finished && rank === 0 ? styles.combatCardLeader : null),
+      }}
+    >
+      <div style={styles.combatCardHeader}>
+        {finished ? <RankBadge rank={rank} /> : <PlayerColorBadge color={color} />}
+        <div style={styles.combatNameBlock}>
+          <div style={styles.scorePlayerTop}>
+            <div style={styles.playerName}>{name}</div>
+            {isHost && (
+              <span style={styles.hostTag}>
+                <Crown size={10} strokeWidth={2.5} /> {t("chal_host")}
+              </span>
+            )}
+          </div>
+          <div style={styles.combatProgressTrack}>
+            <div style={{ ...styles.combatProgressFill, width: `${progressPct}%`, background: color }} />
+          </div>
+          <div style={styles.combatProgressLabel}>
+            {games.length}/{targetGames} {t("chal_games").toLowerCase()}
+          </div>
+        </div>
+        <div style={styles.combatScoreBlock}>
+          <div style={{ ...styles.combatScoreValue, color: finished ? "var(--accent-text)" : color }}>
+            {Math.round(total)}
+          </div>
+          <div style={styles.combatScoreLabel}>pts</div>
+        </div>
+      </div>
+
+      <div style={styles.combatStatsGrid}>
+        <StatTile icon={Swords} label={t("chal_kills")} value={agg.kills} />
+        <StatTile icon={Skull} label={t("chal_deaths")} value={agg.deaths} />
+        <StatTile icon={Handshake} label={t("chal_assists")} value={agg.assists} />
+        <StatTile icon={Target} label={t("chal_avg_kda")} value={kda.toFixed(2)} />
+        <StatTile icon={Flame} label={t("stat_damage_dealt")} value={agg.damageDealt.toLocaleString()} />
+        <StatTile icon={Shield} label={t("stat_damage_taken")} value={agg.damageTaken.toLocaleString()} />
+        <StatTile icon={HeartPulse} label={t("stat_healing")} value={agg.healing.toLocaleString()} />
+        <StatTile icon={Zap} label={t("chal_multikills")} value={agg.multikills} />
+      </div>
+
+      <div style={styles.combatGamesList}>
+        {games.length === 0 && <div style={styles.combatEmptyNote}>{t("chal_no_games_yet")}</div>}
+
+        {games.map((g, i) => {
+          const m = g.match;
+          const isOpen = expandedIdx === i;
+          return (
+            <div key={i} style={styles.combatGameWrap}>
+              <button
+                type="button"
+                onClick={() => setExpandedIdx(isOpen ? null : i)}
+                style={{
+                  ...styles.combatGameRow,
+                  borderColor: m.win ? "rgba(88,199,120,0.5)" : "rgba(226,85,95,0.45)",
+                }}
+              >
+                {DRAGON && (
+                  <img
+                    src={`${DRAGON}/img/champion/${normalizeChampionId(m.champion, champions)}.png`}
+                    style={styles.combatGameIcon}
+                  />
+                )}
+                <div style={styles.combatGameInfo}>
+                  <div style={styles.combatGameChamp}>{champName(m.champion)}</div>
+                  <div style={styles.combatGameKda}>
+                    {m.kills}/{m.deaths}/{m.assists}
+                  </div>
+                </div>
+                <span style={{ ...styles.combatGameBadge, ...(m.win ? styles.badgeWin : styles.badgeLoss) }}>
+                  {m.win ? t("chal_win") : t("chal_loss")}
+                </span>
+                <div style={styles.combatGamePts}>+{Math.round(g.score.total)}</div>
+                <ChevronDown
+                  size={14}
+                  strokeWidth={2.5}
+                  style={{ transform: isOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}
+                />
+              </button>
+
+              {isOpen && (
+                <div style={styles.combatGameDetail}>
+                  <DetailRow label={t("stat_damage_dealt")} value={(m.damage_dealt || 0).toLocaleString()} />
+                  <DetailRow label={t("stat_damage_taken")} value={(m.damage_taken || 0).toLocaleString()} />
+                  <DetailRow label={t("stat_healing")} value={(m.healing || 0).toLocaleString()} />
+                  {!!(m.double_kills || m.triple_kills) && (
+                    <DetailRow
+                      label={t("chal_multikills")}
+                      value={`${m.double_kills || 0}x2 · ${m.triple_kills || 0}x3`}
+                    />
+                  )}
+                  <DetailRow
+                    label={t("chal_points_breakdown")}
+                    value={`${Math.round(g.score.base)} × ${g.score.multiplier.toFixed(2)}`}
+                  />
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        {Array.from({ length: emptyGames }).map((_, i) => (
+          <div key={`e${i}`} style={styles.combatGameEmpty}>
+            {t("chal_game_pending")}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ================= PEQUENA PEÇA DE STAT (grid do card de combate) =================
+function StatTile({ icon: Icon, label, value }) {
+  return (
+    <div style={styles.statTile}>
+      <Icon size={13} strokeWidth={2.25} style={styles.statTileIcon} />
+      <div style={styles.statTileValue}>{value}</div>
+      <div style={styles.statTileLabel}>{label}</div>
+    </div>
+  );
+}
+
+// ================= LINHA DE DETALHE (jogo expandido) =================
+function DetailRow({ label, value }) {
+  return (
+    <div style={styles.detailRow}>
+      <span style={styles.detailLabel}>{label}</span>
+      <span style={styles.detailValue}>{value}</span>
+    </div>
   );
 }
 
@@ -747,6 +1169,18 @@ function RankBadge({ rank }) {
     );
   }
   return <div style={styles.rankPlain}>#{rank + 1}</div>;
+}
+
+// ================= IDENTIDADE POR COR (enquanto o desafio decorre) =================
+// Substitui a medalha antes de o desafio acabar — ainda não há "posição",
+// só a cor que identifica o jogador de relance nos cards e na barra de
+// progresso.
+function PlayerColorBadge({ color }) {
+  return (
+    <div style={styles.colorBadgeWrap}>
+      <div style={{ ...styles.colorBadge, background: color }} />
+    </div>
+  );
 }
 
 // ================= PAINEL DE CONVITE =================
@@ -784,7 +1218,7 @@ function InvitePanel({ room, activeAccount, players }) {
       if (cancelled) return;
       // Quem já está na sala não precisa de convite.
       const inRoom = new Set(players.map((p) => p.username));
-      setResults(rows.filter((r) => !inRoom.has(r.username)));
+      setResults(dedupeByIdentity(rows).filter((r) => !inRoom.has(r.username)));
     }, 250);
 
     return () => {
@@ -1031,6 +1465,32 @@ const styles = {
     marginBottom: 12,
   },
 
+  idleHeaderRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    flexWrap: "wrap",
+    gap: 10,
+    marginBottom: 10,
+  },
+
+  historyResultsList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+    marginTop: 12,
+  },
+
+  historyResultRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    padding: "8px 10px",
+    borderRadius: "var(--radius-lg)",
+    background: "rgba(var(--panel-deep-rgb),0.6)",
+    border: "1px solid rgba(var(--border-rgb),0.35)",
+  },
+
   lobbyMeta: {
     display: "flex",
     gap: 12,
@@ -1219,38 +1679,95 @@ const styles = {
     letterSpacing: 1.5,
   },
 
+  epicCard: {
+    background: "linear-gradient(165deg, rgba(var(--panel-rgb),0.95), rgba(var(--panel-deep-rgb),0.98))",
+    border: "1px solid rgba(var(--accent-rgb),0.28)",
+    borderRadius: "var(--radius-2xl)",
+    padding: "18px 20px 20px",
+    boxShadow: "0 10px 34px rgba(0,0,0,0.28)",
+  },
+
   scoreboardHeader: {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "flex-start",
     flexWrap: "wrap",
     gap: 10,
-    marginBottom: 16,
+    marginBottom: 14,
   },
 
-  scoreboardMeta: {
-    display: "flex",
-    gap: 12,
-    fontSize: 11.5,
-    color: "var(--text-secondary)",
-    flexWrap: "wrap",
-  },
-
-  scoreboardGrid: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 8,
-    marginBottom: 12,
-  },
-
-  scoreRow: {
+  epicTitle: {
     display: "flex",
     alignItems: "center",
-    gap: 12,
-    padding: "12px 14px",
+    gap: 8,
+    color: "var(--accent-text)",
+    margin: "2px 0 0",
+    fontSize: 20,
+    fontWeight: 800,
+  },
+
+  metaPills: {
+    display: "flex",
+    gap: 8,
+    flexWrap: "wrap",
+    alignSelf: "flex-start",
+  },
+
+  metaPill: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+    fontSize: 11,
+    fontWeight: 700,
+    color: "var(--text-secondary)",
+    padding: "5px 10px",
     borderRadius: "var(--radius-lg)",
     background: "rgba(var(--panel-deep-rgb),0.7)",
     border: "1px solid rgba(var(--border-rgb),0.4)",
+  },
+
+  leaderBanner: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    fontSize: 12.5,
+    color: "#f5c451",
+    background: "linear-gradient(90deg, rgba(245,196,81,0.14), rgba(245,196,81,0.02))",
+    border: "1px solid rgba(245,196,81,0.3)",
+    borderRadius: "var(--radius-lg)",
+    padding: "9px 14px",
+    marginBottom: 16,
+  },
+
+  combatGridWrap: {
+    position: "relative",
+    marginBottom: 12,
+  },
+
+  combatCard: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 12,
+    padding: 16,
+    borderRadius: "var(--radius-xl)",
+    background: "rgba(var(--panel-deep-rgb),0.75)",
+    border: "1px solid rgba(var(--border-rgb),0.4)",
+  },
+
+  combatCardSelf: {
+    borderColor: "rgba(var(--accent-rgb),0.5)",
+    background: "linear-gradient(180deg, rgba(var(--accent-rgb),0.08), rgba(var(--panel-deep-rgb),0.85))",
+  },
+
+  combatCardLeader: {
+    borderColor: "rgba(245,196,81,0.5)",
+    animation: "leaderGlow 2.4s ease-in-out infinite",
+  },
+
+  combatCardHeader: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
   },
 
   rankMedal: {
@@ -1279,12 +1796,28 @@ const styles = {
     border: "1px solid rgba(var(--border-rgb),0.4)",
   },
 
-  scorePlayer: {
+  colorBadgeWrap: {
+    width: 30,
+    height: 30,
+    minWidth: 30,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  colorBadge: {
+    width: 16,
+    height: 16,
+    borderRadius: "50%",
+    boxShadow: "0 0 0 3px rgba(var(--panel-deep-rgb),0.9), 0 0 0 4px rgba(255,255,255,0.08)",
+  },
+
+  combatNameBlock: {
     flex: 1,
     minWidth: 0,
     display: "flex",
     flexDirection: "column",
-    gap: 6,
+    gap: 4,
   },
 
   scorePlayerTop: {
@@ -1293,55 +1826,194 @@ const styles = {
     gap: 8,
   },
 
-  champStrip: {
-    display: "flex",
-    gap: 4,
-    flexWrap: "wrap",
-  },
-
-  champChip: {
-    width: 22,
-    height: 22,
-    borderRadius: "var(--radius-sm, 5px)",
-    overflow: "hidden",
-    border: "1.5px solid",
-    background: "rgba(var(--panel-deep-rgb),0.9)",
-  },
-
-  champChipIcon: {
+  combatProgressTrack: {
     width: "100%",
+    height: 5,
+    borderRadius: 3,
+    background: "rgba(var(--border-rgb),0.35)",
+    overflow: "hidden",
+  },
+
+  combatProgressFill: {
     height: "100%",
-    objectFit: "cover",
-    display: "block",
+    borderRadius: 3,
+    background: "var(--accent-gradient)",
+    transition: "width 0.3s ease",
   },
 
-  champChipEmpty: {
-    width: 22,
-    height: 22,
-    borderRadius: "var(--radius-sm, 5px)",
-    border: "1.5px dashed rgba(var(--border-rgb),0.4)",
-    opacity: 0.5,
+  combatProgressLabel: {
+    fontSize: 10,
+    fontWeight: 600,
+    color: "var(--text-muted)",
   },
 
-  scoreValueWrap: {
+  combatScoreBlock: {
     display: "flex",
     flexDirection: "column",
     alignItems: "flex-end",
     minWidth: 52,
   },
 
-  scoreValue: {
-    fontSize: 16,
-    fontWeight: 800,
+  combatScoreValue: {
+    fontSize: 20,
+    fontWeight: 900,
     color: "var(--accent-text)",
     textAlign: "right",
     lineHeight: 1.1,
   },
 
-  scoreValueSub: {
+  combatScoreLabel: {
     fontSize: 10,
+    fontWeight: 700,
+    color: "var(--text-muted)",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+
+  combatStatsGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(4, 1fr)",
+    gap: 6,
+  },
+
+  statTile: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 2,
+    padding: "8px 4px",
+    borderRadius: "var(--radius-md)",
+    background: "rgba(var(--panel-rgb),0.55)",
+    border: "1px solid rgba(var(--border-rgb),0.3)",
+  },
+
+  statTileIcon: { color: "var(--accent-text)" },
+
+  statTileValue: {
+    fontSize: 13,
+    fontWeight: 800,
+    color: "var(--text-body)",
+  },
+
+  statTileLabel: {
+    fontSize: 8.5,
     fontWeight: 600,
     color: "var(--text-muted)",
+    textAlign: "center",
+    lineHeight: 1.2,
+  },
+
+  combatGamesList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+  },
+
+  combatEmptyNote: {
+    fontSize: 11,
+    color: "var(--text-muted)",
+    fontStyle: "italic",
+    padding: "6px 0",
+  },
+
+  combatGameWrap: {
+    display: "flex",
+    flexDirection: "column",
+  },
+
+  combatGameRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    width: "100%",
+    padding: "6px 8px",
+    borderRadius: "var(--radius-md)",
+    border: "1.5px solid",
+    background: "rgba(var(--panel-rgb),0.55)",
+    cursor: "pointer",
+    textAlign: "left",
+    color: "inherit",
+    font: "inherit",
+  },
+
+  combatGameIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: "var(--radius-sm, 5px)",
+    objectFit: "cover",
+    flexShrink: 0,
+  },
+
+  combatGameInfo: {
+    flex: 1,
+    minWidth: 0,
+    display: "flex",
+    flexDirection: "column",
+    gap: 1,
+  },
+
+  combatGameChamp: {
+    fontSize: 11.5,
+    fontWeight: 700,
+    color: "var(--text-body)",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+
+  combatGameKda: {
+    fontSize: 10,
+    color: "var(--text-muted)",
+  },
+
+  combatGameBadge: {
+    fontSize: 9,
+    fontWeight: 700,
+    textTransform: "uppercase",
+    letterSpacing: 0.3,
+    padding: "2px 6px",
+    borderRadius: "var(--radius-sm, 5px)",
+  },
+
+  badgeWin: { color: "#58c778", background: "rgba(88,199,120,0.14)" },
+  badgeLoss: { color: "#e2555f", background: "rgba(226,85,95,0.14)" },
+
+  combatGamePts: {
+    fontSize: 11.5,
+    fontWeight: 800,
+    color: "var(--accent-text)",
+    minWidth: 34,
+    textAlign: "right",
+  },
+
+  combatGameDetail: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 3,
+    padding: "8px 10px",
+    marginTop: 2,
+    borderRadius: "var(--radius-md)",
+    background: "rgba(var(--panel-deep-rgb),0.6)",
+    border: "1px solid rgba(var(--border-rgb),0.3)",
+  },
+
+  detailRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    fontSize: 10.5,
+  },
+
+  detailLabel: { color: "var(--text-muted)" },
+  detailValue: { color: "var(--text-body)", fontWeight: 700 },
+
+  combatGameEmpty: {
+    padding: "6px 8px",
+    borderRadius: "var(--radius-md)",
+    border: "1.5px dashed rgba(var(--border-rgb),0.35)",
+    color: "var(--text-muted)",
+    fontSize: 10.5,
+    fontStyle: "italic",
+    textAlign: "center",
   },
 
   scoreboardLoading: {

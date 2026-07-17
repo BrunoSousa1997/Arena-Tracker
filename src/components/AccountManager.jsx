@@ -105,9 +105,13 @@ export default function AccountManager({
                     border: isActive
                       ? "1px solid rgba(var(--accent-rgb),0.7)"
                       : "1px solid rgba(var(--accent-rgb),0.15)",
+                    // O cartão inativo recua para --panel-deep-rgb, como o
+                    // champCard em MatchReports.jsx. Era um preto fixo, que só
+                    // recua por cima de um tema escuro: no claro dava #bfbfbf,
+                    // mais escuro que a própria página.
                     background: isActive
                       ? "rgba(var(--accent-rgb),0.1)"
-                      : "rgba(0,0,0,0.25)",
+                      : "rgba(var(--panel-deep-rgb),0.85)",
                   }}
                 >
                   <div style={styles.accountInfo}>

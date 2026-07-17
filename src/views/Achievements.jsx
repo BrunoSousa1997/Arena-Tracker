@@ -32,10 +32,13 @@ function currentRankOf(cat) {
   return rankForTierIndex(unlockedCount - 1, cat.tiers.length);
 }
 
-export default function Achievements({ matches, champions, wins, DRAGON }) {
+export default function Achievements({ matches, champions, wins, DRAGON, challengeWins = 0 }) {
   const { t } = useLanguage();
 
-  const stats = useMemo(() => computeAchievementStats(matches, champions, wins), [matches, champions, wins]);
+  const stats = useMemo(
+    () => computeAchievementStats(matches, champions, wins, challengeWins),
+    [matches, champions, wins, challengeWins]
+  );
 
   // Cada categoria tem uma escada de níveis (tiers) e sabe ir buscar o valor
   // atual a "stats" — cada nível vira um badge próprio (desbloqueado ou

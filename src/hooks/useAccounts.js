@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { ensureUser, getWins, getMatches } from "../db/api";
+import { useCallback, useEffect, useState } from "react";
+import { ensureUser, getWins, getMatches, getChallengeWinCount } from "../db/api";
 
 // Gestão de contas (cada uma: { username, riotAccount, riotTag, region,
 // puuid?, lastCanaryPatch?, lastCanaryCheck? }) + a Coleção/Histórico da
@@ -22,6 +22,12 @@ export function useAccounts({ onNeedsAccountSetup } = {}) {
 
   const [wins, setWins] = useState([]);
   const [matches, setMatches] = useState([]);
+  // Nº de desafios (salas multiplayer) já vencidos por esta conta — usado só
+  // pela conquista "challenge_wins" (ver lib/achievementStats.js). Carregado
+  // à parte de wins/matches porque vem de uma tabela diferente
+  // (challenge_rooms) e não precisa do mesmo "dataLoading" (a app não fica
+  // sem nada para mostrar enquanto isto não chega).
+  const [challengeWins, setChallengeWins] = useState(0);
   // Distingue "ainda não chegaram dados" de "chegaram e não há nenhum" —
   // sem isto, trocar de conta (ou o arranque inicial) mostrava por instantes
   // um ecrã "sem partidas" só porque wins/matches ainda estavam vazios à
@@ -90,6 +96,31 @@ export function useAccounts({ onNeedsAccountSetup } = {}) {
     };
   }, [activeAccount]);
 
+  // ================= VITÓRIAS EM DESAFIOS =================
+  useEffect(() => {
+    if (!activeAccount) {
+      setChallengeWins(0);
+      return;
+    }
+
+    let cancelled = false;
+    getChallengeWinCount(activeAccount).then((count) => {
+      if (!cancelled) setChallengeWins(count);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeAccount]);
+
+  // Chamado pela tab Desafios assim que a própria conta vence um desafio —
+  // sem isto, a conquista só refletia a vitória na próxima troca de conta
+  // (ver efeito acima), muito depois de o momento em que faria sentido.
+  const refreshChallengeWins = useCallback(() => {
+    if (!activeAccount) return;
+    getChallengeWinCount(activeAccount).then(setChallengeWins);
+  }, [activeAccount]);
+
   // ================= GESTÃO DE CONTAS =================
   const createAccountFromManager = async (username, riotAccountRaw, riotTagRaw, regionRaw) => {
     const riotAccount = riotAccountRaw || username;
@@ -102,6 +133,15 @@ export function useAccounts({ onNeedsAccountSetup } = {}) {
       : [...accounts, { username, riotAccount, riotTag, region }];
 
     setAccounts(updated);
+    // Limpar matches/wins na mesma leva que a troca de conta é crítico: sem
+    // isto há um render em que "activeAccount" já é o novo mas "matches"
+    // ainda são os da conta anterior, e o vigia de conquistas
+    // (useNotifications.js) usa esse instante para calcular e GRAVAR a
+    // fotografia da conta nova a partir dos dados errados — corrompendo a
+    // base de comparação e fazendo conquistas antigas parecerem "novas" para
+    // sempre nessa conta.
+    setMatches([]);
+    setWins([]);
     setActiveAccount(username);
 
     localStorage.setItem("riot-accounts", JSON.stringify(updated));
@@ -163,6 +203,11 @@ export function useAccounts({ onNeedsAccountSetup } = {}) {
     localStorage.setItem("active-account", name);
 
     setTimeout(() => {
+      // Mesma razão do createAccountFromManager: limpar antes de trocar
+      // evita o vigia de conquistas gravar uma fotografia da conta nova
+      // calculada com dados da conta anterior.
+      setMatches([]);
+      setWins([]);
       setActiveAccount(name);
       setSwitching(false);
       onSwitched?.();
@@ -179,6 +224,8 @@ export function useAccounts({ onNeedsAccountSetup } = {}) {
     setWins,
     matches,
     setMatches,
+    challengeWins,
+    refreshChallengeWins,
     dataLoading,
     createAccountFromManager,
     updateRiotAccountFor,
