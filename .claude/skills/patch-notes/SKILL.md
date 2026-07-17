@@ -5,15 +5,35 @@ description: Gera as notas de patch (release notes) da Arena Tracker a partir do
 
 # Gerar patch notes da Arena Tracker
 
-Este projeto lê as notas de cada versão diretamente do corpo da release no
-GitHub (via feed atom público, ver `electron/updater.js`) — tanto o banner de
-"Atualização pronta" como o botão "Histórico de atualizações" nas Definições
-mostram esse texto sem mais nenhum passo manual. Esta skill só precisa de
-produzir um ficheiro `build/release-notes.md`: o `electron-builder`
-deteta-o automaticamente e usa-o como corpo da release quando corres
-`npm run release` (ver `getResource` em
-`app-builder-lib/out/publish/updateInfoBuilder.js` — procura por
-`release-notes.md` na pasta de build resources, que por omissão é `build/`).
+Esta skill produz um ficheiro `build/release-notes.md`, que alimenta **dois
+sítios diferentes** quando corres `npm run release`:
+
+1. **`latest.yml`** (metadados do auto-updater) — daqui vem o texto do modal
+   "Novidades" que aparece quando a atualização é descarregada. O
+   `electron-builder` encontra o ficheiro sozinho, por procurar o nome
+   `release-notes.md` na pasta de build resources (`build/`), ver
+   `getResource` em `app-builder-lib/out/publish/updateInfoBuilder.js`.
+
+2. **O corpo da release no GitHub** — daqui vem o "Histórico de
+   atualizações" nas Definições, que lê o feed atom em tempo real (ver
+   `updater:history` em `electron/updater.js`). **Isto NÃO é automático:**
+   `resolveReleaseBody()` em `app-builder-lib/out/publish/PublishManager.js`
+   só lê de `releaseInfo.releaseNotes` / `releaseInfo.releaseNotesFile` no
+   `package.json`, ou de um `release-notes.md` na **raiz** do projeto — nunca
+   de `build/`. Por isso o `package.json` tem:
+
+   ```json
+   "build": { "releaseInfo": { "releaseNotesFile": "build/release-notes.md" } }
+   ```
+
+   Se essa configuração desaparecer, a release é publicada com o corpo vazio
+   e o GitHub passa a mostrar a **mensagem do commit** no feed em vez das
+   notas — foi o que aconteceu na v2.0.4 (corrigido à mão a seguir). Depois
+   de publicar, vale sempre a pena confirmar:
+
+   ```
+   gh release view vX.Y.Z --repo BrunoSousa1997/Arena-Tracker --json body
+   ```
 
 ## Passo a passo
 
@@ -133,6 +153,24 @@ Depois de o utilizador confirmar o texto, o fluxo normal de publicação é:
 O `build/release-notes.md` vai automaticamente para o corpo da release do
 GitHub nesse passo 3 — não precisas de colar nada manualmente na interface
 do GitHub.
+
+## Depois de `npm run release`: verificar sempre
+
+Na v2.0.4 o `electron-builder` correu o publisher **duas vezes** e criou
+**duas releases com a mesma tag** — uma com o `.exe` + `latest.yml`, outra só
+com o blockmap. Enquanto as duas existem, o GitHub recusa editar qualquer
+uma (`422 already_exists: tag_name`), por isso nem dá para corrigir o corpo
+sem apagar a intrusa primeiro. Confirma o estado logo a seguir a publicar:
+
+```
+gh api repos/BrunoSousa1997/Arena-Tracker/releases --jq '.[] | select(.tag_name=="vX.Y.Z") | {id, assets: [.assets[].name], bodyLen: (.body|length)}'
+```
+
+O que deves ver: **uma** release, com `.exe` + `latest.yml` + `.blockmap`, e
+`bodyLen > 0`. Se houver duas, a boa é a que tem o `latest.yml` (é dela que o
+auto-update lê) — apaga a outra (`gh api -X DELETE .../releases/<id>`, não
+apaga a tag) e repõe o blockmap com
+`gh release upload vX.Y.Z <ficheiro> --clobber`.
 
 ## Corrigir notas de uma release já publicada
 

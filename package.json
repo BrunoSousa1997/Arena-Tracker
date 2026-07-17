@@ -52,6 +52,9 @@
       "node_modules/**"
     ],
     "icon": "public/logo.ico",
+    "releaseInfo": {
+      "releaseNotesFile": "build/release-notes.md"
+    },
     "win": {
       "target": "nsis",
       "icon": "public/logo.ico"
