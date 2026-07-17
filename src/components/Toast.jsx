@@ -49,7 +49,7 @@ const styles = {
   },
 
   toastSuccess: {
-    background: "linear-gradient(180deg, rgba(var(--panel-rgb),0.98), rgba(var(--panel-deep-rgb),0.99))",
+    background: "var(--surface-float)",
     border: "1px solid rgba(var(--accent-rgb),0.4)",
     color: "var(--text-body)",
   },

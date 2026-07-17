@@ -437,8 +437,8 @@ export default function App() {
   if (!patch && !patchFailed) {
     return (
       <div style={styles.app}>
-        <div style={styles.auroraBlob1} aria-hidden="true" />
-        <div style={styles.auroraBlob2} aria-hidden="true" />
+        <div className="auroraBlob" style={styles.auroraBlob1} aria-hidden="true" />
+        <div className="auroraBlob" style={styles.auroraBlob2} aria-hidden="true" />
         <Loading label={t("cold_loading")} size="lg" />
       </div>
     );
@@ -461,8 +461,8 @@ export default function App() {
           styles.app com position:relative para isto ficar mesmo por trás
           do conteúdo em vez de por cima). Puramente decorativo, por isso
           aria-hidden e sem pointer events. */}
-      <div style={styles.auroraBlob1} aria-hidden="true" />
-      <div style={styles.auroraBlob2} aria-hidden="true" />
+      <div className="auroraBlob" style={styles.auroraBlob1} aria-hidden="true" />
+      <div className="auroraBlob" style={styles.auroraBlob2} aria-hidden="true" />
 
       <UpdateNotifier />
 
@@ -1211,6 +1211,12 @@ const styles = {
 
   app: {
     position: "relative",
+    // Sem isto a aurora fica invisível: "position: relative" sozinho não cria
+    // um stacking context, por isso os blobs de z-index negativo iam pintar
+    // no contexto da raiz — ou seja, POR BAIXO do backgroundImage opaco que
+    // este mesmo elemento tem, em vez de por cima dele. "isolate" força o
+    // contexto aqui, e a ordem passa a ser: fundo do app -> blobs -> conteúdo.
+    isolation: "isolate",
     height: "100vh",
     width: "100vw",
     overflowX: "hidden",
@@ -1250,7 +1256,7 @@ const styles = {
     maxWidth: 620,
     maxHeight: 620,
     borderRadius: "50%",
-    background: "radial-gradient(circle, rgba(99,102,241,0.5), transparent 70%)",
+    background: "radial-gradient(circle, var(--aurora-1), transparent 70%)",
     pointerEvents: "none",
     animation: "auroraBlob1 16s ease-in-out infinite",
   },
@@ -1265,7 +1271,7 @@ const styles = {
     maxWidth: 560,
     maxHeight: 560,
     borderRadius: "50%",
-    background: "radial-gradient(circle, rgba(250,204,21,0.38), transparent 70%)",
+    background: "radial-gradient(circle, var(--aurora-2), transparent 70%)",
     pointerEvents: "none",
     animation: "auroraBlob2 20s ease-in-out infinite",
   },
@@ -1281,7 +1287,7 @@ const styles = {
     gap: 10,
     padding: "8px 14px",
     borderRadius: 12,
-    background: "linear-gradient(180deg, rgba(var(--panel-rgb),0.98), rgba(var(--panel-deep-rgb),0.99))",
+    background: "var(--surface-float)",
     border: "1px solid rgba(var(--accent-rgb),0.4)",
     boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
     cursor: "pointer",
@@ -1564,7 +1570,8 @@ const styles = {
     marginTop: 8,
     padding: "10px 14px 12px",
     borderRadius: "var(--radius-2xl)",
-    background: "linear-gradient(180deg, rgba(var(--panel-rgb),0.95), rgba(var(--panel-deep-rgb),0.97))",
+    background: "var(--panel-bg)",
+    backdropFilter: "var(--panel-blur)",
     border: "1px solid rgba(var(--border-rgb),0.5)",
     boxShadow: "0 1px 0 rgba(255,255,255,0.04) inset, 0 6px 18px rgba(0,0,0,0.18)",
   },
@@ -1742,7 +1749,8 @@ const styles = {
   },
 
   cardScroll: {
-    background: "linear-gradient(180deg, rgba(var(--panel-rgb),0.92), rgba(var(--panel-deep-rgb),0.96))",
+    background: "var(--panel-bg)",
+    backdropFilter: "var(--panel-blur)",
     border: "1px solid rgba(var(--border-rgb),0.5)",
     borderRadius: "var(--radius-2xl)",
     padding: 18,
@@ -1862,7 +1870,8 @@ const styles = {
     gap: 12,
     padding: "10px 14px",
     borderRadius: 12,
-    background: "linear-gradient(180deg, rgba(var(--panel-rgb),0.92), rgba(var(--panel-deep-rgb),0.96))",
+    background: "var(--panel-bg)",
+    backdropFilter: "var(--panel-blur)",
     border: "1px solid rgba(var(--accent-rgb),0.4)",
   },
 
@@ -1961,7 +1970,8 @@ const styles = {
     marginTop: 40,
     padding: 30,
     borderRadius: "var(--radius-2xl)",
-    background: "linear-gradient(180deg, rgba(var(--panel-rgb),0.92), rgba(var(--panel-deep-rgb),0.96))",
+    background: "var(--panel-bg)",
+    backdropFilter: "var(--panel-blur)",
     border: "1px solid rgba(var(--border-rgb),0.5)",
     textAlign: "center",
     display: "flex",

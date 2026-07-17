@@ -105,7 +105,7 @@ const styles = {
     gap: 10,
     padding: "8px 12px",
     borderRadius: "var(--radius-lg)",
-    background: "linear-gradient(180deg, rgba(var(--panel-rgb),0.96), rgba(var(--panel-deep-rgb),0.98))",
+    background: "var(--surface-float)",
     border: "1px solid var(--info-border)",
     color: "var(--info)",
     fontFamily: "Cinzel, serif",

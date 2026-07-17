@@ -71,7 +71,7 @@ const styles = {
     width: 380,
     padding: 22,
     borderRadius: "var(--radius-2xl)",
-    background: "linear-gradient(180deg, rgba(var(--panel-rgb),0.98), rgba(var(--panel-deep-rgb),0.99))",
+    background: "var(--surface-float)",
     border: "1px solid rgba(var(--border-rgb),0.5)",
     boxShadow: "0 20px 60px rgba(0,0,0,0.55)",
     display: "flex",

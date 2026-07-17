@@ -192,8 +192,8 @@ const styles = {
     gap: 10,
     padding: "10px 16px",
     borderRadius: 13,
-    background:
-      "linear-gradient(180deg, rgba(var(--panel-rgb),0.92), rgba(var(--panel-deep-rgb),0.96))",
+    background: "var(--panel-bg)",
+    backdropFilter: "var(--panel-blur)",
     border: "1px solid rgba(var(--border-rgb),0.5)",
   },
 
@@ -246,8 +246,8 @@ const styles = {
     gap: "4px 14px",
     padding: "8px 14px",
     borderRadius: 12,
-    background:
-      "linear-gradient(180deg, rgba(var(--panel-rgb),0.92), rgba(var(--panel-deep-rgb),0.96))",
+    background: "var(--panel-bg)",
+    backdropFilter: "var(--panel-blur)",
     border: "1px solid rgba(var(--border-rgb),0.5)",
     fontSize: 11.5,
     color: "var(--text-secondary)",
