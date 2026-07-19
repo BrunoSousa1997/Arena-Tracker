@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import UpdateNotifier from "./components/UpdateNotifier";
 import Loading from "./components/Loading";
+import Facets from "./components/Facets";
 import Overview from "./views/Overview";
 import MatchHistory from "./views/MatchHistory";
 import MatchReports from "./views/MatchReports";
@@ -437,8 +438,7 @@ export default function App() {
   if (!patch && !patchFailed) {
     return (
       <div style={styles.app}>
-        <div className="auroraBlob" style={styles.auroraBlob1} aria-hidden="true" />
-        <div className="auroraBlob" style={styles.auroraBlob2} aria-hidden="true" />
+        <Facets />
         <Loading label={t("cold_loading")} size="lg" />
       </div>
     );
@@ -456,13 +456,7 @@ export default function App() {
 
   return (
     <div style={styles.app}>
-      {/* Aurora mágica de fundo — duas manchas de luz (indigo + dourado) a
-          derivar lentamente atrás de tudo (z-index negativo, ver
-          styles.app com position:relative para isto ficar mesmo por trás
-          do conteúdo em vez de por cima). Puramente decorativo, por isso
-          aria-hidden e sem pointer events. */}
-      <div className="auroraBlob" style={styles.auroraBlob1} aria-hidden="true" />
-      <div className="auroraBlob" style={styles.auroraBlob2} aria-hidden="true" />
+      <Facets />
 
       <UpdateNotifier />
 
@@ -994,7 +988,6 @@ export default function App() {
               <Challenges
                 activeAccount={activeAccount}
                 accounts={accounts}
-                matches={matches}
                 champions={champions}
                 DRAGON={DRAGON}
                 onChallengeWon={refreshChallengeWins}
@@ -1211,11 +1204,12 @@ const styles = {
 
   app: {
     position: "relative",
-    // Sem isto a aurora fica invisível: "position: relative" sozinho não cria
-    // um stacking context, por isso os blobs de z-index negativo iam pintar
-    // no contexto da raiz — ou seja, POR BAIXO do backgroundImage opaco que
-    // este mesmo elemento tem, em vez de por cima dele. "isolate" força o
-    // contexto aqui, e a ordem passa a ser: fundo do app -> blobs -> conteúdo.
+    // Sem isto o mosaico fica invisível: "position: relative" sozinho não
+    // cria um stacking context, por isso o SVG de z-index negativo ia
+    // pintar no contexto da raiz — ou seja, POR BAIXO do backgroundImage
+    // opaco que este mesmo elemento tem, em vez de por cima dele. "isolate"
+    // força o contexto aqui, e a ordem passa a ser: fundo do app -> mosaico
+    // -> conteúdo.
     isolation: "isolate",
     height: "100vh",
     width: "100vw",
@@ -1237,43 +1231,6 @@ const styles = {
     backgroundPosition: "center",
     backgroundAttachment: "fixed",
     overflow: "hidden",
-  },
-
-  // Duas manchas de luz animadas (ver keyframes auroraBlob1/auroraBlob2 em
-  // index.css) — substituem os dois brilhos estáticos que existiam antes
-  // dentro do backgroundImage acima, agora com movimento visível e cores
-  // mais vivas (indigo + dourado, a mesma dupla de cores já usada no resto
-  // da app: accent e destaque "build vencedora"). z-index:-1 + "app" com
-  // position:relative garante que isto fica sempre por trás de todo o
-  // conteúdo real, nunca por cima.
-  auroraBlob1: {
-    position: "absolute",
-    zIndex: -1,
-    top: "-15%",
-    left: "-10%",
-    width: "60vw",
-    height: "60vw",
-    maxWidth: 620,
-    maxHeight: 620,
-    borderRadius: "50%",
-    background: "radial-gradient(circle, var(--aurora-1), transparent 70%)",
-    pointerEvents: "none",
-    animation: "auroraBlob1 16s ease-in-out infinite",
-  },
-
-  auroraBlob2: {
-    position: "absolute",
-    zIndex: -1,
-    top: "20%",
-    right: "-15%",
-    width: "50vw",
-    height: "50vw",
-    maxWidth: 560,
-    maxHeight: 560,
-    borderRadius: "50%",
-    background: "radial-gradient(circle, var(--aurora-2), transparent 70%)",
-    pointerEvents: "none",
-    animation: "auroraBlob2 20s ease-in-out infinite",
   },
 
   liveBanner: {

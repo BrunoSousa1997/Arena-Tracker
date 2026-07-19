@@ -20,6 +20,8 @@ import {
   ChevronDown,
   History,
   ArrowLeft,
+  Info,
+  MonitorCheck,
 } from "lucide-react";
 import { useLanguage } from "../lib/i18n";
 import Loading from "../components/Loading";
@@ -41,11 +43,12 @@ import {
   searchAccountsByGameName,
   startRoom,
   finishRoom,
-  getRoomMatchesForPlayers,
-  subscribeToMatches,
+  getRoomChallengeGames,
+  subscribeToChallengeGames,
+  recoverMissingChallengeGames,
   getChallengeHistory,
 } from "../db/api";
-import { scorePlayer } from "../lib/challengeScoring";
+import { scorePlayer, SCORE_POINTS, CLASS_MULTIPLIER, DEFAULT_RULES, sumStreakBonus } from "../lib/challengeScoring";
 import { normalizeChampionId } from "../lib/champions";
 
 const PLAYER_OPTIONS = [2, 3, 4, 6, 8];
@@ -78,8 +81,126 @@ function dedupeByIdentity(rows) {
   return result;
 }
 
+// "Ao vivo" = linha em challenge_games ainda com status "live" e atualizada
+// nos últimos 20s (ver updateChallengeGameProgress em db/rooms.js, chamado a
+// cada poll de 3s). A margem cobre falhas de rede pontuais sem deixar a
+// etiqueta "a jogar agora" presa quando já não há partida nenhuma.
+//
+// Uma linha "live" mais velha do que isto NÃO é descartada — é tratada como
+// uma partida terminada (ver fetchAll no ScoreBoard). Acontece quando a app
+// morre de repente (crash, fim de processo) sem chegar a fechar a linha em
+// condições: os pontos já feitos continuam a contar, só deixam de aparecer
+// como "a decorrer". Um desafio nunca tira pontos a ninguém.
+function isGameLive(row) {
+  return (
+    !!row &&
+    row.status === "live" &&
+    !!row.updated_at &&
+    Date.now() - new Date(row.updated_at).getTime() < 20_000
+  );
+}
+
+// ================= AVISO: MANTER A APP ABERTA =================
+// A pontuação dos challenges depende inteiramente da Live Client Data (ver
+// electron/liveGame.js) — sem a app aberta durante a partida não há poll
+// nenhum, e o que não for captado nesse momento não entra no desafio (dá
+// para repescar depois a partir do histórico, ver o botão "Recuperar jogos
+// em falta" no placar, mas é sempre melhor não precisar dele). O que já
+// tiver sido captado NUNCA se perde. Mostrado em todos os ecrãs onde isto
+// importa: antes de começar (idle/lobby) e durante o desafio (placar).
+function KeepAppOpenNotice() {
+  const { t } = useLanguage();
+  return (
+    <div style={styles.keepOpenNotice}>
+      <MonitorCheck size={14} strokeWidth={2.25} style={styles.keepOpenIcon} />
+      <span>{t("chal_keep_app_open")}</span>
+    </div>
+  );
+}
+
+// ================= EXPLICAÇÃO: COMO FUNCIONA A PONTUAÇÃO =================
+// Painel expansível com a tabela de pontos exata usada em challengeScoring.js
+// (os valores vêm de lá, SCORE_POINTS — nunca escritos à mão aqui, para não
+// desalinhar se algum dia forem afinados) — para os jogadores saberem de onde
+// vêm os pontos em vez de confiarem num número que não conseguem verificar.
+function ScoringRulesInfo() {
+  const { t } = useLanguage();
+  const [open, setOpen] = useState(false);
+
+  const streakSuffix = t("chal_score_streak_value")
+    .replace("{step}", SCORE_POINTS.streakStep)
+    .replace("{threshold}", SCORE_POINTS.streakThreshold);
+  const deathStreakSuffix = t("chal_score_death_streak_value")
+    .replace("{step}", SCORE_POINTS.streakStep)
+    .replace("{threshold}", SCORE_POINTS.streakThreshold);
+  const per = (amount) => t("chal_score_per_points").replace("{amount}", amount.toLocaleString());
+
+  const classLabelKeys = {
+    Assassin: "chal_class_assassin",
+    Mage: "chal_class_mage",
+    Marksman: "chal_class_marksman",
+    Support: "chal_class_support",
+    Fighter: "chal_class_fighter",
+    Tank: "chal_class_tank",
+  };
+  // Ordenado do multiplicador mais alto para o mais baixo — lê-se como uma
+  // escala (quem sobe primeiro, quem desce por último), não por ordem
+  // alfabética arbitrária.
+  const classRows = Object.entries(CLASS_MULTIPLIER)
+    .sort((a, b) => b[1] - a[1])
+    .map(([tag, mult]) => ({ label: t(classLabelKeys[tag]) || tag, value: `×${mult.toFixed(2)}` }));
+
+  const rows = [
+    { label: t("chal_score_kill"), value: `+${SCORE_POINTS.kill}` },
+    { label: t("chal_score_death"), value: `${SCORE_POINTS.death}` },
+    { label: t("chal_score_assist"), value: `+${SCORE_POINTS.assist}` },
+    { label: t("chal_score_streak"), value: streakSuffix },
+    { label: t("chal_score_death_streak"), value: deathStreakSuffix },
+    { label: t("chal_score_damage"), value: per(SCORE_POINTS.damageDealtPer) },
+    { label: t("chal_score_healing"), value: per(SCORE_POINTS.healingPer) },
+    { label: t("chal_score_taken"), value: per(SCORE_POINTS.damageTakenPer) },
+    { label: t("chal_score_double"), value: `+${SCORE_POINTS.doubleKill}` },
+    { label: t("chal_score_triple"), value: `+${SCORE_POINTS.tripleKill}` },
+  ];
+
+  return (
+    <div style={styles.scoringInfoWrap}>
+      <button type="button" onClick={() => setOpen((o) => !o)} style={styles.scoringInfoToggle}>
+        <Info size={13} strokeWidth={2.25} />
+        {t("chal_scoring_how")}
+        <ChevronDown
+          size={13}
+          strokeWidth={2.5}
+          style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}
+        />
+      </button>
+      {open && (
+        <div style={styles.scoringInfoBody}>
+          {rows.map((r) => (
+            <div key={r.label} style={styles.scoringInfoRow}>
+              <span style={styles.scoringInfoLabel}>{r.label}</span>
+              <span style={styles.scoringInfoValue}>{r.value}</span>
+            </div>
+          ))}
+
+          <div style={styles.scoringInfoSubheader}>{t("chal_score_class_handicap")}</div>
+          {classRows.map((r) => (
+            <div key={r.label} style={styles.scoringInfoRow}>
+              <span style={styles.scoringInfoLabel}>{r.label}</span>
+              <span style={styles.scoringInfoValue}>{r.value}</span>
+            </div>
+          ))}
+          <div style={styles.scoringInfoNote}>{t("chal_score_class_handicap_note")}</div>
+
+          <div style={styles.scoringInfoNote}>{t("chal_score_live_note")}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // idle = escolher entre criar/entrar · creating = formulário · lobby = já numa sala
-export default function Challenges({ activeAccount, accounts, matches = [], champions = [], DRAGON, onChallengeWon }) {
+export default function Challenges({ activeAccount, accounts, champions = [], DRAGON, onChallengeWon }) {
   const { t } = useLanguage();
 
   const [screen, setScreen] = useState("idle");
@@ -272,7 +393,6 @@ export default function Challenges({ activeAccount, accounts, matches = [], cham
           activeAccount={activeAccount}
           onLeave={handleLeave}
           onClose={handleClose}
-          matches={matches}
           champions={champions}
           DRAGON={DRAGON}
           onChallengeWon={onChallengeWon}
@@ -290,7 +410,7 @@ function IdleScreen({ onCreate, onJoin, onHistory, error, busy }) {
 
   return (
     <>
-      <div style={styles.card}>
+      <div className="riseIn" style={styles.card}>
         <div style={styles.idleHeaderRow}>
           <div>
             <h2 style={styles.title}>{t("chal_page_title")}</h2>
@@ -300,16 +420,21 @@ function IdleScreen({ onCreate, onJoin, onHistory, error, busy }) {
             <History size={13} strokeWidth={2.25} /> {t("chal_history")}
           </button>
         </div>
-        <div style={styles.hint}>{t("chal_soon_scoring")}</div>
+        <KeepAppOpenNotice />
+        <ScoringRulesInfo />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <button onClick={onCreate} style={styles.bigChoice} className="clickableCard">
+        <button
+          onClick={onCreate}
+          style={{ ...styles.bigChoice, animationDelay: "30ms" }}
+          className="clickableCard riseIn"
+        >
           <Plus size={22} strokeWidth={2.25} color="var(--accent-text)" />
           <span style={styles.bigChoiceTitle}>{t("chal_create_room")}</span>
         </button>
 
-        <div style={styles.card}>
+        <div className="riseIn" style={{ ...styles.card, animationDelay: "60ms" }}>
           <div style={styles.bigChoiceHeader}>
             <LogIn size={18} strokeWidth={2.25} color="var(--accent-text)" />
             <span style={styles.bigChoiceTitle}>{t("chal_join_room")}</span>
@@ -355,7 +480,7 @@ function ChallengeHistory({ activeAccount, onBack }) {
 
   return (
     <>
-      <div style={styles.card}>
+      <div className="riseIn" style={styles.card}>
         <div style={styles.idleHeaderRow}>
           <h2 style={styles.title}>{t("chal_history")}</h2>
           <button onClick={onBack} style={styles.ghostBtn}>
@@ -374,8 +499,8 @@ function ChallengeHistory({ activeAccount, onBack }) {
         )}
       </div>
 
-      {rooms?.map((room) => (
-        <HistoryEntry key={room.id} room={room} activeAccount={activeAccount} t={t} />
+      {rooms?.map((room, i) => (
+        <HistoryEntry key={room.id} room={room} activeAccount={activeAccount} t={t} delay={Math.min(i, 8) * 30} />
       ))}
     </>
   );
@@ -383,12 +508,15 @@ function ChallengeHistory({ activeAccount, onBack }) {
 
 // Um desafio terminado — usa a fotografia gravada em "results" (ver
 // finishRoom), não recalcula nada: é a mesma pontuação que se viu ao vivo.
-function HistoryEntry({ room, activeAccount, t }) {
+function HistoryEntry({ room, activeAccount, t, delay = 0 }) {
   const results = Array.isArray(room.results) ? room.results : [];
   const won = room.winner_username === activeAccount;
 
   return (
-    <div style={{ ...styles.card, ...(won ? styles.combatCardSelf : null) }}>
+    <div
+      className="riseIn"
+      style={{ ...styles.card, ...(won ? styles.combatCardSelf : null), animationDelay: `${delay}ms` }}
+    >
       <div style={styles.idleHeaderRow}>
         <div>
           <div style={styles.kicker}>
@@ -468,7 +596,7 @@ function CreateForm({ hostUsername, identity, onCancel, onCreated }) {
   };
 
   return (
-    <div style={styles.card}>
+    <div className="riseIn" style={styles.card}>
       <h2 style={styles.title}>{t("chal_create_room")}</h2>
 
       <label style={styles.label}>{t("chal_room_name")}</label>
@@ -539,7 +667,7 @@ function CreateForm({ hostUsername, identity, onCancel, onCreated }) {
 }
 
 // ================= LOBBY (+ convidar) =================
-function Lobby({ room, players, activeAccount, onLeave, onClose, matches, champions, DRAGON, onChallengeWon, onRoomUpdate }) {
+function Lobby({ room, players, activeAccount, onLeave, onClose, champions, DRAGON, onChallengeWon, onRoomUpdate }) {
   const { t } = useLanguage();
   const [confirmClose, setConfirmClose] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -588,7 +716,6 @@ function Lobby({ room, players, activeAccount, onLeave, onClose, matches, champi
         players={players}
         activeAccount={activeAccount}
         onLeave={onLeave}
-        matches={matches}
         champions={champions}
         DRAGON={DRAGON}
         onChallengeWon={onChallengeWon}
@@ -598,7 +725,7 @@ function Lobby({ room, players, activeAccount, onLeave, onClose, matches, champi
 
   return (
     <>
-      <div style={styles.card}>
+      <div className="riseIn" style={styles.card}>
         <div style={styles.lobbyHeader}>
           <div>
             <div style={styles.kicker}>{t("chal_lobby")}</div>
@@ -624,6 +751,7 @@ function Lobby({ room, players, activeAccount, onLeave, onClose, matches, champi
                 player={p}
                 isHost={p.username === room.host_username}
                 hostText={t("chal_host")}
+                delay={Math.min(idx, 8) * 30}
               />
             ))}
             {/* Slots vazios */}
@@ -649,6 +777,9 @@ function Lobby({ room, players, activeAccount, onLeave, onClose, matches, champi
             </>
           )}
         </div>
+
+        <KeepAppOpenNotice />
+        <ScoringRulesInfo />
 
         <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
           {isHost ? (
@@ -683,7 +814,7 @@ function Lobby({ room, players, activeAccount, onLeave, onClose, matches, champi
 }
 
 // ================= CARD DE PLAYER =================
-function PlayerCard({ player, isHost, hostText }) {
+function PlayerCard({ player, isHost, hostText, delay = 0 }) {
   const name = player
     ? player.riot_game_name && player.riot_tag_line
       ? `${player.riot_game_name}#${player.riot_tag_line}`
@@ -691,7 +822,10 @@ function PlayerCard({ player, isHost, hostText }) {
     : "—";
 
   return (
-    <div style={player ? styles.playerCard : styles.playerCardEmpty}>
+    <div
+      className="riseIn"
+      style={{ ...(player ? styles.playerCard : styles.playerCardEmpty), animationDelay: `${delay}ms` }}
+    >
       {player && (
         <>
           <div style={styles.playerAvatar}>
@@ -755,13 +889,20 @@ function getCombatGridStyle(playerCount) {
 }
 
 // ================= PAINEL DE PONTUAÇÕES (Em Curso) =================
-// Vai buscar diretamente à base de dados as partidas de TODOS os jogadores da
-// sala (não só as da conta ativa neste dispositivo — "matches" é aberta, ver
-// db/rooms.js) e mantém-se em tempo real via subscrição a novas partidas.
-function ScoreBoard({ room, players, activeAccount, onLeave, matches = [], champions = [], DRAGON, onChallengeWon }) {
+// Vai buscar diretamente à base de dados os jogos de TODOS os jogadores da
+// sala (não só os da conta ativa neste dispositivo — "challenge_games" é
+// aberta, ver db/rooms.js) e mantém-se em tempo real via subscrição à
+// própria sala nessa tabela — cada partida (a decorrer ou já terminada) é a
+// sua própria linha, coleção separada do histórico normal.
+function ScoreBoard({ room, players, activeAccount, onLeave, champions = [], DRAGON, onChallengeWon }) {
   const { t } = useLanguage();
-  const [playerMatches, setPlayerMatches] = useState({});
+  const [finishedByUsername, setFinishedByUsername] = useState({});
+  const [liveByUsername, setLiveByUsername] = useState({});
   const [loaded, setLoaded] = useState(false);
+  // Recuperação manual de partidas que o desafio perdeu (ver
+  // recoverMissingChallengeGames em db/rooms.js). null = nunca corrida.
+  const [recovering, setRecovering] = useState(false);
+  const [recoverMsg, setRecoverMsg] = useState(null);
 
   const targetGames = room?.target_games || MAX_GAMES;
   const sinceISO = room?.started_at || new Date().toISOString();
@@ -769,14 +910,21 @@ function ScoreBoard({ room, players, activeAccount, onLeave, matches = [], champ
   const usernamesKey = usernames.join(",");
 
   const fetchAll = useCallback(async () => {
-    const rows = await getRoomMatchesForPlayers(usernames, sinceISO);
-    const grouped = {};
-    for (const u of usernames) grouped[u] = [];
+    const rows = await getRoomChallengeGames(usernames, sinceISO);
+    const finished = {};
+    const live = {};
+    for (const u of usernames) finished[u] = [];
     for (const row of rows) {
-      (grouped[row.username] ||= []).push(row);
+      // Só conta como "a decorrer" se ainda estiver a receber atualizações
+      // (ver isGameLive). Uma linha "live" abandonada — app fechada de
+      // repente sem chegar a fechá-la — entra na lista das terminadas, para
+      // os pontos já feitos continuarem a contar em vez de desaparecerem.
+      if (isGameLive(row)) live[row.username] = row;
+      else (finished[row.username] ||= []).push(row);
     }
-    for (const u of usernames) grouped[u] = grouped[u].slice(0, targetGames);
-    setPlayerMatches(grouped);
+    for (const u of usernames) finished[u] = finished[u].slice(0, targetGames);
+    setFinishedByUsername(finished);
+    setLiveByUsername(live);
     setLoaded(true);
   }, [usernamesKey, sinceISO, targetGames]);
 
@@ -784,42 +932,74 @@ function ScoreBoard({ room, players, activeAccount, onLeave, matches = [], champ
     fetchAll();
   }, [fetchAll]);
 
-  // Nova partida de qualquer conta da sala — refaz o placar sem precisar de
-  // clicar em nada, é o que torna isto "ao vivo". Já não é preciso depois de
-  // o desafio terminar (a fotografia em "results" é que manda a partir daí).
+  // Repesca partidas que a captura ao vivo não apanhou (app fechada durante
+  // o jogo, aberta a meio, sala que só arrancou depois) — só para a PRÓPRIA
+  // conta: o histórico de cada um só está acessível a partir do seu próprio
+  // dispositivo, por isso cada jogador recupera as suas.
+  const handleRecover = async () => {
+    setRecovering(true);
+    setRecoverMsg(null);
+    const res = await recoverMissingChallengeGames(room.id, activeAccount, sinceISO);
+    setRecovering(false);
+
+    if (!res.success) setRecoverMsg(t("chal_recover_error"));
+    else if (!res.recovered) setRecoverMsg(t("chal_recover_none"));
+    else setRecoverMsg(t("chal_recover_done").replace("{count}", res.recovered));
+
+    if (res.recovered) await fetchAll();
+  };
+
+  // Qualquer mudança nos jogos desta sala (nova partida a começar, KDA a
+  // atualizar, partida a terminar ou a ganhar dano/cura) — refaz o placar
+  // sem precisar de clicar em nada, é o que torna isto "ao vivo". Já não é
+  // preciso depois de o desafio terminar (a fotografia em "results" é que
+  // manda a partir daí).
   useEffect(() => {
     if (room.status === "finished") return;
-    const unsubscribe = subscribeToMatches((payload) => {
-      if (usernames.includes(payload?.new?.username)) fetchAll();
-    });
+    const unsubscribe = subscribeToChallengeGames(room.id, fetchAll);
     return unsubscribe;
-  }, [usernamesKey, fetchAll, room.status]);
+  }, [room.id, fetchAll, room.status]);
 
-  // A própria conta pode ter uma partida otimista em "matches" (App.jsx) uns
-  // instantes antes de a base de dados a confirmar de volta — evita esperar
-  // pelo round-trip para ver o próprio resultado aparecer.
+  // Rede de segurança: se a subscrição em tempo real perder algum evento
+  // (rede instável, canal que cai e volta), o placar não tinha nenhuma forma
+  // de se corrigir sozinho e ficava preso no último estado recebido — dava a
+  // sensação de os dados de uma partida terem "desaparecido" quando na
+  // verdade só deixaram de chegar atualizações. Repete o mesmo fetchAll do
+  // realtime, só que por tempo, para o placar se corrigir sozinho mesmo que
+  // um evento se perca pelo caminho.
   useEffect(() => {
-    if (!activeAccount) return;
-    const sinceTime = new Date(sinceISO).getTime();
-    const own = matches
-      .filter((m) => m.created_at && new Date(m.created_at).getTime() >= sinceTime)
-      .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
-      .slice(0, targetGames);
-
-    setPlayerMatches((prev) => {
-      if (own.length <= (prev[activeAccount]?.length || 0)) return prev;
-      return { ...prev, [activeAccount]: own };
-    });
-  }, [matches, activeAccount, sinceISO, targetGames]);
+    if (room.status === "finished") return;
+    const interval = setInterval(fetchAll, 5000);
+    return () => clearInterval(interval);
+  }, [fetchAll, room.status]);
 
   const champName = (id) => champions.find((c) => c.id === normalizeChampionId(id, champions))?.name || id;
 
   const scored = {};
   for (const p of players) {
-    const ms = playerMatches[p.username] || [];
-    scored[p.username] = ms.length
-      ? scorePlayer(ms, { champions, rules: {} })
+    const ms = finishedByUsername[p.username] || [];
+    const base = ms.length
+      ? scorePlayer(ms, { champions, rules: DEFAULT_RULES })
       : { total: 0, games: [], countedGames: 0 };
+
+    // Bónus da partida a decorrer — kills/deaths/assists + streaks (mesma
+    // regra de scoreGame, ver sumStreakBonus em challengeScoring.js). Fica
+    // de fora o resto da pontuação (dano/cura/multikills): só chega depois
+    // de a partida terminar e sincronizar (ver enrichChallengeGame). Sem
+    // multiplicador de classe: ainda não sabemos o total final da partida
+    // para valer a pena aplicá-lo, e seria só reajustado assim que o jogo
+    // terminasse e entrasse em "games".
+    const live = liveByUsername[p.username];
+    const liveBonus = isGameLive(live)
+      ? (live.kills || 0) * SCORE_POINTS.kill +
+        (live.deaths || 0) * SCORE_POINTS.death +
+        (live.assists || 0) * SCORE_POINTS.assist +
+        sumStreakBonus(live.kill_streaks) +
+        sumStreakBonus(live.assist_streaks) -
+        sumStreakBonus(live.death_streaks)
+      : 0;
+
+    scored[p.username] = { ...base, total: base.total + liveBonus };
   }
 
   const sortedPlayers = [...players].sort(
@@ -884,7 +1064,7 @@ function ScoreBoard({ room, players, activeAccount, onLeave, matches = [], champ
 
   return (
     <>
-      <div style={styles.epicCard}>
+      <div className="riseIn" style={styles.epicCard}>
         <div style={styles.scoreboardHeader}>
           <div>
             <div style={styles.kicker}>
@@ -948,6 +1128,7 @@ function ScoreBoard({ room, players, activeAccount, onLeave, matches = [], champ
                   isSelf={p.username === activeAccount}
                   games={scored[p.username]?.games || []}
                   total={scored[p.username]?.total || 0}
+                  liveGame={liveByUsername[p.username]}
                   targetGames={targetGames}
                   DRAGON={DRAGON}
                   champions={champions}
@@ -962,11 +1143,30 @@ function ScoreBoard({ room, players, activeAccount, onLeave, matches = [], champ
 
         <div style={styles.scoreboardNote}>{t("chal_scoring_in_progress")}</div>
 
-        <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+        {!challengeFinished && <KeepAppOpenNotice />}
+        <ScoringRulesInfo />
+
+        <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
           <button onClick={onLeave} style={styles.ghostBtn}>
             {t("chal_leave")}
           </button>
+          {!challengeFinished && (
+            <button onClick={handleRecover} disabled={recovering} style={styles.ghostBtn}>
+              {recovering ? (
+                <>
+                  <Loader2 size={13} strokeWidth={2.5} style={styles.spinIcon} /> {t("chal_recovering")}
+                </>
+              ) : (
+                <>
+                  <History size={13} strokeWidth={2.25} /> {t("chal_recover_games")}
+                </>
+              )}
+            </button>
+          )}
         </div>
+
+        {!challengeFinished && <div style={styles.fieldHint}>{t("chal_recover_hint")}</div>}
+        {recoverMsg && <div style={styles.recoverMsg}>{recoverMsg}</div>}
       </div>
     </>
   );
@@ -982,6 +1182,7 @@ function PlayerCombatCard({
   isSelf,
   games,
   total,
+  liveGame,
   targetGames,
   DRAGON,
   champions,
@@ -994,6 +1195,8 @@ function PlayerCombatCard({
     player.riot_game_name && player.riot_tag_line
       ? `${player.riot_game_name}#${player.riot_tag_line}`
       : player.username;
+
+  const isLive = !finished && isGameLive(liveGame);
 
   const agg = games.reduce(
     (acc, g) => {
@@ -1009,6 +1212,17 @@ function PlayerCombatCard({
     },
     { kills: 0, deaths: 0, assists: 0, damageDealt: 0, damageTaken: 0, healing: 0, multikills: 0 }
   );
+
+  // Soma o KDA da partida a decorrer por cima das já terminadas — dano/cura/
+  // multikills ficam de fora porque a Live Client Data não os expõe ao vivo
+  // (só chegam depois de a partida terminar e sincronizar, ver
+  // enrichChallengeGame).
+  if (isLive) {
+    agg.kills += liveGame.kills || 0;
+    agg.deaths += liveGame.deaths || 0;
+    agg.assists += liveGame.assists || 0;
+  }
+
   const kda = agg.deaths > 0 ? (agg.kills + agg.assists) / agg.deaths : agg.kills + agg.assists;
 
   const emptyGames = Math.max(0, targetGames - games.length);
@@ -1016,12 +1230,13 @@ function PlayerCombatCard({
 
   return (
     <div
-      className="historyCard"
+      className="historyCard riseIn"
       style={{
         ...styles.combatCard,
         borderLeft: `3px solid ${color}`,
         ...(isSelf ? styles.combatCardSelf : null),
         ...(finished && rank === 0 ? styles.combatCardLeader : null),
+        animationDelay: `${Math.min(rank, 8) * 30}ms`,
       }}
     >
       <div style={styles.combatCardHeader}>
@@ -1049,6 +1264,24 @@ function PlayerCombatCard({
           <div style={styles.combatScoreLabel}>pts</div>
         </div>
       </div>
+
+      {isLive && (
+        <div style={styles.liveProgressBadge}>
+          {DRAGON && (
+            <img
+              src={`${DRAGON}/img/champion/${normalizeChampionId(liveGame.champion, champions)}.png`}
+              style={styles.liveProgressIcon}
+            />
+          )}
+          <span style={styles.liveDot} />
+          <span style={styles.liveProgressLabel}>
+            {t("chal_live_now")} {champName(liveGame.champion)}
+          </span>
+          <span style={styles.liveProgressKda}>
+            {liveGame.kills}/{liveGame.deaths}/{liveGame.assists}
+          </span>
+        </div>
+      )}
 
       <div style={styles.combatStatsGrid}>
         <StatTile icon={Swords} label={t("chal_kills")} value={agg.kills} />
@@ -1233,7 +1466,7 @@ function InvitePanel({ room, activeAccount, players }) {
   };
 
   return (
-    <div style={styles.card}>
+    <div className="riseIn" style={styles.card}>
       <h3 style={styles.sectionTitle}>{t("chal_invite_title")}</h3>
 
       <div style={styles.codeRow}>
@@ -1293,7 +1526,7 @@ function InvitesPanel({ invites, onAccept, onDecline }) {
   const { t } = useLanguage();
 
   return (
-    <div style={{ ...styles.card, borderColor: "rgba(var(--accent-rgb),0.5)" }}>
+    <div className="riseIn" style={{ ...styles.card, borderColor: "rgba(var(--accent-rgb),0.5)" }}>
       <h3 style={styles.sectionTitle}>{t("chal_invites_received")}</h3>
       {invites.map((inv) => (
         <div key={inv.id} style={styles.inviteRow}>
@@ -2033,6 +2266,97 @@ const styles = {
     marginBottom: 12,
   },
 
+  keepOpenNotice: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: 8,
+    padding: "9px 12px",
+    marginTop: 10,
+    borderRadius: "var(--radius-lg)",
+    background: "rgba(251,191,36,0.1)",
+    border: "1px solid rgba(251,191,36,0.3)",
+    fontSize: 11,
+    lineHeight: 1.45,
+    color: "var(--text-secondary)",
+  },
+
+  keepOpenIcon: {
+    flexShrink: 0,
+    marginTop: 1,
+    color: "#fbbf24",
+  },
+
+  scoringInfoWrap: {
+    marginTop: 8,
+  },
+
+  scoringInfoToggle: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    padding: "8px 0",
+    border: "none",
+    background: "transparent",
+    color: "var(--text-secondary)",
+    cursor: "pointer",
+    fontSize: 11.5,
+    fontWeight: 700,
+  },
+
+  scoringInfoBody: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 5,
+    padding: "10px 12px",
+    borderRadius: "var(--radius-lg)",
+    background: "rgba(var(--panel-deep-rgb),0.7)",
+    border: "1px solid rgba(var(--border-rgb),0.4)",
+  },
+
+  scoringInfoRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 10,
+    fontSize: 11,
+  },
+
+  scoringInfoLabel: {
+    color: "var(--text-secondary)",
+  },
+
+  scoringInfoValue: {
+    color: "var(--accent-text)",
+    fontWeight: 700,
+    whiteSpace: "nowrap",
+  },
+
+  scoringInfoNote: {
+    fontSize: 10.5,
+    color: "var(--text-muted)",
+    lineHeight: 1.4,
+    marginTop: 4,
+    paddingTop: 8,
+    borderTop: "1px solid rgba(var(--border-rgb),0.35)",
+  },
+
+  recoverMsg: {
+    fontSize: 11.5,
+    fontWeight: 600,
+    color: "var(--accent-text)",
+    marginTop: 8,
+  },
+
+  scoringInfoSubheader: {
+    fontSize: 10,
+    fontWeight: 700,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+    color: "var(--text-muted)",
+    marginTop: 6,
+    paddingTop: 8,
+    borderTop: "1px solid rgba(var(--border-rgb),0.35)",
+  },
+
   liveDot: {
     display: "inline-block",
     width: 7,
@@ -2041,6 +2365,40 @@ const styles = {
     background: "#58c778",
     marginRight: 5,
     animation: "livePulse 1.6s ease-in-out infinite",
+  },
+
+  liveProgressBadge: {
+    display: "flex",
+    alignItems: "center",
+    gap: 7,
+    padding: "7px 10px",
+    marginBottom: 10,
+    borderRadius: "var(--radius-lg)",
+    background: "rgba(88,199,120,0.1)",
+    border: "1px solid rgba(88,199,120,0.35)",
+  },
+
+  liveProgressIcon: {
+    width: 20,
+    height: 20,
+    borderRadius: "50%",
+    flexShrink: 0,
+  },
+
+  liveProgressLabel: {
+    flex: 1,
+    fontSize: 11,
+    fontWeight: 700,
+    color: "#58c778",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+
+  liveProgressKda: {
+    fontSize: 11,
+    fontWeight: 800,
+    color: "var(--text-body)",
   },
 
   statusStarting: {

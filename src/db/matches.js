@@ -32,12 +32,14 @@ export async function addMatch(username, champion, kills, deaths, assists, win, 
         summoner2: extra.summoner2 ?? null,
         healing: extra.healing ?? null,
         max_hp: extra.maxHp ?? null,
-        // Lista de TODAS as sequências de kills/assists sem morrer. Só existem
-        // para partidas jogadas com a app aberta (Live Client Data) — as
-        // importadas da Riot API não têm a evolução dos contadores, por isso
-        // ficam null. Ver liveGame.js e challengeScoring.js.
+        // Lista de TODAS as sequências de kills/assists sem morrer, e de
+        // mortes seguidas sem kill/assist pelo meio. Só existem para partidas
+        // jogadas com a app aberta (Live Client Data) — as importadas da
+        // Riot API não têm a evolução dos contadores, por isso ficam null.
+        // Ver liveGame.js e challengeScoring.js.
         kill_streaks: extra.killStreaks ?? null,
         assist_streaks: extra.assistStreaks ?? null,
+        death_streaks: extra.deathStreaks ?? null,
       },
     ]);
 
@@ -159,7 +161,7 @@ export async function getMatches(username) {
       "id, riot_match_id, champion, kills, deaths, assists, win, items, placement, augments, team_size, " +
         "damage_dealt, damage_taken, gold_earned, cs, vision_score, champ_level, game_duration, multikill, " +
         "double_kills, triple_kills, summoner1, summoner2, healing, max_hp, kill_streaks, assist_streaks, " +
-        "participants, created_at"
+        "death_streaks, participants, created_at"
     )
     .eq("username", username)
     .order("created_at", { ascending: false });

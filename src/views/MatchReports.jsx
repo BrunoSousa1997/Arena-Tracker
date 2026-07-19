@@ -755,7 +755,7 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
     <div style={styles.wrap}>
       {/* COMPARAÇÃO LADO A LADO — dois campeões escolhidos à mão, fora do
           filtro/ordenação ativos na lista principal. */}
-      <div style={styles.section}>
+      <div className="riseIn" style={styles.section}>
         <div style={styles.sectionHeader}>
           <h2 style={styles.sectionTitle}>{t("compare_champions")}</h2>
           <button onClick={() => setCompareOpen((v) => !v)} style={styles.compareToggleBtn}>
@@ -872,7 +872,7 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
       </div>
 
       {/* LEADERBOARD DE CAMPEÕES */}
-      <div style={styles.section}>
+      <div className="riseIn" style={{ ...styles.section, animationDelay: "30ms" }}>
         <div style={styles.sectionHeader}>
           <h2 style={styles.sectionTitle}>{t("stats_by_champion")}</h2>
         </div>
@@ -1052,7 +1052,7 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
           <div style={styles.emptyInline}>{t("no_filtered_champions")}</div>
         ) : (
         <div style={styles.champList}>
-          {visibleChampions.map((s) => {
+          {visibleChampions.map((s, i) => {
             const isOpen = expanded === s.champion;
 
             // Valor do critério de ordenação ativo para este campeão — ver
@@ -1063,7 +1063,11 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
             const showSortValue = sortValueDef && sortValueRaw != null;
 
             return (
-              <div key={s.champion} style={styles.champCard}>
+              <div
+                key={s.champion}
+                className="riseIn"
+                style={{ ...styles.champCard, animationDelay: `${Math.min(i, 8) * 30}ms` }}
+              >
                 <div
                   className="clickableRow"
                   style={styles.champRow}

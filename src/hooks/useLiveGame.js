@@ -1,5 +1,17 @@
 import { useEffect, useRef, useState } from "react";
-import { ensureUser, addWin, addMatch, hasSyncedMatch } from "../db/api";
+import {
+  ensureUser,
+  addWin,
+  addMatch,
+  hasSyncedMatch,
+  getMyActiveRoom,
+  startChallengeGame,
+  updateChallengeGameProgress,
+  finishChallengeGame,
+  closeUnfinishedChallengeGame,
+  enrichChallengeGame,
+  findSyncedMatchDetails,
+} from "../db/api";
 import { normalizeChampionId } from "../lib/champions";
 import { getRoast } from "../lib/roasts";
 
@@ -68,18 +80,42 @@ export function useLiveGame({
   // tentativas rápidas decidirem sozinhas — 1º e 2º lugar encontram a
   // partida logo numa delas, 3º-8º só mesmo nas tentativas lentas de
   // depois (ver comentário em RETRY_DELAYS_MS).
-  const scheduleAutoSync = (username, signature, attempt = 0, jobId = null) => {
+  // "challengeGameId" (opcional): se esta partida também tem uma linha em
+  // challenge_games (ver PROGRESSO AO VIVO PARA CHALLENGES mais abaixo),
+  // assim que "matches" confirmar a partida sincronizada, aproveita a MESMA
+  // tentativa para ir buscar dano/cura/multikills e copiá-los para lá (ver
+  // enrichChallengeGame) — só LÊ "matches", em nada muda o que onAutoSync já
+  // fazia.
+  const scheduleAutoSync = (username, signature, attempt = 0, jobId = null, challengeGameId = null) => {
     const id = jobId ?? `${username}:${signature.champion}:${signature.after}`;
     const delay = attempt < RETRY_DELAYS_MS.length ? RETRY_DELAYS_MS[attempt] : RETRY_SYNC_INTERVAL_MS;
 
     const timer = setTimeout(async () => {
       await onAutoSync?.();
       const synced = await hasSyncedMatch(username, signature);
-      if (synced || attempt + 1 >= RETRY_SYNC_MAX_ATTEMPTS) {
+
+      if (synced) {
+        if (challengeGameId) {
+          const details = await findSyncedMatchDetails(username, signature);
+          if (details) {
+            await enrichChallengeGame(challengeGameId, {
+              damageDealt: details.damage_dealt,
+              damageTaken: details.damage_taken,
+              healing: details.healing,
+              doubleKills: details.double_kills,
+              tripleKills: details.triple_kills,
+            });
+          }
+        }
         removePendingAutoSync(id);
         return;
       }
-      scheduleAutoSync(username, signature, attempt + 1, id);
+
+      if (attempt + 1 >= RETRY_SYNC_MAX_ATTEMPTS) {
+        removePendingAutoSync(id);
+        return;
+      }
+      scheduleAutoSync(username, signature, attempt + 1, id, challengeGameId);
     }, delay);
     autoSyncTimers.current.push(timer);
 
@@ -121,6 +157,16 @@ export function useLiveGame({
   // reabrir no cabeçalho continuava a pulsar "ao vivo" muito depois do jogo
   // ter acabado, até à partida seguinte.
   const [liveSessionActive, setLiveSessionActive] = useState(false);
+
+  // ================= CHALLENGES: COLEÇÃO PRÓPRIA (challenge_games) =================
+  // Refs (não estado — não precisam de re-render nenhum) que seguem a
+  // partida de um challenge em curso: qual sala, qual linha em
+  // challenge_games, e o campeão atual (para onLiveStats poder gravá-lo sem
+  // depender de liveChampionAlert, que teria uma closure desatualizada numa
+  // subscrição registada só uma vez). Ver os efeitos mais abaixo.
+  const liveChallengeRoomId = useRef(null);
+  const liveChallengeGameId = useRef(null);
+  const liveChampionIdRef = useRef(null);
 
   // Posição da caixa de aviso, só depois de o utilizador a arrastar pelo
   // menos uma vez — persistida, para não voltar sempre ao centro depois de
@@ -239,6 +285,7 @@ export function useLiveGame({
         maxHp,
         killStreaks,
         assistStreaks,
+        deathStreaks,
       } = result || {};
 
       if (!liveChampionName) return;
@@ -288,6 +335,7 @@ export function useLiveGame({
         maxHp,
         killStreaks,
         assistStreaks,
+        deathStreaks,
       };
 
       await ensureUser(matchedUsername);
@@ -322,6 +370,7 @@ export function useLiveGame({
             max_hp: maxHp ?? null,
             kill_streaks: killStreaks ?? null,
             assist_streaks: assistStreaks ?? null,
+            death_streaks: deathStreaks ?? null,
             created_at: new Date().toISOString(),
           },
           ...prev,
@@ -331,17 +380,38 @@ export function useLiveGame({
         setActiveAccount(matchedUsername);
       }
 
-      // Sincronização automática — só agendamos para a conta ativa (é a
-      // única que "syncActiveAccount" sabe sincronizar). Ver
-      // scheduleAutoSync para o porquê de não distinguir Win/Lose aqui.
-      if (matchedUsername === activeAccount && onAutoSync) {
-        scheduleAutoSync(matchedUsername, {
-          champion: championId,
-          kills,
-          deaths,
-          assists,
-          after: new Date().toISOString(),
-        });
+      if (matchedUsername === activeAccount) {
+        // Challenges: se havia uma linha "a decorrer" (ver PROGRESSO AO VIVO
+        // PARA CHALLENGES mais abaixo), fecha-a já com o resultado — dano/
+        // cura/multikills chegam à parte, ver scheduleAutoSync.
+        const gameIdToFinish = liveChallengeGameId.current;
+        liveChallengeGameId.current = null;
+
+        if (gameIdToFinish) {
+          finishChallengeGame(gameIdToFinish, {
+            champion: championId,
+            kills,
+            deaths,
+            assists,
+            win: didWin,
+            killStreaks: killStreaks || [],
+            assistStreaks: assistStreaks || [],
+            deathStreaks: deathStreaks || [],
+          });
+        }
+
+        // Sincronização automática — só agendamos para a conta ativa (é a
+        // única que "syncActiveAccount" sabe sincronizar). Ver
+        // scheduleAutoSync para o porquê de não distinguir Win/Lose aqui.
+        if (onAutoSync) {
+          scheduleAutoSync(
+            matchedUsername,
+            { champion: championId, kills, deaths, assists, after: new Date().toISOString() },
+            0,
+            null,
+            gameIdToFinish
+          );
+        }
       }
 
       // A partida acabou — se o banner ainda estiver aberto para este
@@ -371,7 +441,7 @@ export function useLiveGame({
   useEffect(() => {
     if (!window.electron?.onActiveChampion) return;
 
-    const unsubscribe = window.electron.onActiveChampion(({ champion: liveChampionName } = {}) => {
+    const unsubscribe = window.electron.onActiveChampion(async ({ champion: liveChampionName } = {}) => {
       if (!liveChampionName) return;
 
       const championId = champions.find(
@@ -379,6 +449,8 @@ export function useLiveGame({
       )?.id;
 
       if (!championId) return;
+
+      liveChampionIdRef.current = championId;
 
       const winCount = matches.filter(
         (m) => m.win && normalizeChampionId(m.champion, champions) === championId
@@ -395,10 +467,23 @@ export function useLiveGame({
         kda: { kills: 0, deaths: 0, assists: 0 },
         items: [],
       });
+
+      // Challenges: se a conta ativa estiver dentro de uma sala "running",
+      // esta partida já conta — cria já a linha "a decorrer" em
+      // challenge_games (coleção própria, ver PROGRESSO AO VIVO PARA
+      // CHALLENGES mais abaixo e src/db/rooms.js).
+      if (activeAccount) {
+        const room = await getMyActiveRoom(activeAccount);
+        if (room?.status === "running") {
+          liveChallengeRoomId.current = room.id;
+          const game = await startChallengeGame(room.id, activeAccount, championId);
+          if (game) liveChallengeGameId.current = game.id;
+        }
+      }
     });
 
     return unsubscribe;
-  }, [champions, matches, lang]);
+  }, [champions, matches, lang, activeAccount]);
 
   // ================= FIM DA SESSÃO (saiu do jogo / partida desapareceu) =================
   // Ver endLiveSession em electron/liveGame.js: chega quando a Live Client
@@ -422,6 +507,17 @@ export function useLiveGame({
       // haver partida a sério. Não há nada para mostrar — fora com ele.
       setLiveChampionAlert(null);
       setLiveBannerHidden(false);
+
+      // Challenges: a partida acabou sem resultado (saiu-se a meio, o jogo
+      // estoirou), mas os pontos que já se tinham feito CONTAM na mesma —
+      // fecha-se a linha mantendo tudo o que lá está, em vez de a apagar ou
+      // de a deixar presa em "live" para sempre (ver
+      // closeUnfinishedChallengeGame em db/rooms.js).
+      if (liveChallengeGameId.current) {
+        closeUnfinishedChallengeGame(liveChallengeGameId.current);
+        liveChallengeGameId.current = null;
+      }
+      liveChallengeRoomId.current = null;
     });
 
     return unsubscribe;
@@ -434,20 +530,42 @@ export function useLiveGame({
   // augments aqui: a Live Client Data API da Riot não os expõe durante a
   // partida — só ficam visíveis no Histórico/Estatísticas depois de a
   // partida terminar e sincronizar.
+  //
+  // Também é aqui que o progresso ao vivo do challenge (se houver uma linha
+  // em challenge_games, ver liveChallengeGameId) é atualizado a cada poll —
+  // é o que dá ao adversário o KDA/streaks a mexer-se ANTES de a partida
+  // acabar e entrar em "matches" (ver updateChallengeGameProgress em
+  // db/rooms.js). "liveChampionIdRef" (não liveChampionAlert) porque esta
+  // subscrição regista-se uma vez só (deps []) — ler o estado diretamente
+  // aqui seria uma closure sempre desatualizada.
   useEffect(() => {
     if (!window.electron?.onLiveStats) return;
 
-    const unsubscribe = window.electron.onLiveStats(({ kills, deaths, assists, items } = {}) => {
-      setLiveChampionAlert((prev) =>
-        prev
-          ? {
-              ...prev,
-              kda: { kills: kills ?? 0, deaths: deaths ?? 0, assists: assists ?? 0 },
-              items: items || [],
-            }
-          : prev
-      );
-    });
+    const unsubscribe = window.electron.onLiveStats(
+      ({ kills, deaths, assists, items, killStreaks, assistStreaks, deathStreaks } = {}) => {
+        setLiveChampionAlert((prev) =>
+          prev
+            ? {
+                ...prev,
+                kda: { kills: kills ?? 0, deaths: deaths ?? 0, assists: assists ?? 0 },
+                items: items || [],
+              }
+            : prev
+        );
+
+        if (liveChallengeGameId.current) {
+          updateChallengeGameProgress(liveChallengeGameId.current, {
+            champion: liveChampionIdRef.current,
+            kills: kills ?? 0,
+            deaths: deaths ?? 0,
+            assists: assists ?? 0,
+            killStreaks: killStreaks || [],
+            assistStreaks: assistStreaks || [],
+            deathStreaks: deathStreaks || [],
+          });
+        }
+      }
+    );
 
     return unsubscribe;
   }, []);

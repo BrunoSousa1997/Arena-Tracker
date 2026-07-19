@@ -103,7 +103,7 @@ export default function Achievements({ matches, champions, wins, DRAGON, challen
           badges sem nenhuma indicação de onde focar; isto dá aos 3 níveis
           mais próximos um destaque logo no topo. */}
       {closestToUnlock.length > 0 && (
-        <div style={styles.section}>
+        <div className="riseIn" style={styles.section}>
           <div style={styles.sectionHeader}>
             <span style={styles.sectionIcon}>
               <AchievementIcon iconId="target" color="var(--accent-text)" size={17} />
@@ -111,8 +111,8 @@ export default function Achievements({ matches, champions, wins, DRAGON, challen
             <h3 style={styles.sectionTitle}>{t("achv_closest_title")}</h3>
           </div>
           <div style={styles.closestRow}>
-            {closestToUnlock.map((cat) => (
-              <div key={cat.id} style={styles.closestCard}>
+            {closestToUnlock.map((cat, i) => (
+              <div key={cat.id} className="riseIn" style={{ ...styles.closestCard, animationDelay: `${i * 30}ms` }}>
                 <span style={styles.badgeIcon}>
                   <AchievementIcon iconId={cat.iconId} color={cat.nextRank.color} size={22} />
                 </span>
@@ -146,11 +146,11 @@ export default function Achievements({ matches, champions, wins, DRAGON, challen
           uma fila curta de badges, por isso ocupar a largura toda deixava
           metade do cartão vazia (sobretudo em monitores largos). */}
       <div className="grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3 gap-4">
-        {categories.map((cat) => {
+        {categories.map((cat, i) => {
           const rank = currentRankOf(cat);
 
           return (
-            <div key={cat.id} style={styles.section}>
+            <div key={cat.id} className="riseIn" style={{ ...styles.section, animationDelay: `${Math.min(i, 8) * 30}ms` }}>
               <div style={styles.catHeader}>
                 <span style={styles.catIconWrap}>
                   <AchievementIcon
@@ -244,7 +244,7 @@ export default function Achievements({ matches, champions, wins, DRAGON, challen
         })}
       </div>
 
-      <div style={styles.section}>
+      <div className="riseIn" style={styles.section}>
         <div style={styles.sectionHeader}>
           <span style={styles.sectionIcon}>
             <AchievementIcon iconId="crest" color="var(--accent-text)" size={17} />

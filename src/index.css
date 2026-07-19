@@ -57,14 +57,29 @@
 
   /* No escuro os painéis podem ser bem translúcidos: o fundo por baixo é
      quase preto, por isso mesmo a 0.74 o cartão continua a ler-se como uma
-     superfície distinta — e é essa folga que deixa a aurora atravessá-la. */
+     superfície distinta — e é essa folga que deixa o fundo animado
+     atravessá-la. */
   --panel-bg: linear-gradient(180deg, rgba(var(--panel-rgb), 0.74), rgba(var(--panel-deep-rgb), 0.82));
 
-  /* Aurora (ver auroraBlob1/2 em App.jsx). Índigo do acento + o dourado do
-     destaque "build vencedora" — a mesma dupla do resto da app. Sobre um
-     fundo quase preto a cor precisa de peso para se ver de todo. */
-  --aurora-1: rgba(99, 102, 241, 0.5);
-  --aurora-2: rgba(250, 204, 21, 0.38);
+  /* Cores do fundo decorativo (ver components/Facets.jsx) — nome genérico
+     de propósito ("decor", não "wave"/"aurora"): já é a 3ª ideia de fundo
+     animado desta app (manchas a passear, depois ondas), e o token não
+     devia ter de mudar de nome outra vez só porque a ideia visual muda.
+     Só as duas cores vivas que a paleta admite fora dos resultados de
+     partida — índigo do acento e ciano do --info (ver nota no topo deste
+     bloco) — em vez de inventar uma terceira cor só para isto. O alfa aqui
+     é só a base: cada faceta do mosaico multiplica isto pela sua própria
+     opacidade (ver Facets.jsx), por isso pode ficar mais forte do que
+     pareceria para uma mancha sólida.
+     --decor-purple é o easter egg: rgb(147,74,246) era o --accent-rgb da
+     v2.0.2 (ver git tag), antes de a app mudar para índigo — 0,1% de
+     hipótese por sessão de UMA faceta do mosaico sair com esta cor (ver
+     PURPLE_CHANCE em Facets.jsx). É deliberadamente a única terceira cor
+     viva na app: a exceção que confirma a regra do parágrafo acima, não um
+     precedente para lhe chamarem "só mais um roxo perdido". */
+  --decor-indigo: rgba(99, 102, 241, 0.62);
+  --decor-cyan: rgba(34, 211, 238, 0.55);
+  --decor-purple: rgba(147, 74, 246, 0.6);
 }
 
 :root[data-theme="light"] {
@@ -108,17 +123,27 @@
   /* Muito menos translúcido do que no escuro, de propósito. Aqui o painel é
      branco sobre uma página cinza-clara, e é só esse contraste que sustenta
      a hierarquia de 3 níveis descrita acima — baixar o alfa como no tema
-     escuro dissolvia o branco no cinza e dava cabo dela. A 0.88 a aurora
-     ainda se insinua, sem o cartão deixar de ser "o branco por cima". */
+     escuro dissolvia o branco no cinza e dava cabo dela. A 0.88 o fundo
+     animado ainda se insinua, sem o cartão deixar de ser "o branco por
+     cima". */
   --panel-bg: linear-gradient(180deg, rgba(var(--panel-rgb), 0.88), rgba(var(--panel-deep-rgb), 0.93));
 
-  /* Mesmas duas matizes do tema escuro, a metade da força. Sobre um cinza
-     claro a cor translúcida puxa a pastel e ganha muito mais presença do
-     que sobre preto: os valores do escuro aqui davam duas nódoas, não uma
-     aurora. O dourado troca #facc15 por âmbar (#f59e0b) pela mesma razão —
-     o amarelo puro sobre cinza claro lê a creme sujo em vez de luz. */
-  --aurora-1: rgba(99, 102, 241, 0.22);
-  --aurora-2: rgba(245, 158, 11, 0.18);
+  /* Mesmas duas matizes do tema escuro (índigo/ciano), mas em tom mais
+     escuro — não só mais fracas. Sobre preto, uma cor pastel a meio-tom já
+     ilumina bem o suficiente para se destacar (é essencialmente a única luz
+     na cena); sobre um cinza claro que já está perto do branco, essa mesma
+     cor a meio-tom mal desloca a luminosidade do fundo, por mais alfa que se
+     lhe dê — o efeito não é "mais forte", é invisível. Por isso aqui usa-se
+     a variante escura de cada matiz (--accent-solid-deep para o índigo,
+     --info para o ciano — já existem como tokens do tema, não são cores
+     novas) com alfa moderado: é o contraste de luminosidade contra o fundo
+     claro que faz a faceta aparecer, não a intensidade da cor em si.
+     --decor-purple mantém o hex do easter egg (ver bloco escuro acima:
+     --accent-rgb da v2.0.2) — só o alfa sobe, para a mesma lógica se
+     aplicar quando calha sair. */
+  --decor-indigo: rgba(67, 56, 202, 0.42);
+  --decor-cyan: rgba(14, 116, 144, 0.4);
+  --decor-purple: rgba(147, 74, 246, 0.38);
 }
 
 /* --accent-rgb: índigo vívido, só para o que deve mesmo destacar-se (tab
@@ -195,30 +220,26 @@
   box-sizing: border-box;
 }
 
-/* Aurora mágica de fundo (ver styles.auroraBlob1/2 em App.jsx) — cada mancha
-   deriva e pulsa de forma independente e num ciclo diferente da outra, para
-   nunca sincronizarem e o movimento parecer sempre repetitivo. */
-@keyframes auroraBlob1 {
-  0% {
-    transform: translate(0, 0) scale(1);
+/* Mosaico de fundo (ver components/Facets.jsx) — malha triangulada "low
+   poly" a cobrir o ecrã todo, inspirada no efeito "waves" do vantajs.com,
+   mas em SVG puro (sem Three.js/WebGL: nesta app, Electron e sempre aberta
+   em fundo, um render loop de GPU 3D só para o fundo custava bateria sem
+   necessidade). A malha em si é estática (gerada uma vez, ver buildMesh em
+   Facets.jsx) — o "low poly" original ganha vida do 3D a rodar; aqui é a
+   opacidade de cada faceta a cintilar, devagar e fora de sincronia com as
+   vizinhas (delay/duração aleatórios por faceta), que faz o mesmo papel.
+   As variáveis --facet-min/--facet-max vêm inline por faceta (ver
+   Facets.jsx), por isso o mesmo keyframe serve para todas com amplitudes
+   diferentes. Quarta tentativa de fundo dinâmico (ver histórico: manchas a
+   passear pelo ecrã, depois a respirar em posição fixa, depois ondas a
+   deslizar). */
+@keyframes facetShimmer {
+  0%,
+  100% {
+    opacity: var(--facet-min);
   }
   50% {
-    transform: translate(18vw, 10vh) scale(1.25);
-  }
-  100% {
-    transform: translate(0, 0) scale(1);
-  }
-}
-
-@keyframes auroraBlob2 {
-  0% {
-    transform: translate(0, 0) scale(1.05);
-  }
-  50% {
-    transform: translate(-14vw, 14vh) scale(1.3);
-  }
-  100% {
-    transform: translate(0, 0) scale(1.05);
+    opacity: var(--facet-max);
   }
 }
 
@@ -417,9 +438,8 @@ code {
    comunica estado.
 
    Pára:
-   - a aurora, que é o único movimento permanente e a ocupar o ecrã inteiro.
-     "animation: none" (e não um keyframe parado) para o compositor deixar
-     mesmo de trabalhar em cada frame, em vez de animar para lado nenhum.
+   - o mosaico de fundo, que é o único movimento permanente e a ocupar o
+     ecrã inteiro.
    - o "scale" do ponto ao vivo, redefinindo o keyframe: os elementos que o
      usam são estilizados inline (App.jsx, Challenges.jsx) e não têm classe
      por onde lhes pegar — redefinir o keyframe apanha-os aos dois sem lhes
@@ -434,7 +454,7 @@ code {
    Isto não alcança o framer-motion (anima em JS, ver liveBanner em App.jsx):
    se um dia for preciso, tem de ser via useReducedMotion no componente. */
 @media (prefers-reduced-motion: reduce) {
-  .auroraBlob {
+  .facet {
     animation: none !important;
   }
 

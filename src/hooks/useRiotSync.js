@@ -16,6 +16,29 @@ import {
 } from "../db/api";
 import { normalizeChampionId } from "../lib/champions";
 
+// QueueIds da Arena descobertos pelo canário (ver riotapi:canaryCheck em
+// electron/riotApi.js) numa sincronização anterior, DEPOIS de a Riot ter
+// mudado o valor com um patch — persistidos aqui (não por conta: o queueId é
+// global, o mesmo para toda a gente) para a próxima sincronização já saber
+// filtrar por eles sem precisar de uma atualização de código. Ver
+// ARENA_QUEUE_IDS em electron/riotApi.js para os valores "de fábrica".
+const EXTRA_QUEUE_IDS_KEY = "extra-arena-queue-ids";
+
+function getExtraQueueIds() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(EXTRA_QUEUE_IDS_KEY));
+    return Array.isArray(stored) ? stored : [];
+  } catch {
+    return [];
+  }
+}
+
+function addExtraQueueIds(newIds) {
+  if (!newIds?.length) return;
+  const merged = new Set([...getExtraQueueIds(), ...newIds]);
+  localStorage.setItem(EXTRA_QUEUE_IDS_KEY, JSON.stringify([...merged]));
+}
+
 // Processa uma lista com um nº fixo de "trabalhadores" em paralelo — mesmo
 // padrão do processWithConcurrency em electron.js, mas usado aqui só para
 // UPDATEs à Supabase (ver enrichHistory), que não têm nenhum rate limit da
@@ -116,6 +139,7 @@ export function useRiotSync({ accounts, setAccounts, activeAccount, matches, set
         // um Riot ID só muda por ação do próprio jogador (ver
         // updateRiotAccountFor, que limpa o puuid guardado nesse caso).
         puuid: account.puuid || null,
+        extraQueueIds: getExtraQueueIds(),
       });
 
       if (!listRes.success) {
@@ -198,15 +222,30 @@ export function useRiotSync({ accounts, setAccounts, activeAccount, matches, set
       // como rede de segurança, para a verificação não ficar permanentemente
       // desligada. Silenciosamente ignorado se falhar (não é crítico, tenta-
       // se de novo no próximo sync).
+      //
+      // GATILHO EXTRA (independente do patch): a listagem filtrada não trouxe
+      // NENHUMA partida nova. Numa sincronização normal isso é o caso comum e
+      // inofensivo (não se jogou nada desde a última vez), mas é EXATAMENTE o
+      // mesmo sintoma de a Riot ter mudado o queueId da Arena outra vez — o
+      // filtro deixa de encontrar seja o que for e o sync diz "concluído"
+      // sem trazer nada, sem erro nenhum. Como o canário é barato (1 pedido
+      // de listagem + detalhes só das partidas ainda desconhecidas, que
+      // nesse caso são poucas) e é a única forma de detetar a mudança,
+      // vale sempre a pena confirmar nesse cenário em vez de esperar pelo
+      // patch seguinte.
       let canaryMatches = [];
-      const canaryDue = patch
-        ? account.lastCanaryPatch !== patch
-        : !account.lastCanaryCheck || Date.now() - account.lastCanaryCheck > CANARY_CHECK_INTERVAL_MS;
+      const foundNothingNew = candidateIds.length === 0;
+      const canaryDue =
+        foundNothingNew ||
+        (patch
+          ? account.lastCanaryPatch !== patch
+          : !account.lastCanaryCheck || Date.now() - account.lastCanaryCheck > CANARY_CHECK_INTERVAL_MS);
       if (canaryDue && window.electron?.canaryCheck) {
         const canaryRes = await window.electron.canaryCheck({
           puuid: listRes.puuid,
           region: account.region || "europe",
           knownIds: [...existingIds, ...listRes.ids],
+          extraQueueIds: getExtraQueueIds(),
         });
 
         if (canaryRes.success) {
@@ -216,6 +255,11 @@ export function useRiotSync({ accounts, setAccounts, activeAccount, matches, set
               "[canary] queueId(s) de Arena desconhecido(s) detetado(s):",
               canaryRes.unknownQueueIds
             );
+            // Aprende-os já: a partir daqui, qualquer sincronização (desta
+            // conta ou de outra) passa a filtrar também por este queueId,
+            // sem precisar de uma atualização de código (ver
+            // ARENA_QUEUE_IDS em electron/riotApi.js).
+            addExtraQueueIds(canaryRes.unknownQueueIds);
           }
 
           // Guarda os dois: "lastCanaryPatch" é o gatilho normal (ver

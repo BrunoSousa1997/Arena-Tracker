@@ -41,6 +41,15 @@ let liveKillStreak = 0; // corrida de kills a decorrer
 let liveKillStreaks = []; // corridas de kills já terminadas por uma morte
 let liveAssistStreak = 0;
 let liveAssistStreaks = [];
+// Simétrico às duas de cima, mas ao contrário: uma corrida de MORTES
+// SEGUIDAS sem nenhum kill/assist pelo meio — quebra assim que um dos dois
+// acontece (em vez de quebrar quando NÃO acontecem). Pontua negativamente
+// (ver challengeScoring.js), por isso em caso de ambiguidade (morte E
+// kill/assist no mesmo intervalo de poll) o critério é sempre o mais
+// favorável ao jogador: assume-se que o kill/assist quebrou a corrida, em
+// vez de a deixar continuar.
+let liveDeathStreak = 0;
+let liveDeathStreaks = [];
 let liveLastKills = 0;
 let liveLastDeaths = 0;
 let liveLastAssists = 0;
@@ -150,6 +159,8 @@ function endLiveSession() {
   liveKillStreaks = [];
   liveAssistStreak = 0;
   liveAssistStreaks = [];
+  liveDeathStreak = 0;
+  liveDeathStreaks = [];
   liveLastKills = 0;
   liveLastDeaths = 0;
   liveLastAssists = 0;
@@ -189,6 +200,8 @@ async function pollLiveGame() {
       liveKillStreaks = [];
       liveAssistStreak = 0;
       liveAssistStreaks = [];
+      liveDeathStreak = 0;
+      liveDeathStreaks = [];
       liveLastKills = me.scores?.kills ?? 0;
       liveLastDeaths = me.scores?.deaths ?? 0;
       liveLastAssists = me.scores?.assists ?? 0;
@@ -222,9 +235,27 @@ async function pollLiveGame() {
         if (liveAssistStreak > 0) liveAssistStreaks.push(liveAssistStreak);
         liveKillStreak = 0;
         liveAssistStreak = 0;
+
+        // Corrida de mortes: cresce com a(s) morte(s) deste intervalo, EXCETO
+        // se também houve kill/assist no mesmo intervalo — nesse caso, como
+        // não sabemos a ordem, o critério favorável ao jogador é assumir que
+        // o kill/assist quebrou a corrida em vez de a deixar crescer.
+        if (kNow === liveLastKills && aNow === liveLastAssists) {
+          liveDeathStreak += dNow - liveLastDeaths;
+        } else {
+          if (liveDeathStreak > 0) liveDeathStreaks.push(liveDeathStreak);
+          liveDeathStreak = 0;
+        }
       } else {
         liveKillStreak += Math.max(0, kNow - liveLastKills);
         liveAssistStreak += Math.max(0, aNow - liveLastAssists);
+
+        // Kill ou assist sem ter morrido neste intervalo — quebra a corrida
+        // de mortes a decorrer (se houver uma).
+        if (kNow > liveLastKills || aNow > liveLastAssists) {
+          if (liveDeathStreak > 0) liveDeathStreaks.push(liveDeathStreak);
+          liveDeathStreak = 0;
+        }
       }
       liveLastKills = kNow;
       liveLastDeaths = dNow;
@@ -250,6 +281,7 @@ async function pollLiveGame() {
         maxHp: liveGameMaxHp || null,
         killStreaks: currentStreaks(liveKillStreaks, liveKillStreak),
         assistStreaks: currentStreaks(liveAssistStreaks, liveAssistStreak),
+        deathStreaks: currentStreaks(liveDeathStreaks, liveDeathStreak),
       };
 
       if (gameMode === ARENA_GAME_MODE && me.championName) {
@@ -259,11 +291,18 @@ async function pollLiveGame() {
         }
 
         // KDA + build atuais, reenviados a cada poll (ver sendLiveStats).
+        // killStreaks/assistStreaks/deathStreaks vão também aqui (não só no
+        // resultado final) para o placar do challenge poder somar o bónus de
+        // streak ao vivo, igual ao que scoreGame faz para partidas já
+        // terminadas (ver sumStreakBonus em challengeScoring.js).
         sendLiveStats({
           kills: liveGameState.kills,
           deaths: liveGameState.deaths,
           assists: liveGameState.assists,
           items: liveGameState.items,
+          killStreaks: liveGameState.killStreaks,
+          assistStreaks: liveGameState.assistStreaks,
+          deathStreaks: liveGameState.deathStreaks,
         });
       }
     }
@@ -303,11 +342,13 @@ async function pollLiveGame() {
           damageTaken: null,
           goldEarned: null,
           multikill: null,
-          // TODAS as sequências de kills/assists sem morrer, medidas ao vivo
-          // (ver comentário junto às variáveis) — só existem para partidas
-          // jogadas com a app aberta; as importadas da Riot API ficam sem isto.
+          // TODAS as sequências de kills/assists sem morrer (e de mortes
+          // seguidas, ver liveDeathStreak), medidas ao vivo (ver comentário
+          // junto às variáveis) — só existem para partidas jogadas com a app
+          // aberta; as importadas da Riot API ficam sem isto.
           killStreaks: liveGameState.killStreaks ?? null,
           assistStreaks: liveGameState.assistStreaks ?? null,
+          deathStreaks: liveGameState.deathStreaks ?? null,
         });
       }
     }

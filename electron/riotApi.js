@@ -61,7 +61,26 @@ function riotApiAvailable() {
 // custo extra, e continua a ser a fonte da verdade. O "Reparar tudo"
 // continua a servir de rede de segurança ocasional caso o filtro alguma vez
 // deixe passar menos do que devia.
-const ARENA_QUEUE_IDS = [1700, 1750];
+// Lista completa dos queueIds de Arena "de fábrica", conferida contra o
+// CommunityDragon (raw.communitydragon.org/latest/plugins/
+// rcp-be-lol-game-data/global/default/v1/queues.json — mais atual que o
+// queues.json oficial da Riot, que costuma ficar para trás):
+//   1700 "Arena", 1710 "Arena"  -> as filas normais
+//   1740 "Bravery Arena"        -> modo rotativo, também é Arena a sério
+//   1750 "Arena 3x6"            -> o formato de 6 equipas de 3 (18 jogadores)
+// Ficam DE FORA de propósito (cada queueId aqui custa um pedido de listagem
+// por sincronização, e estes nunca aparecem numa conta normal): 1701/1731/
+// 1732 "1v0 (Arena)" e 1720 "Arena internal" (testes/bots), 1704 "Arena
+// (PBE 2v2)" (só no PBE).
+//
+// A Riot tem mudado este valor a cada patch e as listas públicas só o
+// documentam bem depois — por isso isto NÃO é a única defesa: o canário
+// (ver riotapi:canaryCheck) lista partidas recentes sem filtro de queue,
+// deteta Arena pelo gameMode "CHERRY", e a app aprende sozinha o queueId
+// novo (guardado em localStorage, ver extraQueueIds em useRiotSync.js).
+// Sempre que aparecer um valor novo confirmado, vale a pena acrescentá-lo
+// aqui à mesma — poupa a cada utilizador novo a viagem da descoberta.
+const ARENA_QUEUE_IDS = [1700, 1710, 1740, 1750];
 
 function riotApiRequest(host, pathName, retriesLeft = 3) {
   return RIOT_API_KEY
@@ -424,7 +443,7 @@ function registerRiotApiHandlers() {
   // já têm dados de um amigo em cache na Supabase (ver getMatchCacheByIds em
   // src/db/matchCache.js) e só pedir aqui os que faltam mesmo — ver
   // syncActiveAccount em App.jsx.
-  ipcMain.handle("riotapi:listMatchIds", async (_event, { gameName, tagLine, region, since, puuid: knownPuuid }) => {
+  ipcMain.handle("riotapi:listMatchIds", async (_event, { gameName, tagLine, region, since, puuid: knownPuuid, extraQueueIds }) => {
     if (!riotApiAvailable()) {
       return { success: false, error: "missing-api-key" };
     }
@@ -466,8 +485,17 @@ function registerRiotApiHandlers() {
       // pedir detalhes completos (caros) de partidas de outros modos. Um Set
       // porque a mesma partida nunca devia repetir-se entre queueIds
       // diferentes, mas não custa nada garantir.
+      //
+      // "extraQueueIds" (opcional, guardado em localStorage pelo renderer —
+      // ver useRiotSync.js) são queueIds descobertos pelo canário (ver
+      // riotapi:canaryCheck) numa sincronização anterior, DEPOIS de a Riot
+      // ter mudado o valor com um patch. Sem isto, cada mudança de queueId
+      // exigia sempre uma alteração de código + nova versão da app para
+      // voltar a encontrar partidas — agora a própria conta aprende o valor
+      // novo sozinha assim que o canário o vê pela primeira vez.
+      const queueIds = new Set([...ARENA_QUEUE_IDS, ...(extraQueueIds || [])]);
       const idSet = new Set();
-      for (const queueId of ARENA_QUEUE_IDS) {
+      for (const queueId of queueIds) {
         let start = 0;
         while (idSet.size < SAFETY_MAX) {
           const batch = await riotApiRequest(
@@ -526,13 +554,14 @@ function registerRiotApiHandlers() {
     }
   });
 
-  ipcMain.handle("riotapi:canaryCheck", async (_event, { puuid, region, knownIds }) => {
+  ipcMain.handle("riotapi:canaryCheck", async (_event, { puuid, region, knownIds, extraQueueIds }) => {
     if (!riotApiAvailable()) {
       return { success: false, error: "missing-api-key" };
     }
 
     const host = `${region || "europe"}.api.riotgames.com`;
     const known = new Set(knownIds || []);
+    const knownQueueIds = new Set([...ARENA_QUEUE_IDS, ...(extraQueueIds || [])]);
 
     try {
       const recentIds = await riotApiRequest(
@@ -562,7 +591,7 @@ function registerRiotApiHandlers() {
         if (match.info?.gameMode !== ARENA_GAME_MODE) continue;
 
         const queueId = match.info?.queueId;
-        if (!ARENA_QUEUE_IDS.includes(queueId)) {
+        if (!knownQueueIds.has(queueId)) {
           unknownQueueIds.add(queueId);
           console.warn(
             `[riotapi][canary] Arena com queueId novo detetado: ${queueId} (matchId=${matchId}) — ` +

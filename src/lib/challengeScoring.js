@@ -66,6 +66,15 @@ function streakBonus(value) {
   return Math.floor(above / SCORE_POINTS.streakStep);
 }
 
+// Soma o bónus de TODAS as sequências de uma lista (ver streakBonus) — usado
+// tanto para partidas já terminadas (scoreGame, abaixo) como para o
+// progresso ao vivo de uma partida a decorrer (ver ScoreBoard em
+// Challenges.jsx e updateChallengeGameProgress em db/rooms.js), que só tem
+// a corrida atual, ainda sem quebrar por nenhuma morte.
+export function sumStreakBonus(runs) {
+  return (Array.isArray(runs) ? runs : []).reduce((sum, run) => sum + streakBonus(run), 0);
+}
+
 // Pontua UMA partida (a linha do próprio jogador). Devolve o detalhe por
 // categoria além do total, para o placar poder mostrar de onde vieram os
 // pontos em vez de só um número final.
@@ -92,9 +101,19 @@ export function scoreGame(match, { champions, rules = DEFAULT_RULES }) {
   const assistRuns = Array.isArray(match.assist_streaks)
     ? match.assist_streaks
     : deaths === 0 ? [assists] : [];
+  // Simétrico, mas ao contrário: corridas de MORTES seguidas sem kill/assist
+  // pelo meio penalizam pela mesma regra (por cada 2 acima de 3, -1 ponto,
+  // em cima do -1 fixo por morte). Sem kill_streaks/assist_streaks nem
+  // death_streaks reais (partida importada), só dá para reconstruir se não
+  // houve NENHUM kill/assist a interromper — senão não se sabe onde as
+  // mortes se agruparam, e não se inventa.
+  const deathRuns = Array.isArray(match.death_streaks)
+    ? match.death_streaks
+    : kills === 0 && assists === 0 ? [deaths] : [];
 
-  const killStreak = killRuns.reduce((sum, run) => sum + streakBonus(run), 0);
-  const assistStreak = assistRuns.reduce((sum, run) => sum + streakBonus(run), 0);
+  const killStreak = sumStreakBonus(killRuns);
+  const assistStreak = sumStreakBonus(assistRuns);
+  const deathStreak = -sumStreakBonus(deathRuns);
 
   const parts = {
     kills: kills * SCORE_POINTS.kill,
@@ -102,6 +121,7 @@ export function scoreGame(match, { champions, rules = DEFAULT_RULES }) {
     assists: assists * SCORE_POINTS.assist,
     killStreak,
     assistStreak,
+    deathStreak,
     damage: 0,
     healing: 0,
     taken: 0,

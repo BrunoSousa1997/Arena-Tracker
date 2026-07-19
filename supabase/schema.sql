@@ -45,6 +45,10 @@ alter table public.matches drop column if exists best_kill_streak;
 alter table public.matches drop column if exists best_assist_streak;
 alter table public.matches add column if not exists kill_streaks jsonb;
 alter table public.matches add column if not exists assist_streaks jsonb;
+-- Simétrico, mas ao contrário: corridas de MORTES seguidas sem kill/assist
+-- pelo meio, para a pontuação penalizar pela mesma regra (ver
+-- sumStreakBonus em src/lib/challengeScoring.js).
+alter table public.matches add column if not exists death_streaks jsonb;
 
 -- saves_from_death (participant.challenges.saveAllyFromDeath) chegou a ser
 -- guardado para pontuar revives nos desafios; pedido explícito para não usar
@@ -56,6 +60,12 @@ alter table public.matches drop column if exists saves_from_death;
 -- partida (campeão, KDA, lugar da equipa, build, augments), só disponível
 -- via Riot API (import/backfill), não via Live Client Data.
 alter table public.matches add column if not exists participants jsonb;
+
+-- Limpa uma coluna de uma tentativa anterior (fundir capturas ao vivo com a
+-- Riot API diretamente em "matches") que foi revertida — os challenges têm
+-- agora a sua própria tabela (ver secção 9, "challenge_games"), sem tocar em
+-- nada disto.
+alter table public.matches drop column if exists is_live_capture;
 
 -- evita importar a mesma partida duas vezes para a mesma conta
 create unique index if not exists idx_matches_riot_match_id
@@ -245,6 +255,17 @@ create table if not exists public.challenge_room_players (
   unique (room_id, username)
 );
 
+-- Limpa colunas de uma tentativa anterior de progresso ao vivo (guardado
+-- diretamente em challenge_room_players) — substituída pela tabela própria
+-- "challenge_games" abaixo, onde cada partida (ao vivo ou já terminada) tem
+-- a sua própria linha em vez de campos soltos no jogador.
+alter table public.challenge_room_players drop column if exists live_champion;
+alter table public.challenge_room_players drop column if exists live_kills;
+alter table public.challenge_room_players drop column if exists live_deaths;
+alter table public.challenge_room_players drop column if exists live_assists;
+alter table public.challenge_room_players drop column if exists live_streak_bonus;
+alter table public.challenge_room_players drop column if exists live_updated_at;
+
 create table if not exists public.challenge_invites (
   id bigint generated always as identity primary key,
   room_id bigint not null references public.challenge_rooms(id) on delete cascade,
@@ -257,9 +278,50 @@ create table if not exists public.challenge_invites (
   unique (room_id, to_username)
 );
 
+-- Uma partida de Arena jogada dentro de um challenge — coleção PRÓPRIA,
+-- separada de "matches" (o histórico normal, alimentado pelo sync com a
+-- Riot API em src/hooks/useRiotSync.js, que nada aqui altera). Nasce "live"
+-- quando a partida começa e vai sendo atualizada a cada poll da Live Client
+-- Data (3s); fecha com o resultado quando a partida acaba; e é enriquecida à
+-- parte com dano/cura/multikills assim que esses dados aparecerem em
+-- "matches" — ver startChallengeGame/updateChallengeGameProgress/
+-- finishChallengeGame/enrichChallengeGame em src/db/rooms.js, e a máquina de
+-- estados em src/hooks/useLiveGame.js.
+create table if not exists public.challenge_games (
+  id bigint generated always as identity primary key,
+  room_id bigint not null references public.challenge_rooms(id) on delete cascade,
+  username text not null,
+  champion text,
+  kills int not null default 0,
+  deaths int not null default 0,
+  assists int not null default 0,
+  win boolean,
+  -- Listas de corridas (ver challengeScoring.js/sumStreakBonus) — kills/
+  -- assists sem morrer somam pontos, mortes seguidas sem kill/assist pelo
+  -- meio subtraem. Vazio [] enquanto a partida ainda não teve nenhuma.
+  kill_streaks jsonb,
+  assist_streaks jsonb,
+  death_streaks jsonb,
+  -- Só chegam depois de a partida terminar E sincronizar com a Riot API
+  -- (ver enrichChallengeGame) — a Live Client Data não os expõe ao vivo.
+  damage_dealt int,
+  damage_taken int,
+  healing int,
+  double_kills int,
+  triple_kills int,
+  -- live = a decorrer; finished = resultado conhecido, ainda sem dano/cura/
+  -- multikills; enriched = já tem tudo.
+  status text not null default 'live',
+  started_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  finished_at timestamptz
+);
+
 create index if not exists idx_room_players_room on public.challenge_room_players (room_id);
 create index if not exists idx_room_players_username on public.challenge_room_players (username);
 create index if not exists idx_invites_to on public.challenge_invites (to_username, status);
+create index if not exists idx_challenge_games_room on public.challenge_games (room_id);
+create index if not exists idx_challenge_games_username on public.challenge_games (username);
 -- Contagem de desafios vencidos (achievement "challenge_wins", ver
 -- getChallengeWinCount em src/db/rooms.js) e lista do histórico por sala
 -- terminada.
@@ -269,6 +331,7 @@ create index if not exists idx_rooms_finished_at on public.challenge_rooms (fini
 alter table public.challenge_rooms enable row level security;
 alter table public.challenge_room_players enable row level security;
 alter table public.challenge_invites enable row level security;
+alter table public.challenge_games enable row level security;
 
 drop policy if exists "Allow anon read/write rooms" on public.challenge_rooms;
 create policy "Allow anon read/write rooms" on public.challenge_rooms
@@ -282,6 +345,10 @@ drop policy if exists "Allow anon read/write invites" on public.challenge_invite
 create policy "Allow anon read/write invites" on public.challenge_invites
 for all using (true) with check (true);
 
+drop policy if exists "Allow anon read/write challenge games" on public.challenge_games;
+create policy "Allow anon read/write challenge games" on public.challenge_games
+for all using (true) with check (true);
+
 -- Por omissão, um evento DELETE só transporta a CHAVE PRIMÁRIA da linha
 -- apagada. As subscrições em src/db/rooms.js filtram por "room_id" e por
 -- "to_username" — que não são chave primária — por isso, sem isto, o filtro
@@ -290,15 +357,23 @@ for all using (true) with check (true);
 -- "replica identity full" faz o DELETE trazer a linha inteira.
 alter table public.challenge_room_players replica identity full;
 alter table public.challenge_invites replica identity full;
+alter table public.challenge_games replica identity full;
 
--- Realtime: é isto que faz o lobby e os convites chegarem sozinhos, sem a
--- app andar a perguntar de X em X segundos. Sem estas linhas as subscrições
--- em src/db/rooms.js ligam-se com sucesso e simplesmente nunca recebem nada
--- (falham em silêncio, que é o pior tipo de falha).
+-- Realtime: é isto que faz o lobby, os convites e o placar ao vivo dos
+-- challenges chegarem sozinhos, sem a app andar a perguntar de X em X
+-- segundos. Sem estas linhas as subscrições em src/db/rooms.js ligam-se com
+-- sucesso e simplesmente nunca recebem nada (falham em silêncio, que é o
+-- pior tipo de falha).
 --
 -- Não existe "add table if not exists" para publicações, e repetir o ALTER dá
 -- erro — daí o bloco a apanhar a exceção, para este ficheiro continuar
 -- seguro de correr as vezes que forem precisas.
+do $$
+begin
+  alter publication supabase_realtime add table public.challenge_games;
+exception when duplicate_object then null;
+end $$;
+
 do $$
 begin
   alter publication supabase_realtime add table public.challenge_rooms;

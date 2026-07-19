@@ -317,43 +317,299 @@ export async function respondToInvite(inviteId, status) {
   return { success: true };
 }
 
-// ================= PARTIDAS DO DESAFIO (todos os jogadores) =================
-// O placar ao vivo precisa das partidas de TODOS os jogadores da sala, não só
-// da conta ativa neste dispositivo — "matches" não tem dono nenhum (RLS
-// aberta, ver schema.sql), por isso dá para ir buscar diretamente pelos
-// usernames dos jogadores da sala. Só partidas do LiveMode contam (as que
-// entram por aqui têm sempre created_at do momento em que a partida acabou),
-// por isso basta filtrar por data >= início do desafio.
-export async function getRoomMatchesForPlayers(usernames, sinceISO) {
+// ================= JOGOS DO DESAFIO (coleção própria) =================
+// Ao contrário de "matches" (histórico normal, alimentado pelo sync com a
+// Riot API em useRiotSync.js — em NADA alterado por nenhuma destas funções),
+// cada partida jogada dentro de um challenge tem a sua PRÓPRIA linha aqui:
+// nasce "live" quando a partida começa (startChallengeGame), atualiza-se a
+// cada poll da Live Client Data com KDA/streaks (updateChallengeGameProgress),
+// fecha com o resultado quando a partida acaba (finishChallengeGame), e é
+// enriquecida à parte com dano/cura/multikills assim que esses dados
+// aparecerem em "matches" pelo sync normal (enrichChallengeGame +
+// findSyncedMatchDetails, que só LÊ "matches", nunca escreve). Toda esta
+// máquina de estados vive em useLiveGame.js.
+
+// Cria a linha "a decorrer" assim que a partida começa. Devolve a linha
+// criada para useLiveGame.js guardar o id e ir atualizando.
+export async function startChallengeGame(roomId, username, champion = null) {
+  const { data, error } = await supabase
+    .from("challenge_games")
+    .insert([{ room_id: roomId, username, champion, status: "live" }])
+    .select()
+    .single();
+
+  if (error) {
+    console.error("startChallengeGame error:", error);
+    return null;
+  }
+  return data;
+}
+
+// KDA + streaks atuais — chamado a cada poll (3s) enquanto a partida decorre.
+export async function updateChallengeGameProgress(
+  gameId,
+  { champion, kills, deaths, assists, killStreaks, assistStreaks, deathStreaks }
+) {
+  const { error } = await supabase
+    .from("challenge_games")
+    .update({
+      champion: champion || null,
+      kills: kills ?? 0,
+      deaths: deaths ?? 0,
+      assists: assists ?? 0,
+      kill_streaks: killStreaks || [],
+      assist_streaks: assistStreaks || [],
+      death_streaks: deathStreaks || [],
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", gameId);
+
+  if (error) console.error("updateChallengeGameProgress error:", error);
+}
+
+// Partida acabou com resultado conhecido (Win/Lose) — fecha o jogo com o KDA
+// final. Ainda sem dano/cura/multikills (ver enrichChallengeGame).
+export async function finishChallengeGame(
+  gameId,
+  { champion, kills, deaths, assists, win, killStreaks, assistStreaks, deathStreaks }
+) {
+  const { error } = await supabase
+    .from("challenge_games")
+    .update({
+      champion: champion || null,
+      kills: kills ?? 0,
+      deaths: deaths ?? 0,
+      assists: assists ?? 0,
+      win: !!win,
+      kill_streaks: killStreaks || [],
+      assist_streaks: assistStreaks || [],
+      death_streaks: deathStreaks || [],
+      status: "finished",
+      finished_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", gameId);
+
+  if (error) console.error("finishChallengeGame error:", error);
+}
+
+// Sessão morreu sem NENHUM resultado (saiu a meio, jogo estoirou, fechou-se
+// a app) — a partida FICA, com tudo o que já tinha acumulado. Um desafio
+// nunca tira pontos a ninguém: o KDA/streaks mais recentes já foram
+// gravados nesta linha pelo poll de 3 em 3s (ver
+// updateChallengeGameProgress), por isso basta fechá-la, sem lhe tocar nos
+// valores. Só o resultado (win) é que fica por saber — não houve evento
+// GameEnd que o dissesse.
+//
+// (Uma versão anterior APAGAVA a linha aqui, o que fazia desaparecer do
+// placar tudo o que se tinha feito nessa partida.)
+export async function closeUnfinishedChallengeGame(gameId) {
+  const { error } = await supabase
+    .from("challenge_games")
+    .update({ status: "finished", finished_at: new Date().toISOString() })
+    .eq("id", gameId);
+
+  if (error) console.error("closeUnfinishedChallengeGame error:", error);
+}
+
+// Vai buscar a "matches" (só LÊ — nunca escreve, nunca altera o que o sync
+// normal já fez) o dano/cura/multikills desta partida, para copiar para a
+// linha do challenge. Mesma heurística de correspondência que hasSyncedMatch
+// já usa (username + campeão + KDA exatos, depois de "after").
+export async function findSyncedMatchDetails(username, { champion, kills, deaths, assists, after }) {
+  const { data, error } = await supabase
+    .from("matches")
+    .select("damage_dealt, damage_taken, healing, double_kills, triple_kills")
+    .eq("username", username)
+    .eq("champion", champion)
+    .eq("kills", kills)
+    .eq("deaths", deaths)
+    .eq("assists", assists)
+    .not("riot_match_id", "is", null)
+    .gte("created_at", after)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error("findSyncedMatchDetails error:", error);
+    return null;
+  }
+  return data;
+}
+
+// Copia dano/cura/multikills para a linha do challenge assim que aparecerem
+// em "matches" (chamado pelo retry em useLiveGame.js, ver
+// findSyncedMatchDetails acima).
+export async function enrichChallengeGame(
+  gameId,
+  { damageDealt, damageTaken, healing, doubleKills, tripleKills }
+) {
+  const { error } = await supabase
+    .from("challenge_games")
+    .update({
+      damage_dealt: damageDealt ?? null,
+      damage_taken: damageTaken ?? null,
+      healing: healing ?? null,
+      double_kills: doubleKills ?? null,
+      triple_kills: tripleKills ?? null,
+      status: "enriched",
+    })
+    .eq("id", gameId);
+
+  if (error) console.error("enrichChallengeGame error:", error);
+}
+
+// ================= JOGOS DA SALA (placar) =================
+// O placar precisa dos jogos de TODOS os jogadores da sala, não só da conta
+// ativa neste dispositivo — RLS aberta (ver schema.sql), por isso dá para ir
+// buscar diretamente pelos usernames dos jogadores da sala. Devolve TODOS os
+// estados (live/finished/enriched) numa só consulta — o ScoreBoard separa a
+// partida "a decorrer" (status live) das já terminadas.
+export async function getRoomChallengeGames(usernames, sinceISO) {
   if (!usernames?.length) return [];
 
   const { data, error } = await supabase
-    .from("matches")
+    .from("challenge_games")
     .select(
-      "id, username, champion, kills, deaths, assists, win, placement, damage_dealt, " +
-        "damage_taken, healing, double_kills, triple_kills, multikill, kill_streaks, assist_streaks, created_at"
+      "id, username, champion, kills, deaths, assists, win, damage_dealt, damage_taken, healing, " +
+        "double_kills, triple_kills, kill_streaks, assist_streaks, death_streaks, status, started_at, updated_at"
     )
     .in("username", usernames)
-    .gte("created_at", sinceISO)
-    // Só LiveMode: partidas importadas em lote (riot_match_id) podem ter
-    // created_at retroativo (data do jogo, não da sincronização) e não são
-    // uma amostra "ao vivo" do desafio — ficam de fora da pontuação.
-    .is("riot_match_id", null)
-    .order("created_at", { ascending: true });
+    .gte("started_at", sinceISO)
+    .order("started_at", { ascending: true });
 
   if (error) {
-    console.error("getRoomMatchesForPlayers error:", error);
+    console.error("getRoomChallengeGames error:", error);
     return [];
   }
   return data || [];
 }
 
-// Nova partida de qualquer conta — sem filtro por username (o Supabase
-// Realtime não filtra por listas "IN"), quem ouve decide se lhe interessa.
-export function subscribeToMatches(onInsert) {
+// ================= RECUPERAR JOGOS EM FALTA (botão manual) =================
+// Uma partida só entra num desafio se a Live Client Data a apanhar do início
+// (ver startChallengeGame, chamado por useLiveGame.js) — se a app estiver
+// fechada, abrir a meio do jogo, ou a sala só passar a "running" depois de a
+// partida começar, essa partida fica perdida para o desafio, mesmo estando
+// no histórico normal.
+//
+// Isto repesca-as: procura em "matches" partidas desta conta jogadas depois
+// do início do desafio que ainda não tenham linha em challenge_games, e
+// cria-as lá já completas (a esta altura "matches" já tem dano/cura/
+// multikills, por isso entram direto como "enriched", sem precisar do ciclo
+// de enriquecimento).
+//
+// Só LÊ de "matches" — nunca escreve nem altera nada do histórico normal
+// nem do sync (ver useRiotSync.js, que isto não toca).
+export async function recoverMissingChallengeGames(roomId, username, sinceISO) {
+  const [matchesRes, existingRes] = await Promise.all([
+    supabase
+      .from("matches")
+      .select(
+        "champion, kills, deaths, assists, win, damage_dealt, damage_taken, healing, " +
+          "double_kills, triple_kills, kill_streaks, assist_streaks, death_streaks, " +
+          "game_duration, created_at"
+      )
+      .eq("username", username)
+      .gte("created_at", sinceISO)
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("challenge_games")
+      .select("champion, kills, deaths, assists, started_at")
+      .eq("room_id", roomId)
+      .eq("username", username),
+  ]);
+
+  if (matchesRes.error) {
+    console.error("recoverMissingChallengeGames (matches) error:", matchesRes.error);
+    return { success: false, recovered: 0 };
+  }
+  if (existingRes.error) {
+    console.error("recoverMissingChallengeGames (games) error:", existingRes.error);
+    return { success: false, recovered: 0 };
+  }
+
+  // Uma partida já registada no desafio é reconhecida pelo mesmo campeão +
+  // KDA exatos — o mesmo critério que hasSyncedMatch/findSyncedMatchDetails
+  // já usam para casar uma captura ao vivo com a linha da Riot API. Cada
+  // linha existente só "consome" uma partida (splice), para dois jogos
+  // idênticos no mesmo desafio não colapsarem num só.
+  const pool = [...(existingRes.data || [])];
+  const toInsert = [];
+  const sinceTime = new Date(sinceISO).getTime();
+
+  for (const m of matchesRes.data || []) {
+    // O "created_at" de uma partida é o momento em que ela ACABOU, por isso
+    // o filtro da consulta acima ainda deixa passar uma partida que já
+    // estava a decorrer quando o desafio arrancou (começou antes, acabou
+    // depois) — essa não foi jogada dentro do desafio e não deve contar.
+    // Com "game_duration" (segundos) dá para recuar até ao início real e
+    // exigir que TAMBÉM ele seja depois do arranque. Sem duração conhecida
+    // (partidas antigas), fica-se pelo critério do fim, que é o que há.
+    if (m.game_duration) {
+      const startedAt = new Date(m.created_at).getTime() - m.game_duration * 1000;
+      if (startedAt < sinceTime) continue;
+    }
+
+    const idx = pool.findIndex(
+      (g) =>
+        g.champion === m.champion &&
+        g.kills === (m.kills ?? 0) &&
+        g.deaths === (m.deaths ?? 0) &&
+        g.assists === (m.assists ?? 0)
+    );
+
+    if (idx !== -1) {
+      pool.splice(idx, 1);
+      continue;
+    }
+
+    toInsert.push({
+      room_id: roomId,
+      username,
+      champion: m.champion,
+      kills: m.kills ?? 0,
+      deaths: m.deaths ?? 0,
+      assists: m.assists ?? 0,
+      win: !!m.win,
+      damage_dealt: m.damage_dealt ?? null,
+      damage_taken: m.damage_taken ?? null,
+      healing: m.healing ?? null,
+      double_kills: m.double_kills ?? null,
+      triple_kills: m.triple_kills ?? null,
+      kill_streaks: m.kill_streaks || [],
+      assist_streaks: m.assist_streaks || [],
+      death_streaks: m.death_streaks || [],
+      status: "enriched",
+      started_at: m.created_at,
+      updated_at: new Date().toISOString(),
+      finished_at: m.created_at,
+    });
+  }
+
+  if (!toInsert.length) return { success: true, recovered: 0 };
+
+  const { error } = await supabase.from("challenge_games").insert(toInsert);
+  if (error) {
+    console.error("recoverMissingChallengeGames (insert) error:", error);
+    return { success: false, recovered: 0 };
+  }
+
+  console.log(`🔁 ${toInsert.length} partida(s) recuperada(s) para o desafio ${roomId}`);
+  return { success: true, recovered: toInsert.length };
+}
+
+// Qualquer mudança nos jogos desta sala (nova partida a começar, KDA a
+// atualizar, partida a terminar ou a ganhar dano/cura) — um canal por sala,
+// filtrado por room_id (mesma convenção de subscribeToRoom).
+export function subscribeToChallengeGames(roomId, onChange) {
   const channel = supabase
-    .channel(uniqueChannelName("challenge-live-matches"))
-    .on("postgres_changes", { event: "INSERT", schema: "public", table: "matches" }, onInsert)
+    .channel(uniqueChannelName(`challenge-games-${roomId}`))
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "challenge_games", filter: `room_id=eq.${roomId}` },
+      onChange
+    )
     .subscribe();
 
   return () => supabase.removeChannel(channel);

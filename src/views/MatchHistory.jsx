@@ -424,7 +424,7 @@ export default function MatchHistory({
         <div style={styles.empty}>{t("no_filtered_results")}</div>
       ) : (
       <div style={styles.matchList}>
-        <AnimatePresence initial={false}>
+        <AnimatePresence>
           {visibleMatches.map((m, i) => {
             const rowKey = `${m.champion}-${m.created_at}-${i}`;
             const isOpen = expanded === rowKey;
@@ -439,7 +439,7 @@ export default function MatchHistory({
                 key={rowKey}
                 className="historyCard"
                 initial={{ opacity: 0, y: -6 }}
-                animate={{ opacity: 1, y: 0 }}
+                animate={{ opacity: 1, y: 0, transition: { duration: 0.12, delay: Math.min(i, 8) * 0.03 } }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.12 }}
                 style={{
