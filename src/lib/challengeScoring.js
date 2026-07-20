@@ -20,24 +20,109 @@ export const SCORE_POINTS = {
   damageTakenPer: 10000,
   doubleKill: 2,
   tripleKill: 3,
-  // Streak: por cada "step" kills/assists acima de "threshold", +1 ponto —
-  // só em partidas acabadas sem morrer (ver scoreGame).
+  // Streak: dentro de uma sequência sem morrer, cada abate/assistência acima
+  // de "streakThreshold" vale +1 ponto EXTRA, e esse extra sobe outro nível a
+  // cada "streakStep" seguintes. Ver streakBonus para a conta exata.
   streakThreshold: 3,
   streakStep: 2,
 };
 
-// Handicap por classe para nivelar o campo (ver conversa): tanks/bruisers
-// juntam naturalmente mais pontos (dano recebido, sobrevivência, assists),
-// por isso descem; assassinos e classes de output baixo sobem. São valores
-// de partida, pensados para afinar depois de ver números reais — vivem aqui,
-// num só sítio, exatamente para isso.
-export const CLASS_MULTIPLIER = {
-  Assassin: 1.15,
-  Mage: 1.08,
-  Marksman: 1.05,
-  Support: 1.1,
-  Fighter: 0.95,
-  Tank: 0.88,
+// ================= HANDICAP POR ARQUÉTIPO =================
+// Substitui a versão anterior baseada nas tags do Data Dragon. Motivo,
+// verificado com ~1000 partidas reais da BD (2026-07): as tags não
+// distinguem os arquétipos onde o desvio realmente está — Juggernaut e
+// Skirmisher são ambos "Fighter", Engage e Enchanter dispersam-se por
+// Tank/Support — por isso NENHUM conjunto de valores por tag conseguia
+// equilibrar (o melhor ajuste possível ainda deixava 22% de desvio entre
+// arquétipos, e o conjunto antigo chegava a AUMENTAR o desvio em vez de o
+// reduzir). Com um mapa próprio campeão->arquétipo, os multiplicadores
+// abaixo igualam a pontuação média de 30 jogos dos 8 arquétipos a ~1% de
+// desvio, e qualquer um vence um desafio 8-16% das vezes (Monte Carlo,
+// 3000 simulações com partidas reais).
+//
+// Nota honesta: os valores foram ajustados às partidas DESTE grupo de
+// jogadores — equalizam resultados, o que em parte também anula diferenças
+// de skill de quem joga cada arquétipo, não só vantagem estrutural da
+// classe. Para desafios entre amigos é esse o objetivo (toda a gente com
+// hipótese real); se o grupo mudar de estilo, reafinam-se aqui, num só sítio.
+export const ARCHETYPE_MULTIPLIER = {
+  Tank: 0.82,
+  Engage: 1.1,
+  Juggernaut: 1.08,
+  Skirmisher: 0.99,
+  Assassin: 1.05,
+  Marksman: 1.09,
+  Caster: 0.9,
+  Enchanter: 1.07,
+};
+
+// Campeão -> arquétipo. Ids do Data Dragon (os mesmos gravados em
+// "matches.champion"). Um campeão fora deste mapa fica neutro (x1, ver
+// archetypeMultiplier) — preferível a adivinhar pela tag e errar.
+export const CHAMPION_ARCHETYPE = {
+  // Tanques de frente (absorvem, vivem de dano recebido/sobrevivência)
+  Malphite: "Tank", Shen: "Tank", Ornn: "Tank", Sion: "Tank", Zac: "Tank",
+  Amumu: "Tank", Rammus: "Tank", TahmKench: "Tank", Poppy: "Tank",
+  Maokai: "Tank", Galio: "Tank", Sejuani: "Tank", Chogath: "Tank",
+  Singed: "Tank", Skarner: "Tank", DrMundo: "Tank", Gragas: "Tank",
+  KSante: "Tank",
+  // Engage/utilidade (iniciam, protegem, poucos abates por natureza)
+  Leona: "Engage", Nautilus: "Engage", Alistar: "Engage", Braum: "Engage",
+  Blitzcrank: "Engage", Thresh: "Engage", Rakan: "Engage", Rell: "Engage",
+  Nunu: "Engage",
+  // Juggernauts (dano + resistência, sem mobilidade)
+  Darius: "Juggernaut", Garen: "Juggernaut", Sett: "Juggernaut",
+  Illaoi: "Juggernaut", Mordekaiser: "Juggernaut", Volibear: "Juggernaut",
+  Trundle: "Juggernaut", Nasus: "Juggernaut", Renekton: "Juggernaut",
+  Urgot: "Juggernaut", Yorick: "Juggernaut", Aatrox: "Juggernaut",
+  Olaf: "Juggernaut", Warwick: "Juggernaut", Shyvana: "Juggernaut",
+  Udyr: "Juggernaut",
+  // Skirmishers/duelistas (mobilidade + dano sustentado)
+  Jax: "Skirmisher", Riven: "Skirmisher", Irelia: "Skirmisher",
+  Yasuo: "Skirmisher", Yone: "Skirmisher", Fiora: "Skirmisher",
+  Camille: "Skirmisher", LeeSin: "Skirmisher", Hecarim: "Skirmisher",
+  XinZhao: "Skirmisher", MonkeyKing: "Skirmisher", Tryndamere: "Skirmisher",
+  MasterYi: "Skirmisher", JarvanIV: "Skirmisher", Kayn: "Skirmisher",
+  Gwen: "Skirmisher", Viego: "Skirmisher", Belveth: "Skirmisher",
+  Briar: "Skirmisher", Pantheon: "Skirmisher", RekSai: "Skirmisher",
+  Vi: "Skirmisher", Kled: "Skirmisher", Gangplank: "Skirmisher",
+  // Assassinos (burst, entram e saem)
+  Zed: "Assassin", Talon: "Assassin", Katarina: "Assassin", Fizz: "Assassin",
+  Akali: "Assassin", Qiyana: "Assassin", Rengar: "Assassin",
+  Khazix: "Assassin", Nocturne: "Assassin", Shaco: "Assassin",
+  Evelynn: "Assassin", Kassadin: "Assassin", Ekko: "Assassin",
+  Diana: "Assassin", Naafiri: "Assassin", Pyke: "Assassin",
+  Leblanc: "Assassin", Zoe: "Assassin",
+  // Atiradores (dano contínuo à distância com básicos)
+  Jinx: "Marksman", Caitlyn: "Marksman", Ashe: "Marksman",
+  Lucian: "Marksman", Vayne: "Marksman", Tristana: "Marksman",
+  Jhin: "Marksman", Ezreal: "Marksman", MissFortune: "Marksman",
+  Kaisa: "Marksman", Draven: "Marksman", Sivir: "Marksman",
+  Xayah: "Marksman", Twitch: "Marksman", Samira: "Marksman",
+  Aphelios: "Marksman", Zeri: "Marksman", KogMaw: "Marksman",
+  Varus: "Marksman", Kalista: "Marksman", Nilah: "Marksman",
+  Corki: "Marksman", Graves: "Marksman", Quinn: "Marksman",
+  Akshan: "Marksman", Smolder: "Marksman", Kindred: "Marksman",
+  // Casters (dano mágico à distância com habilidades)
+  Lux: "Caster", Veigar: "Caster", Syndra: "Caster", Brand: "Caster",
+  Ziggs: "Caster", Annie: "Caster", Xerath: "Caster", Vex: "Caster",
+  Ahri: "Caster", Orianna: "Caster", Viktor: "Caster",
+  Cassiopeia: "Caster", Malzahar: "Caster", Lissandra: "Caster",
+  Anivia: "Caster", Karthus: "Caster", TwistedFate: "Caster",
+  Neeko: "Caster", Swain: "Caster", Ryze: "Caster", Azir: "Caster",
+  Hwei: "Caster", Velkoz: "Caster", Morgana: "Caster", Zilean: "Caster",
+  Heimerdinger: "Caster", Taliyah: "Caster", Aurora: "Caster",
+  Elise: "Caster", Fiddlesticks: "Caster", Nidalee: "Caster",
+  Rumble: "Caster", Teemo: "Caster", Kennen: "Caster",
+  Vladimir: "Caster", Gnar: "Caster", Jayce: "Caster", Kayle: "Caster",
+  Zyra: "Caster", Bard: "Caster", Ivern: "Caster", Sylas: "Caster",
+  AurelionSol: "Caster", Mel: "Caster", Ambessa: "Caster",
+  Yunara: "Caster", Senna: "Caster",
+  // Enchanters (curam/protegem, output próprio baixo)
+  Soraka: "Enchanter", Sona: "Enchanter", Yuumi: "Enchanter",
+  Nami: "Enchanter", Janna: "Enchanter", Lulu: "Enchanter",
+  Milio: "Enchanter", Renata: "Enchanter", Karma: "Enchanter",
+  Seraphine: "Enchanter", Taric: "Enchanter",
 };
 
 export const DEFAULT_RULES = {
@@ -51,19 +136,38 @@ export const DEFAULT_RULES = {
   onlyKda: false,
 };
 
-// Média das classes do campeão — um Fighter+Tank (ex: Sett) fica entre as
-// duas, em vez de herdar só uma. 1 (neutro) para campeões sem tag conhecida.
+// Multiplicador do campeão via CHAMPION_ARCHETYPE (um arquétipo só por
+// campeão, ao contrário das tags). 1 (neutro) para campeões fora do mapa —
+// preferível a adivinhar pela tag e aplicar o valor errado.
 function classMultiplier(championId, champions) {
   const id = normalizeChampionId(championId, champions);
-  const tags = champions.find((c) => c.id === id)?.tags || [];
-  const applicable = tags.map((tag) => CLASS_MULTIPLIER[tag]).filter((m) => m != null);
-  if (!applicable.length) return 1;
-  return applicable.reduce((sum, m) => sum + m, 0) / applicable.length;
+  const archetype = CHAMPION_ARCHETYPE[id];
+  return (archetype && ARCHETYPE_MULTIPLIER[archetype]) || 1;
 }
 
+// Pontos EXTRA de uma sequência de "value" abates (ou assistências) sem
+// morrer — só o extra, o valor normal de cada abate já é contado à parte
+// (ver parts.kills em scoreGame).
+//
+// A escalada é POR ABATE dentro da sequência, não um bónus fixo no fim: até
+// ao 3º abate (streakThreshold) cada um vale o normal; a partir daí cada
+// abate vale +1, e esse extra sobe outro nível a cada 2 (streakStep)
+// seguintes. Com 5 abates seguidos, a conta completa é 2+2+2+3+3 = 12, ou
+// seja 5 abates "normais" (10) + 2 de bónus — que é o que esta função
+// devolve.
+//
+//   abate:  1  2  3  4  5  6  7  8  9
+//   extra:  0  0  0 +1 +1 +2 +2 +3 +3
+//
+// (Uma versão anterior dava um único +1 por cada 2 acima do limiar, o que
+// subcontava muito as sequências longas: 9 abates rendiam +3 em vez de +12.)
 function streakBonus(value) {
-  const above = Math.max(0, value - SCORE_POINTS.streakThreshold);
-  return Math.floor(above / SCORE_POINTS.streakStep);
+  let bonus = 0;
+  for (let i = 1; i <= value; i++) {
+    const level = Math.floor((i - SCORE_POINTS.streakThreshold + 1) / SCORE_POINTS.streakStep);
+    bonus += Math.max(0, level);
+  }
+  return bonus;
 }
 
 // Soma o bónus de TODAS as sequências de uma lista (ver streakBonus) — usado
@@ -113,7 +217,11 @@ export function scoreGame(match, { champions, rules = DEFAULT_RULES }) {
 
   const killStreak = sumStreakBonus(killRuns);
   const assistStreak = sumStreakBonus(assistRuns);
-  const deathStreak = -sumStreakBonus(deathRuns);
+  // Negar 0 dá "-0", que sobrevive ao JSON.stringify (fica "-0" na fotografia
+  // gravada em challenge_rooms.results) e falha comparações com Object.is.
+  // Só se nega quando há mesmo penalização.
+  const deathStreakPenalty = sumStreakBonus(deathRuns);
+  const deathStreak = deathStreakPenalty === 0 ? 0 : -deathStreakPenalty;
 
   const parts = {
     kills: kills * SCORE_POINTS.kill,

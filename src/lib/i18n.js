@@ -42,8 +42,23 @@ const DICTIONARY = {
     en: "Scores by placement, KDA, damage, healing, damage taken and teammate protection — each measured by your rank within your own match.",
   },
   chal_rules_custom_desc: {
-    pt: "Ainda por definir — por agora comporta-se como as básicas.",
-    en: "Not defined yet — behaves like the basic rules for now.",
+    pt: "Escolhe o que conta para a pontuação deste desafio.",
+    en: "Pick what counts towards this challenge's scoring.",
+  },
+  chal_rule_class_handicap: { pt: "Handicap por arquétipo", en: "Archetype handicap" },
+  chal_rule_class_handicap_hint: {
+    pt: "Multiplica o total pelo arquétipo do campeão (tanque, encantador, assassino…), para todos renderem em média o mesmo.",
+    en: "Multiplies the total by the champion's archetype (tank, enchanter, assassin…), so they all score the same on average.",
+  },
+  chal_rule_only_kda: { pt: "Só KDA", en: "KDA only" },
+  chal_rule_only_kda_hint: {
+    pt: "Ignora dano, cura, dano sofrido e multikills — contam só abates, mortes, assistências e sequências.",
+    en: "Ignores damage, healing, damage taken and multikills — only kills, deaths, assists and streaks count.",
+  },
+  chal_rule_only_solo: { pt: "Só jogos sem adversários do desafio", en: "Only games without challenge rivals" },
+  chal_rule_only_solo_hint: {
+    pt: "Não conta partidas em que dois do desafio calharam na mesma Arena — aí influenciaram-se um ao outro.",
+    en: "Skips matches where two challenge players landed in the same Arena — there they affected each other directly.",
   },
   chal_create_btn: { pt: "Criar", en: "Create" },
   chal_creating: { pt: "A criar…", en: "Creating…" },
@@ -68,6 +83,44 @@ const DICTIONARY = {
   chal_room_ready: { pt: "Sala cheia — prontos para começar.", en: "Room full — ready to start." },
   chal_host: { pt: "anfitrião", en: "host" },
   chal_leave: { pt: "Sair da sala", en: "Leave room" },
+  chal_back_to_menu: { pt: "Voltar aos desafios", en: "Back to challenges" },
+  chal_forfeit: { pt: "Desistir", en: "Forfeit" },
+  chal_end_now: { pt: "Terminar desafio", en: "End challenge" },
+  chal_end_now_confirm_title: { pt: "Terminar o desafio já?", en: "End the challenge now?" },
+  chal_end_now_confirm_msg: {
+    pt: "O desafio fecha com as pontuações atuais e ganha quem estiver à frente, mesmo que faltem partidas. Serve para desbloquear um desafio em que alguém desapareceu — não há forma de voltar atrás.",
+    en: "The challenge closes with the current scores and whoever is ahead wins, even with matches left. Use it to unblock a challenge someone abandoned — this can't be undone.",
+  },
+  chal_end_now_hint: {
+    pt: "Como anfitrião podes fechar o desafio a qualquer momento, se alguém desistir de aparecer.",
+    en: "As host you can close the challenge at any time if someone stops showing up.",
+  },
+  chal_forfeited: { pt: "Desistiu", en: "Forfeited" },
+  chal_forfeit_confirm_title: { pt: "Desistir do desafio?", en: "Forfeit the challenge?" },
+  chal_forfeit_confirm_msg: {
+    pt: "Dás o desafio como perdido. Os pontos que já fizeste ficam registados, mas ficas em último lugar e não há forma de voltar atrás.",
+    en: "You give the challenge up as lost. The points you've already scored are kept, but you drop to last place and this can't be undone.",
+  },
+  chal_forfeit_hint: {
+    pt: "Depois de o desafio começar já não dá para sair da sala — só desistir, o que o dá como perdido.",
+    en: "Once the challenge has started you can't leave the room — only forfeit, which counts as a loss.",
+  },
+  chal_forfeit_too_early: {
+    pt: "Ainda não podes desistir — joga pelo menos uma partida, ou espera mais {minutes} min.",
+    en: "You can't forfeit yet — play at least one match, or wait another {minutes} min.",
+  },
+  chal_forfeit_cooldown: {
+    pt: "Desististe de um desafio há pouco — só podes voltar a desistir daqui a {minutes} min.",
+    en: "You forfeited a challenge recently — you can only forfeit again in {minutes} min.",
+  },
+  chal_you_forfeited: {
+    pt: "Desististe deste desafio. Podes acompanhar o resto, mas as tuas partidas já não contam.",
+    en: "You forfeited this challenge. You can still follow along, but your matches no longer count.",
+  },
+  chal_finished_saved_hint: {
+    pt: "Este desafio fica guardado no histórico — podes voltar a vê-lo a qualquer momento.",
+    en: "This challenge is saved to your history — you can revisit it any time.",
+  },
   chal_close_room: { pt: "Desfazer sala", en: "Close room" },
   chal_close_confirm_title: { pt: "Desfazer a sala?", en: "Close the room?" },
   chal_close_confirm_msg: {
@@ -110,13 +163,17 @@ const DICTIONARY = {
     en: "Kill/assist streak without dying",
   },
   chal_score_streak_value: {
-    pt: "+1 a cada {step} acima de {threshold} (por sequência)",
-    en: "+1 per {step} above {threshold} (per streak)",
+    pt: "cada um acima de {threshold} vale +1, e sobe de nível a cada {step}",
+    en: "each one past {threshold} is worth +1, going up a level every {step}",
+  },
+  chal_score_streak_example: {
+    pt: "Ex.: 5 abates seguidos sem morrer = 2+2+2+3+3 = 12 pontos.",
+    en: "e.g. 5 kills in a row without dying = 2+2+2+3+3 = 12 points.",
   },
   chal_score_death_streak: { pt: "Mortes seguidas sem abate/assist.", en: "Deaths in a row without a kill/assist" },
   chal_score_death_streak_value: {
-    pt: "-1 a cada {step} acima de {threshold} (por sequência)",
-    en: "-1 per {step} above {threshold} (per streak)",
+    pt: "mesma escalada, mas a tirar pontos",
+    en: "same escalation, but taking points away",
   },
   chal_score_damage: { pt: "Dano causado", en: "Damage dealt" },
   chal_score_healing: { pt: "Cura", en: "Healing" },
@@ -130,15 +187,17 @@ const DICTIONARY = {
   },
   chal_score_class_handicap: { pt: "Handicap por tipo de campeão", en: "Champion type handicap" },
   chal_score_class_handicap_note: {
-    pt: "O total da partida é multiplicado pela classe do campeão jogado — tanks/suportes tendem a somar mais pontos naturalmente (dano recebido, sobrevivência, assistências), por isso descem; assassinos e classes de dano baixo sobem. Campeão com duas classes (ex: Sett) usa a média das duas.",
-    en: "The match total is multiplied by the played champion's class — tanks/supports naturally rack up more points (damage taken, survival, assists), so they're scaled down; assassins and low-output classes are scaled up. A champion with two classes (e.g. Sett) uses the average of both.",
+    pt: "O total da partida é multiplicado pelo arquétipo do campeão jogado — valores afinados com as partidas reais registadas na app, para todos os arquétipos renderem em média o mesmo. Campeões fora da lista contam a ×1.00.",
+    en: "The match total is multiplied by the played champion's archetype — values tuned against the real matches recorded in the app, so every archetype scores the same on average. Champions outside the list count at ×1.00.",
   },
-  chal_class_assassin: { pt: "Assassino", en: "Assassin" },
-  chal_class_mage: { pt: "Mago", en: "Mage" },
-  chal_class_marksman: { pt: "Atirador", en: "Marksman" },
-  chal_class_support: { pt: "Suporte", en: "Support" },
-  chal_class_fighter: { pt: "Duelista", en: "Fighter" },
-  chal_class_tank: { pt: "Tanque", en: "Tank" },
+  chal_arch_tank: { pt: "Tanque", en: "Tank" },
+  chal_arch_engage: { pt: "Engage/Utilidade", en: "Engage/Utility" },
+  chal_arch_juggernaut: { pt: "Juggernaut", en: "Juggernaut" },
+  chal_arch_skirmisher: { pt: "Duelista", en: "Skirmisher" },
+  chal_arch_assassin: { pt: "Assassino", en: "Assassin" },
+  chal_arch_marksman: { pt: "Atirador", en: "Marksman" },
+  chal_arch_caster: { pt: "Mago", en: "Caster" },
+  chal_arch_enchanter: { pt: "Encantador", en: "Enchanter" },
   chal_recover_games: { pt: "Recuperar jogos em falta", en: "Recover missing games" },
   chal_recovering: { pt: "A recuperar…", en: "Recovering…" },
   chal_recover_hint: {
@@ -162,6 +221,13 @@ const DICTIONARY = {
   chal_assists: { pt: "Assist.", en: "Assists" },
   chal_avg_kda: { pt: "KDA médio", en: "Avg KDA" },
   chal_multikills: { pt: "Multikills", en: "Multikills" },
+  chal_stat_streaks: { pt: "Bónus de sequência", en: "Streak bonus" },
+  chal_stat_death_streaks: { pt: "Sequências de mortes", en: "Death streaks" },
+  chal_stat_streaks_hint: { pt: "Maior sequência: {best}", en: "Longest streak: {best}" },
+  chal_class_handicap_delta: {
+    pt: "Base {base} pts · handicap por classe {delta}",
+    en: "Base {base} pts · class handicap {delta}",
+  },
   chal_no_games_yet: {
     pt: "Ainda sem partidas neste desafio.",
     en: "No games in this challenge yet.",
@@ -178,6 +244,12 @@ const DICTIONARY = {
     en: "You haven't finished any challenges yet.",
   },
   chal_back: { pt: "Voltar", en: "Back" },
+  chal_scored_with: { pt: "Pontuado com:", en: "Scored with:" },
+  chal_scoring_legacy: {
+    pt: "regras antigas (sem handicap por classe)",
+    en: "legacy rules (no class handicap)",
+  },
+  chal_scoring_plain: { pt: "pontuação simples", en: "plain scoring" },
 
   // ================= COMPARAR =================
   compare_page_title: { pt: "Comparar jogadores", en: "Compare players" },

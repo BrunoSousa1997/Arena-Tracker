@@ -22,6 +22,7 @@ import {
   ArrowLeft,
   Info,
   MonitorCheck,
+  Flag,
 } from "lucide-react";
 import { useLanguage } from "../lib/i18n";
 import Loading from "../components/Loading";
@@ -46,9 +47,10 @@ import {
   getRoomChallengeGames,
   subscribeToChallengeGames,
   recoverMissingChallengeGames,
+  forfeitChallenge,
   getChallengeHistory,
 } from "../db/api";
-import { scorePlayer, SCORE_POINTS, CLASS_MULTIPLIER, DEFAULT_RULES, sumStreakBonus } from "../lib/challengeScoring";
+import { scorePlayer, SCORE_POINTS, ARCHETYPE_MULTIPLIER, DEFAULT_RULES, sumStreakBonus } from "../lib/challengeScoring";
 import { normalizeChampionId } from "../lib/champions";
 
 const PLAYER_OPTIONS = [2, 3, 4, 6, 8];
@@ -100,6 +102,36 @@ function isGameLive(row) {
   );
 }
 
+// Pontos com sinal explícito ("+4", "-2", "0") — usado nos tiles em que o
+// próprio valor JÁ é a pontuação (sequências), onde um número nu não deixa
+// claro se somou ou tirou.
+function signed(n) {
+  const r = Math.round(n);
+  return r > 0 ? `+${r}` : String(r);
+}
+
+function pointsColor(n) {
+  const r = Math.round(n);
+  return r < 0 ? "#e2555f" : r > 0 ? "#58c778" : "var(--text-muted)";
+}
+
+// Traduz jogadores da sala (riot_game_name/riot_tag_line) para o formato que
+// sharesLobbyWith espera ({ name }) — ver challengeScoring.js. Devolve DUAS
+// entradas por jogador, com e sem tag: em "participants" o nome tanto pode
+// vir como "Nome#TAG" como só "Nome" (ver findSelfEntry em db/matches.js),
+// e a comparação lá é exata. Sem ambas as formas, a regra "só jogos sem
+// adversários do desafio" falhava em silêncio consoante o formato gravado.
+function toOpponentIdentities(roomPlayers) {
+  return roomPlayers.flatMap((o) => {
+    const entries = [];
+    if (o.riot_game_name && o.riot_tag_line) {
+      entries.push({ name: `${o.riot_game_name}#${o.riot_tag_line}` });
+    }
+    if (o.riot_game_name) entries.push({ name: o.riot_game_name });
+    return entries;
+  });
+}
+
 // ================= AVISO: MANTER A APP ABERTA =================
 // A pontuação dos challenges depende inteiramente da Live Client Data (ver
 // electron/liveGame.js) — sem a app aberta durante a partida não há poll
@@ -130,25 +162,25 @@ function ScoringRulesInfo() {
   const streakSuffix = t("chal_score_streak_value")
     .replace("{step}", SCORE_POINTS.streakStep)
     .replace("{threshold}", SCORE_POINTS.streakThreshold);
-  const deathStreakSuffix = t("chal_score_death_streak_value")
-    .replace("{step}", SCORE_POINTS.streakStep)
-    .replace("{threshold}", SCORE_POINTS.streakThreshold);
+  const deathStreakSuffix = t("chal_score_death_streak_value");
   const per = (amount) => t("chal_score_per_points").replace("{amount}", amount.toLocaleString());
 
   const classLabelKeys = {
-    Assassin: "chal_class_assassin",
-    Mage: "chal_class_mage",
-    Marksman: "chal_class_marksman",
-    Support: "chal_class_support",
-    Fighter: "chal_class_fighter",
-    Tank: "chal_class_tank",
+    Engage: "chal_arch_engage",
+    Marksman: "chal_arch_marksman",
+    Juggernaut: "chal_arch_juggernaut",
+    Enchanter: "chal_arch_enchanter",
+    Assassin: "chal_arch_assassin",
+    Skirmisher: "chal_arch_skirmisher",
+    Caster: "chal_arch_caster",
+    Tank: "chal_arch_tank",
   };
   // Ordenado do multiplicador mais alto para o mais baixo — lê-se como uma
   // escala (quem sobe primeiro, quem desce por último), não por ordem
   // alfabética arbitrária.
-  const classRows = Object.entries(CLASS_MULTIPLIER)
+  const classRows = Object.entries(ARCHETYPE_MULTIPLIER)
     .sort((a, b) => b[1] - a[1])
-    .map(([tag, mult]) => ({ label: t(classLabelKeys[tag]) || tag, value: `×${mult.toFixed(2)}` }));
+    .map(([arch, mult]) => ({ label: t(classLabelKeys[arch]) || arch, value: `×${mult.toFixed(2)}` }));
 
   const rows = [
     { label: t("chal_score_kill"), value: `+${SCORE_POINTS.kill}` },
@@ -182,6 +214,8 @@ function ScoringRulesInfo() {
               <span style={styles.scoringInfoValue}>{r.value}</span>
             </div>
           ))}
+
+          <div style={styles.scoringInfoNote}>{t("chal_score_streak_example")}</div>
 
           <div style={styles.scoringInfoSubheader}>{t("chal_score_class_handicap")}</div>
           {classRows.map((r) => (
@@ -512,6 +546,21 @@ function HistoryEntry({ room, activeAccount, t, delay = 0 }) {
   const results = Array.isArray(room.results) ? room.results : [];
   const won = room.winner_username === activeAccount;
 
+  // Com que regras é que estes totais foram calculados (ver scoring_rules em
+  // finishRoom). Desafios terminados antes desta coluna existir não têm o
+  // dado — e como o handicap por classe esteve desligado durante esse
+  // período, dizemos isso em vez de fingir que são comparáveis com os novos.
+  const rules = room.scoring_rules;
+  const scoredWith = !rules
+    ? t("chal_scoring_legacy")
+    : [
+        rules.classHandicap ? t("chal_rule_class_handicap") : null,
+        rules.onlyKda ? t("chal_rule_only_kda") : null,
+        rules.onlySoloGames ? t("chal_rule_only_solo") : null,
+      ]
+        .filter(Boolean)
+        .join(" · ") || t("chal_scoring_plain");
+
   return (
     <div
       className="riseIn"
@@ -536,14 +585,26 @@ function HistoryEntry({ room, activeAccount, t, delay = 0 }) {
           .slice()
           .sort((a, b) => a.rank - b.rank)
           .map((r) => (
-            <div key={r.username} style={styles.historyResultRow}>
+            <div
+              key={r.username}
+              style={{ ...styles.historyResultRow, ...(r.forfeited ? { opacity: 0.6 } : null) }}
+            >
               <RankBadge rank={r.rank - 1} />
               <div style={styles.playerName}>
                 {r.riot_game_name && r.riot_tag_line ? `${r.riot_game_name}#${r.riot_tag_line}` : r.username}
               </div>
+              {r.forfeited && (
+                <span style={styles.forfeitTag}>
+                  <Flag size={10} strokeWidth={2.5} /> {t("chal_forfeited")}
+                </span>
+              )}
               <div style={styles.combatGamePts}>{r.total} pts</div>
             </div>
           ))}
+      </div>
+
+      <div style={styles.fieldHint}>
+        {t("chal_scored_with")} {scoredWith}
       </div>
     </div>
   );
@@ -574,6 +635,19 @@ function Stepper({ value, onChange, min, max }) {
   );
 }
 
+// ================= INTERRUPTOR DE UMA REGRA (regras específicas) =================
+function RuleToggle({ checked, onChange, label, hint }) {
+  return (
+    <label style={styles.ruleToggleRow}>
+      <input type="checkbox" checked={checked} onChange={onChange} style={styles.ruleToggleBox} />
+      <span>
+        <span style={styles.ruleToggleLabel}>{label}</span>
+        <span style={styles.ruleToggleHint}>{hint}</span>
+      </span>
+    </label>
+  );
+}
+
 // ================= FORMULÁRIO DE CRIAÇÃO =================
 function CreateForm({ hostUsername, identity, onCancel, onCreated }) {
   const { t } = useLanguage();
@@ -581,15 +655,20 @@ function CreateForm({ hostUsername, identity, onCancel, onCreated }) {
   const [maxPlayers, setMaxPlayers] = useState(2);
   const [targetGames, setTargetGames] = useState(5);
   const [rules, setRules] = useState("basic");
+  // Afinações das regras "específicas" — partem sempre das por omissão (ver
+  // DEFAULT_RULES) e só são guardadas se "custom" estiver escolhido.
+  const [rulesConfig, setRulesConfig] = useState({ ...DEFAULT_RULES });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+
+  const toggleRule = (key) => setRulesConfig((prev) => ({ ...prev, [key]: !prev[key] }));
 
   const submit = async () => {
     if (!name.trim()) return;
     setBusy(true);
     setError("");
 
-    const res = await createRoom({ name, hostUsername, maxPlayers, targetGames, rules, identity });
+    const res = await createRoom({ name, hostUsername, maxPlayers, targetGames, rules, rulesConfig, identity });
     setBusy(false);
     if (!res.success) return setError(res.error);
     onCreated(res.room);
@@ -650,6 +729,31 @@ function CreateForm({ hostUsername, identity, onCancel, onCreated }) {
         <div style={styles.fieldHint}>
           {rules === "basic" ? t("chal_rules_basic_desc") : t("chal_rules_custom_desc")}
         </div>
+
+        {/* As afinações só aparecem (e só são guardadas) em "específicas" —
+            em "básicas" valem sempre as regras por omissão. */}
+        {rules === "custom" && (
+          <div style={styles.rulesConfigBox}>
+            <RuleToggle
+              checked={rulesConfig.classHandicap}
+              onChange={() => toggleRule("classHandicap")}
+              label={t("chal_rule_class_handicap")}
+              hint={t("chal_rule_class_handicap_hint")}
+            />
+            <RuleToggle
+              checked={rulesConfig.onlyKda}
+              onChange={() => toggleRule("onlyKda")}
+              label={t("chal_rule_only_kda")}
+              hint={t("chal_rule_only_kda_hint")}
+            />
+            <RuleToggle
+              checked={rulesConfig.onlySoloGames}
+              onChange={() => toggleRule("onlySoloGames")}
+              label={t("chal_rule_only_solo")}
+              hint={t("chal_rule_only_solo_hint")}
+            />
+          </div>
+        )}
       </div>
 
       {error && <div style={styles.error}>{error}</div>}
@@ -903,6 +1007,10 @@ function ScoreBoard({ room, players, activeAccount, onLeave, champions = [], DRA
   // recoverMissingChallengeGames em db/rooms.js). null = nunca corrida.
   const [recovering, setRecovering] = useState(false);
   const [recoverMsg, setRecoverMsg] = useState(null);
+  const [confirmForfeit, setConfirmForfeit] = useState(false);
+  const [forfeitMsg, setForfeitMsg] = useState(null);
+  const [confirmEndNow, setConfirmEndNow] = useState(false);
+  const isHost = room.host_username === activeAccount;
 
   const targetGames = room?.target_games || MAX_GAMES;
   const sinceISO = room?.started_at || new Date().toISOString();
@@ -949,6 +1057,26 @@ function ScoreBoard({ room, players, activeAccount, onLeave, champions = [], DRA
     if (res.recovered) await fetchAll();
   };
 
+  const handleForfeit = async () => {
+    setConfirmForfeit(false);
+    const res = await forfeitChallenge(room.id, activeAccount);
+
+    // Recusado por uma das travas contra farmagem de vitórias por
+    // desistência (ver FORFEIT_COOLDOWN_MS / FORFEIT_MIN_WAIT_MS em
+    // db/rooms.js) — diz sempre quanto falta, em vez de falhar em silêncio.
+    if (!res.success && (res.error === "forfeit-cooldown" || res.error === "forfeit-too-early")) {
+      const minutes = Math.max(1, Math.ceil(res.retryInMs / 60000));
+      const key = res.error === "forfeit-cooldown" ? "chal_forfeit_cooldown" : "chal_forfeit_too_early";
+      setForfeitMsg(t(key).replace("{minutes}", minutes));
+      return;
+    }
+    // Caso normal: nada a fazer no ecrã — a subscrição à sala (ver
+    // subscribeToRoom em Challenges.jsx) relê os jogadores e o placar
+    // reflete a desistência sozinho, aqui e nos outros clientes.
+  };
+
+  const meForfeited = !!players.find((p) => p.username === activeAccount)?.forfeited;
+
   // Qualquer mudança nos jogos desta sala (nova partida a começar, KDA a
   // atualizar, partida a terminar ou a ganhar dano/cura) — refaz o placar
   // sem precisar de clicar em nada, é o que torna isto "ao vivo". Já não é
@@ -975,11 +1103,27 @@ function ScoreBoard({ room, players, activeAccount, onLeave, champions = [], DRA
 
   const champName = (id) => champions.find((c) => c.id === normalizeChampionId(id, champions))?.name || id;
 
+  // Regras a valer neste desafio: "basic" usa as por omissão; "custom" parte
+  // delas e aplica por cima o que ficou guardado em rules_config na criação
+  // da sala (ver CreateForm). Nunca se confia só no rules_config — um campo
+  // em falta cai sempre para o valor por omissão.
+  const activeRules =
+    room.rules === "custom" && room.rules_config
+      ? { ...DEFAULT_RULES, ...room.rules_config }
+      : DEFAULT_RULES;
+
   const scored = {};
   for (const p of players) {
     const ms = finishedByUsername[p.username] || [];
     const base = ms.length
-      ? scorePlayer(ms, { champions, rules: DEFAULT_RULES })
+      ? scorePlayer(ms, {
+          champions,
+          rules: activeRules,
+          // Os outros jogadores do desafio — só usado pela regra
+          // "onlySoloGames", que exclui partidas onde dois deles calharam na
+          // mesma Arena (ver sharesLobbyWith em challengeScoring.js).
+          opponents: toOpponentIdentities(players.filter((o) => o.username !== p.username)),
+        })
       : { total: 0, games: [], countedGames: 0 };
 
     // Bónus da partida a decorrer — kills/deaths/assists + streaks (mesma
@@ -1002,9 +1146,14 @@ function ScoreBoard({ room, players, activeAccount, onLeave, champions = [], DRA
     scored[p.username] = { ...base, total: base.total + liveBonus };
   }
 
-  const sortedPlayers = [...players].sort(
-    (a, b) => (scored[b.username]?.total || 0) - (scored[a.username]?.total || 0)
-  );
+  // Quem desistiu vai sempre para o fim da tabela, por muitos pontos que
+  // tenha feito antes — desistir dá o desafio como perdido (ver
+  // forfeitChallenge). Entre si, e entre os que continuam, ordena-se
+  // normalmente por pontos.
+  const sortedPlayers = [...players].sort((a, b) => {
+    if (!!a.forfeited !== !!b.forfeited) return a.forfeited ? 1 : -1;
+    return (scored[b.username]?.total || 0) - (scored[a.username]?.total || 0);
+  });
 
   // Cor por jogador — atribuída pela ordem de entrada na sala ("players", já
   // vem ordenado por joined_at), NUNCA pela posição no placar: se fosse por
@@ -1018,37 +1167,76 @@ function ScoreBoard({ room, players, activeAccount, onLeave, champions = [], DRA
   // "Posição dourada" (medalhas, brilho, banner de vencedor) só faz sentido
   // depois de o desafio acabar de vez — enquanto decorre, ninguém "já
   // ganhou", por isso os jogadores distinguem-se só pela cor.
+  //
+  // Quem desistiu não conta para o desafio ficar à espera: ou terminam os
+  // que ficaram (todos com os jogos feitos), ou sobra um só jogador em prova
+  // (os outros desistiram todos) e o desafio acaba aí.
+  const activePlayers = sortedPlayers.filter((p) => !p.forfeited);
   const challengeFinished =
     sortedPlayers.length > 0 &&
-    sortedPlayers.every((p) => (scored[p.username]?.games?.length || 0) >= targetGames);
+    (activePlayers.length === 0 ||
+      (activePlayers.length === 1 && sortedPlayers.length > 1) ||
+      activePlayers.every((p) => (scored[p.username]?.games?.length || 0) >= targetGames));
 
-  const leader = sortedPlayers[0];
+  // O vencedor é sempre alguém que NÃO desistiu (sortedPlayers já os põe no
+  // fim) — se desistiram todos, o desafio acaba sem vencedor.
+  const leader = activePlayers[0] || null;
 
-  // Assim que TODOS os jogadores atingem o nº de jogos alvo, o anfitrião
-  // persiste o fim do desafio — status "finished" + a fotografia do placar
-  // final (ver finishRoom). Mesma convenção do auto-start: só o anfitrião
-  // escreve, todos os outros só leem via subscrição à sala. A ref evita
-  // escrever duas vezes se este efeito voltar a correr antes de "room.status"
-  // chegar via tempo real.
-  const finishedRef = useRef(false);
-  useEffect(() => {
-    if (room.status !== "running" || !challengeFinished) return;
-    const isHost = room.host_username === activeAccount;
-    if (!isHost || finishedRef.current) return;
-    finishedRef.current = true;
+  // ...e que tenha jogado ALGUMA coisa. Sem isto, ficar sozinho em prova
+  // (todos os outros desistiram) dava uma vitória a quem não jogou nada —
+  // era a última porta aberta para farmar a conquista de vitórias em
+  // desafios (ver getChallengeWinCount) sem sequer entrar num jogo.
+  const winner = leader && (scored[leader.username]?.games?.length || 0) > 0 ? leader : null;
 
+  // Fotografia final do placar + estado "finished" (ver finishRoom). Só o
+  // anfitrião escreve, todos os outros só leem via subscrição à sala (mesma
+  // convenção do auto-start). Usada nos dois caminhos: automático (todos
+  // acabaram os jogos) e manual (o anfitrião fecha um desafio bloqueado).
+  const persistFinish = useCallback(() => {
     const results = sortedPlayers.map((p, idx) => ({
       username: p.username,
       riot_game_name: p.riot_game_name,
       riot_tag_line: p.riot_tag_line,
       total: Math.round(scored[p.username]?.total || 0),
       games_played: scored[p.username]?.games?.length || 0,
+      forfeited: !!p.forfeited,
       rank: idx + 1,
     }));
 
-    finishRoom(room.id, { winnerUsername: sortedPlayers[0]?.username, results });
+    return finishRoom(room.id, {
+      winnerUsername: winner?.username || null,
+      results,
+      // Regras com que estes totais foram calculados — sem isto, o histórico
+      // não é interpretável depois de as regras mudarem (aconteceu: o
+      // handicap por classe esteve desligado durante um tempo, por isso os
+      // desafios antigos não são comparáveis com os novos).
+      scoringRules: activeRules,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sortedPlayers, scored, winner, room.id, activeRules]);
+
+  // Assim que TODOS os jogadores atingem o nº de jogos alvo, o anfitrião
+  // persiste o fim do desafio. A ref evita escrever duas vezes se este
+  // efeito voltar a correr antes de "room.status" chegar via tempo real.
+  const finishedRef = useRef(false);
+  useEffect(() => {
+    if (room.status !== "running" || !challengeFinished) return;
+    const isHost = room.host_username === activeAccount;
+    if (!isHost || finishedRef.current) return;
+    finishedRef.current = true;
+    persistFinish();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [challengeFinished, room.status, room.id, room.host_username, activeAccount]);
+
+  // Fecho manual pelo anfitrião — a saída para um desafio em que alguém
+  // desapareceu e nunca desistiu. Sem isto a sala ficava "running" para
+  // sempre e, como getMyActiveRoom procura por lobby/running, arrastava
+  // toda a gente de volta para ela sem poderem criar outro desafio.
+  const handleEndNow = async () => {
+    setConfirmEndNow(false);
+    finishedRef.current = true;
+    await persistFinish();
+  };
 
   // Avisa a conquista de vitórias em desafios assim que a PRÓPRIA conta vê a
   // sala já persistida como "finished" com "winner_username" a apontar para
@@ -1129,6 +1317,7 @@ function ScoreBoard({ room, players, activeAccount, onLeave, champions = [], DRA
                   games={scored[p.username]?.games || []}
                   total={scored[p.username]?.total || 0}
                   liveGame={liveByUsername[p.username]}
+                  rules={activeRules}
                   targetGames={targetGames}
                   DRAGON={DRAGON}
                   champions={champions}
@@ -1147,27 +1336,88 @@ function ScoreBoard({ room, players, activeAccount, onLeave, champions = [], DRA
         <ScoringRulesInfo />
 
         <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
-          <button onClick={onLeave} style={styles.ghostBtn}>
-            {t("chal_leave")}
-          </button>
-          {!challengeFinished && (
-            <button onClick={handleRecover} disabled={recovering} style={styles.ghostBtn}>
-              {recovering ? (
-                <>
-                  <Loader2 size={13} strokeWidth={2.5} style={styles.spinIcon} /> {t("chal_recovering")}
-                </>
-              ) : (
-                <>
-                  <History size={13} strokeWidth={2.25} /> {t("chal_recover_games")}
-                </>
-              )}
+          {room.status === "finished" ? (
+            // Desafio terminado: "Voltar aos desafios" NÃO faz leaveRoom (ver
+            // handleLeave) — a sala fica no histórico, só se sai do ecrã.
+            // Botão primário e com nome próprio, para não se confundir com o
+            // "Sair da sala" (que, durante o desafio, apaga o lugar na sala).
+            <button
+              onClick={onLeave}
+              style={{ ...styles.primaryBtn, display: "inline-flex", alignItems: "center", gap: 6 }}
+            >
+              <ArrowLeft size={14} strokeWidth={2.5} /> {t("chal_back_to_menu")}
             </button>
+          ) : (
+            <>
+              {/* Depois de o desafio arrancar já não há "sair da sala" —
+                  isso apagaria o lugar e o desafio do histórico. A única
+                  saída é desistir, que o dá como perdido (ver
+                  forfeitChallenge). Quem já desistiu não volta a desistir. */}
+              {!meForfeited && (
+                <button onClick={() => setConfirmForfeit(true)} style={styles.dangerBtn}>
+                  <Flag size={13} strokeWidth={2.25} /> {t("chal_forfeit")}
+                </button>
+              )}
+              <button onClick={handleRecover} disabled={recovering} style={styles.ghostBtn}>
+                {recovering ? (
+                  <>
+                    <Loader2 size={13} strokeWidth={2.5} style={styles.spinIcon} /> {t("chal_recovering")}
+                  </>
+                ) : (
+                  <>
+                    <History size={13} strokeWidth={2.25} /> {t("chal_recover_games")}
+                  </>
+                )}
+              </button>
+              {/* Saída de emergência do anfitrião: sem isto, um desafio em
+                  que alguém desapareceu sem desistir ficava "running" para
+                  sempre e prendia toda a gente lá dentro (ver
+                  getMyActiveRoom, que procura por lobby/running). */}
+              {isHost && (
+                <button onClick={() => setConfirmEndNow(true)} style={styles.ghostBtn}>
+                  <Trophy size={13} strokeWidth={2.25} /> {t("chal_end_now")}
+                </button>
+              )}
+            </>
           )}
         </div>
 
-        {!challengeFinished && <div style={styles.fieldHint}>{t("chal_recover_hint")}</div>}
+        {room.status === "finished" ? (
+          <div style={styles.fieldHint}>{t("chal_finished_saved_hint")}</div>
+        ) : meForfeited ? (
+          <div style={styles.fieldHint}>{t("chal_you_forfeited")}</div>
+        ) : (
+          <>
+            <div style={styles.fieldHint}>{t("chal_recover_hint")}</div>
+            <div style={styles.fieldHint}>{t("chal_forfeit_hint")}</div>
+            {isHost && <div style={styles.fieldHint}>{t("chal_end_now_hint")}</div>}
+          </>
+        )}
         {recoverMsg && <div style={styles.recoverMsg}>{recoverMsg}</div>}
+        {forfeitMsg && <div style={styles.error}>{forfeitMsg}</div>}
       </div>
+
+      {confirmForfeit && (
+        <ConfirmDialog
+          title={t("chal_forfeit_confirm_title")}
+          message={t("chal_forfeit_confirm_msg")}
+          confirmLabel={t("chal_forfeit")}
+          danger
+          onConfirm={handleForfeit}
+          onCancel={() => setConfirmForfeit(false)}
+        />
+      )}
+
+      {confirmEndNow && (
+        <ConfirmDialog
+          title={t("chal_end_now_confirm_title")}
+          message={t("chal_end_now_confirm_msg")}
+          confirmLabel={t("chal_end_now")}
+          danger
+          onConfirm={handleEndNow}
+          onCancel={() => setConfirmEndNow(false)}
+        />
+      )}
     </>
   );
 }
@@ -1183,6 +1433,7 @@ function PlayerCombatCard({
   games,
   total,
   liveGame,
+  rules,
   targetGames,
   DRAGON,
   champions,
@@ -1198,32 +1449,125 @@ function PlayerCombatCard({
 
   const isLive = !finished && isGameLive(liveGame);
 
-  const agg = games.reduce(
-    (acc, g) => {
-      const m = g.match;
-      acc.kills += m.kills || 0;
-      acc.deaths += m.deaths || 0;
-      acc.assists += m.assists || 0;
-      acc.damageDealt += m.damage_dealt || 0;
-      acc.damageTaken += m.damage_taken || 0;
-      acc.healing += m.healing || 0;
-      acc.multikills += (m.double_kills || 0) + (m.triple_kills || 0);
-      return acc;
-    },
-    { kills: 0, deaths: 0, assists: 0, damageDealt: 0, damageTaken: 0, healing: 0, multikills: 0 }
-  );
+  // Valor bruto E pontos que esse valor deu, por categoria. Os pontos vêm do
+  // próprio motor (score.parts, ver scoreGame) em vez de serem recalculados
+  // aqui — assim o que se mostra no placar nunca pode divergir do que foi
+  // realmente somado.
+  const agg = { kills: 0, deaths: 0, assists: 0, damageDealt: 0, damageTaken: 0, healing: 0, multikills: 0 };
+  const pts = {
+    kills: 0, deaths: 0, assists: 0,
+    killStreak: 0, assistStreak: 0, deathStreak: 0,
+    damage: 0, healing: 0, taken: 0, multikills: 0,
+  };
+  // Maior sequência de cada tipo — é o "valor" que faz sentido mostrar ao
+  // lado do bónus (o bónus sozinho não diz de onde veio).
+  const best = { killStreak: 0, assistStreak: 0, deathStreak: 0 };
+  let baseTotal = 0;
 
-  // Soma o KDA da partida a decorrer por cima das já terminadas — dano/cura/
-  // multikills ficam de fora porque a Live Client Data não os expõe ao vivo
-  // (só chegam depois de a partida terminar e sincronizar, ver
-  // enrichChallengeGame).
+  const trackBest = (runs, key) => {
+    for (const run of Array.isArray(runs) ? runs : []) best[key] = Math.max(best[key], run || 0);
+  };
+
+  for (const g of games) {
+    const m = g.match;
+    const p = g.score.parts;
+    baseTotal += g.score.base;
+
+    agg.kills += m.kills || 0;
+    agg.deaths += m.deaths || 0;
+    agg.assists += m.assists || 0;
+    agg.damageDealt += m.damage_dealt || 0;
+    agg.damageTaken += m.damage_taken || 0;
+    agg.healing += m.healing || 0;
+    agg.multikills += (m.double_kills || 0) + (m.triple_kills || 0);
+
+    pts.kills += p.kills;
+    pts.deaths += p.deaths;
+    pts.assists += p.assists;
+    pts.killStreak += p.killStreak;
+    pts.assistStreak += p.assistStreak;
+    pts.deathStreak += p.deathStreak;
+    pts.damage += p.damage;
+    pts.healing += p.healing;
+    pts.taken += p.taken;
+    pts.multikills += p.doubles + p.triples;
+
+    trackBest(m.kill_streaks, "killStreak");
+    trackBest(m.assist_streaks, "assistStreak");
+    trackBest(m.death_streaks, "deathStreak");
+  }
+
+  // A partida a decorrer entra com o que já dá para saber ao vivo (KDA e
+  // sequências) — dano/cura/multikills só chegam depois de terminar e
+  // sincronizar (ver enrichChallengeGame).
   if (isLive) {
     agg.kills += liveGame.kills || 0;
     agg.deaths += liveGame.deaths || 0;
     agg.assists += liveGame.assists || 0;
+
+    pts.kills += (liveGame.kills || 0) * SCORE_POINTS.kill;
+    pts.deaths += (liveGame.deaths || 0) * SCORE_POINTS.death;
+    pts.assists += (liveGame.assists || 0) * SCORE_POINTS.assist;
+    pts.killStreak += sumStreakBonus(liveGame.kill_streaks);
+    pts.assistStreak += sumStreakBonus(liveGame.assist_streaks);
+    pts.deathStreak -= sumStreakBonus(liveGame.death_streaks);
+
+    trackBest(liveGame.kill_streaks, "killStreak");
+    trackBest(liveGame.assist_streaks, "assistStreak");
+    trackBest(liveGame.death_streaks, "deathStreak");
   }
 
   const kda = agg.deaths > 0 ? (agg.kills + agg.assists) / agg.deaths : agg.kills + agg.assists;
+
+  // Só se mostram as categorias que REALMENTE pontuam neste desafio (ver
+  // activeRules) — com "só KDA", por exemplo, dano/cura/multikills valem
+  // zero e não têm nada que ocupar espaço no placar.
+  const scoresExtras = !rules?.onlyKda;
+  const tiles = [
+    { icon: Swords, label: t("chal_kills"), value: agg.kills, pts: pts.kills },
+    { icon: Skull, label: t("chal_deaths"), value: agg.deaths, pts: pts.deaths },
+    { icon: Handshake, label: t("chal_assists"), value: agg.assists, pts: pts.assists },
+    // Sequências: o que interessa é o BÓNUS que renderam (a escalada é por
+    // abate, ver streakBonus) — a maior sequência sozinha não diz quantos
+    // pontos deu. Vai como valor principal, já com sinal e cor, por isso
+    // sem parênteses a repetir o mesmo número.
+    {
+      icon: Flame,
+      label: t("chal_stat_streaks"),
+      value: signed(pts.killStreak + pts.assistStreak),
+      valueColor: pointsColor(pts.killStreak + pts.assistStreak),
+      hint: t("chal_stat_streaks_hint").replace("{best}", Math.max(best.killStreak, best.assistStreak)),
+      pts: null,
+    },
+    {
+      icon: Skull,
+      label: t("chal_stat_death_streaks"),
+      value: signed(pts.deathStreak),
+      valueColor: pointsColor(pts.deathStreak),
+      hint: t("chal_stat_streaks_hint").replace("{best}", best.deathStreak),
+      pts: null,
+    },
+    scoresExtras && {
+      icon: Flame, label: t("stat_damage_dealt"), value: agg.damageDealt.toLocaleString(), pts: pts.damage,
+    },
+    scoresExtras && {
+      icon: Shield, label: t("stat_damage_taken"), value: agg.damageTaken.toLocaleString(), pts: pts.taken,
+    },
+    scoresExtras && {
+      icon: HeartPulse, label: t("stat_healing"), value: agg.healing.toLocaleString(), pts: pts.healing,
+    },
+    scoresExtras && {
+      icon: Zap, label: t("chal_multikills"), value: agg.multikills, pts: pts.multikills,
+    },
+    // KDA não pontua — é só leitura rápida, por isso vai sem pontos.
+    { icon: Target, label: t("chal_avg_kda"), value: kda.toFixed(2), pts: null },
+  ].filter(Boolean);
+
+  // Os pontos por categoria somam a BASE; o total mostrado no card leva ainda
+  // o handicap por classe (que varia de partida para partida, conforme o
+  // campeão). Sem dizer isto, as parcelas não batem certo com o total e
+  // parece erro.
+  const handicapDelta = Math.round(total) - Math.round(baseTotal);
 
   const emptyGames = Math.max(0, targetGames - games.length);
   const progressPct = Math.min(100, (games.length / targetGames) * 100);
@@ -1233,9 +1577,12 @@ function PlayerCombatCard({
       className="historyCard riseIn"
       style={{
         ...styles.combatCard,
-        borderLeft: `3px solid ${color}`,
+        borderLeft: `3px solid ${player.forfeited ? "#e2555f" : color}`,
         ...(isSelf ? styles.combatCardSelf : null),
-        ...(finished && rank === 0 ? styles.combatCardLeader : null),
+        ...(finished && rank === 0 && !player.forfeited ? styles.combatCardLeader : null),
+        // Quem desistiu fica visivelmente "fora de prova" — os pontos ficam
+        // lá (nunca se retiram), só deixam de estar em disputa.
+        ...(player.forfeited ? { opacity: 0.6 } : null),
         animationDelay: `${Math.min(rank, 8) * 30}ms`,
       }}
     >
@@ -1247,6 +1594,11 @@ function PlayerCombatCard({
             {isHost && (
               <span style={styles.hostTag}>
                 <Crown size={10} strokeWidth={2.5} /> {t("chal_host")}
+              </span>
+            )}
+            {player.forfeited && (
+              <span style={styles.forfeitTag}>
+                <Flag size={10} strokeWidth={2.5} /> {t("chal_forfeited")}
               </span>
             )}
           </div>
@@ -1284,15 +1636,28 @@ function PlayerCombatCard({
       )}
 
       <div style={styles.combatStatsGrid}>
-        <StatTile icon={Swords} label={t("chal_kills")} value={agg.kills} />
-        <StatTile icon={Skull} label={t("chal_deaths")} value={agg.deaths} />
-        <StatTile icon={Handshake} label={t("chal_assists")} value={agg.assists} />
-        <StatTile icon={Target} label={t("chal_avg_kda")} value={kda.toFixed(2)} />
-        <StatTile icon={Flame} label={t("stat_damage_dealt")} value={agg.damageDealt.toLocaleString()} />
-        <StatTile icon={Shield} label={t("stat_damage_taken")} value={agg.damageTaken.toLocaleString()} />
-        <StatTile icon={HeartPulse} label={t("stat_healing")} value={agg.healing.toLocaleString()} />
-        <StatTile icon={Zap} label={t("chal_multikills")} value={agg.multikills} />
+        {tiles.map((tile) => (
+          <StatTile
+            key={tile.label}
+            icon={tile.icon}
+            label={tile.label}
+            value={tile.value}
+            pts={tile.pts}
+            valueColor={tile.valueColor}
+            hint={tile.hint}
+          />
+        ))}
       </div>
+
+      {/* As parcelas acima somam a base; o total no topo do card leva ainda o
+          handicap por classe. Só se mostra quando faz mesmo diferença. */}
+      {handicapDelta !== 0 && (
+        <div style={styles.handicapNote}>
+          {t("chal_class_handicap_delta")
+            .replace("{base}", Math.round(baseTotal))
+            .replace("{delta}", handicapDelta > 0 ? `+${handicapDelta}` : handicapDelta)}
+        </div>
+      )}
 
       <div style={styles.combatGamesList}>
         {games.length === 0 && <div style={styles.combatEmptyNote}>{t("chal_no_games_yet")}</div>}
@@ -1365,11 +1730,23 @@ function PlayerCombatCard({
 }
 
 // ================= PEQUENA PEÇA DE STAT (grid do card de combate) =================
-function StatTile({ icon: Icon, label, value }) {
+// "pts" = pontos que este valor rendeu no desafio, mostrados entre
+// parênteses. null para categorias em que isso não faz sentido: as que não
+// pontuam (KDA médio) e as em que o próprio valor JÁ é a pontuação
+// (sequências, que usam "valueColor" para colorir o valor em si).
+function StatTile({ icon: Icon, label, value, pts, valueColor, hint }) {
+  const rounded = pts == null ? null : Math.round(pts);
   return (
-    <div style={styles.statTile}>
+    <div style={styles.statTile} title={hint || undefined}>
       <Icon size={13} strokeWidth={2.25} style={styles.statTileIcon} />
-      <div style={styles.statTileValue}>{value}</div>
+      <div style={{ ...styles.statTileValue, ...(valueColor ? { color: valueColor } : null) }}>
+        {value}
+        {rounded != null && (
+          <span style={{ ...styles.statTilePts, color: pointsColor(rounded) }}>
+            ({signed(rounded)})
+          </span>
+        )}
+      </div>
       <div style={styles.statTileLabel}>{label}</div>
     </div>
   );
@@ -1678,6 +2055,72 @@ const styles = {
     cursor: "pointer",
     fontSize: 11.5,
     fontWeight: 700,
+  },
+
+  rulesConfigBox: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+    marginTop: 10,
+    padding: "12px 14px",
+    borderRadius: "var(--radius-lg)",
+    background: "rgba(var(--panel-deep-rgb),0.7)",
+    border: "1px solid rgba(var(--border-rgb),0.4)",
+  },
+
+  ruleToggleRow: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: 9,
+    cursor: "pointer",
+  },
+
+  ruleToggleBox: {
+    marginTop: 2,
+    accentColor: "var(--accent-text)",
+    cursor: "pointer",
+    flexShrink: 0,
+  },
+
+  ruleToggleLabel: {
+    display: "block",
+    fontSize: 12,
+    fontWeight: 700,
+    color: "var(--text-body)",
+  },
+
+  ruleToggleHint: {
+    display: "block",
+    fontSize: 10.5,
+    color: "var(--text-muted)",
+    lineHeight: 1.35,
+    marginTop: 2,
+  },
+
+  dangerBtn: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    padding: "10px 14px",
+    borderRadius: "var(--radius-lg)",
+    border: "1px solid rgba(226,85,95,0.4)",
+    background: "rgba(226,85,95,0.1)",
+    color: "#e2555f",
+    cursor: "pointer",
+    fontSize: 12.5,
+    fontWeight: 700,
+    whiteSpace: "nowrap",
+  },
+
+  forfeitTag: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 4,
+    fontSize: 9.5,
+    fontWeight: 700,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+    color: "#e2555f",
   },
 
   ghostBtnSmall: {
@@ -2127,6 +2570,19 @@ const styles = {
     fontSize: 13,
     fontWeight: 800,
     color: "var(--text-body)",
+  },
+
+  statTilePts: {
+    marginLeft: 4,
+    fontSize: 10,
+    fontWeight: 700,
+  },
+
+  handicapNote: {
+    fontSize: 10,
+    color: "var(--text-muted)",
+    textAlign: "center",
+    marginTop: 8,
   },
 
   statTileLabel: {

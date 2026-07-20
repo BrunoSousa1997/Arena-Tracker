@@ -14,7 +14,9 @@
     "dist": "npm run build && electron-builder",
     "electron": ".\\node_modules\\electron\\dist\\electron.exe electron.js",
     "start": "concurrently \"npm run dev\" \"npm run electron\"",
-    "release": "npm run build && electron-builder --publish always"
+    "release": "npm run build && electron-builder --publish always",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.0",
@@ -38,6 +40,7 @@
     "tailwindcss": "^4.3.2",
     "vite": "^8.0.12",
     "vite-plugin-svgr": "^5.2.0",
+    "vitest": "^4.1.10",
     "wait-on": "^9.0.10"
   },
   "build": {

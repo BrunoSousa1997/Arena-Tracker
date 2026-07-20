@@ -241,6 +241,13 @@ alter table public.challenge_rooms add column if not exists winner_username text
 -- o histórico não depender de recalcular sempre a partir de "matches" (que
 -- podem ser reparadas/editadas mais tarde, ver repairMismatchedMatches).
 alter table public.challenge_rooms add column if not exists results jsonb;
+-- Regras com que "results" acima foi calculado ({classHandicap, onlyKda,
+-- onlySoloGames} — ver DEFAULT_RULES em src/lib/challengeScoring.js).
+-- Guardadas com a fotografia porque as regras mudam ao longo do tempo (o
+-- handicap por classe, por exemplo, esteve desligado durante um período), e
+-- sem isto não há como saber se dois desafios do histórico são sequer
+-- comparáveis entre si.
+alter table public.challenge_rooms add column if not exists scoring_rules jsonb;
 
 create table if not exists public.challenge_room_players (
   id bigint generated always as identity primary key,
@@ -254,6 +261,14 @@ create table if not exists public.challenge_room_players (
   -- Impede a mesma pessoa de ocupar dois lugares na mesma sala.
   unique (room_id, username)
 );
+
+-- Desistência: depois de o desafio arrancar já não se pode "sair da sala"
+-- (isso apagaria o lugar e o histórico) — só desistir, o que dá o desafio
+-- como perdido para quem desiste. Os pontos já feitos ficam registados, mas
+-- o jogador cai para último lugar e deixa de contar para o desafio esperar
+-- por ele. Ver forfeitChallenge em src/db/rooms.js.
+alter table public.challenge_room_players add column if not exists forfeited boolean not null default false;
+alter table public.challenge_room_players add column if not exists forfeited_at timestamptz;
 
 -- Limpa colunas de uma tentativa anterior de progresso ao vivo (guardado
 -- diretamente em challenge_room_players) — substituída pela tabela própria
@@ -309,6 +324,11 @@ create table if not exists public.challenge_games (
   healing int,
   double_kills int,
   triple_kills int,
+  -- Lista de todos os jogadores dessa Arena, copiada de "matches" no
+  -- enriquecimento — é o que permite a regra "só jogos sem adversários do
+  -- desafio" (ver onlySoloGames/sharesLobbyWith em challengeScoring.js)
+  -- saber se dois participantes do desafio calharam na mesma partida.
+  participants jsonb,
   -- live = a decorrer; finished = resultado conhecido, ainda sem dano/cura/
   -- multikills; enriched = já tem tudo.
   status text not null default 'live',
@@ -316,6 +336,11 @@ create table if not exists public.challenge_games (
   updated_at timestamptz not null default now(),
   finished_at timestamptz
 );
+
+-- Para instalações onde "challenge_games" já existia antes destas colunas (o
+-- "create table if not exists" acima é ignorado nesse caso, e as colunas
+-- novas nunca chegariam a ser criadas).
+alter table public.challenge_games add column if not exists participants jsonb;
 
 create index if not exists idx_room_players_room on public.challenge_room_players (room_id);
 create index if not exists idx_room_players_username on public.challenge_room_players (username);

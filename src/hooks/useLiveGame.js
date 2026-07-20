@@ -104,6 +104,7 @@ export function useLiveGame({
               healing: details.healing,
               doubleKills: details.double_kills,
               tripleKills: details.triple_kills,
+              participants: details.participants,
             });
           }
         }

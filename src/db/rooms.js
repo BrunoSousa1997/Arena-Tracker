@@ -38,7 +38,7 @@ function generateRoomCode() {
 // O código é aleatório, por isso pode (raramente) colidir com um já
 // existente; a coluna é UNIQUE, logo a base de dados rejeita — tentamos
 // outra vez em vez de rebentar na cara do utilizador.
-export async function createRoom({ name, hostUsername, maxPlayers, targetGames, rules, identity }) {
+export async function createRoom({ name, hostUsername, maxPlayers, targetGames, rules, rulesConfig, identity }) {
   const MAX_ATTEMPTS = 5;
 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
@@ -53,6 +53,10 @@ export async function createRoom({ name, hostUsername, maxPlayers, targetGames, 
           max_players: maxPlayers,
           target_games: targetGames,
           rules: rules || "basic",
+          // Só faz sentido guardar afinações quando as regras SÃO as
+          // específicas — em "basic" valem sempre as por omissão (ver
+          // activeRules em Challenges.jsx).
+          rules_config: rules === "custom" ? rulesConfig || null : null,
           status: "lobby",
         },
       ])
@@ -210,6 +214,111 @@ export async function leaveRoom(roomId, username) {
   return { success: true };
 }
 
+// Quanto tempo tem de passar entre desistências da mesma conta. Sem isto,
+// desistir era grátis e repetível: criar sala -> desistir logo -> o outro
+// jogador fica sozinho em prova e "ganha" o desafio na hora, tantas vezes
+// quantas se quisesse (ver getChallengeWinCount, que alimenta a conquista
+// de vitórias em desafios). Um intervalo obrigatório torna essa farmagem
+// lenta o suficiente para não valer a pena, sem estorvar quem desiste de um
+// desafio a sério de vez em quando.
+export const FORFEIT_COOLDOWN_MS = 60 * 60 * 1000;
+
+// Não se pode desistir NO INSTANTE em que o desafio arranca. Era esse o
+// exploit de raiz: numa sala de 2, quem desiste deixa o outro sozinho em
+// prova e o desafio termina logo com ele como vencedor (ver ScoreBoard) —
+// dois combinados farmavam vitórias em segundos, sem jogar nada.
+//
+// Exige-se então uma de duas coisas: ter jogado pelo menos uma partida no
+// desafio (aí houve jogo a sério, desistir é legítimo), ou ter esperado
+// este tempo desde o arranque (rede de segurança para quem afinal não pode
+// mesmo jogar não ficar preso na sala para sempre).
+export const FORFEIT_MIN_WAIT_MS = 15 * 60 * 1000;
+
+// Quando foi a última desistência desta conta (em qualquer sala)? Base do
+// intervalo obrigatório acima. null = nunca desistiu.
+export async function getLastForfeitAt(username) {
+  const { data, error } = await supabase
+    .from("challenge_room_players")
+    .select("forfeited_at")
+    .eq("username", username)
+    .eq("forfeited", true)
+    .not("forfeited_at", "is", null)
+    .order("forfeited_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error("getLastForfeitAt error:", error);
+    return null;
+  }
+  return data?.forfeited_at || null;
+}
+
+// Desistir do desafio já a decorrer. Ao contrário de leaveRoom (que apaga o
+// lugar na sala, e com ele o desafio do histórico desta conta), isto MANTÉM
+// tudo — a linha fica, os pontos já feitos ficam, o desafio continua a
+// aparecer no histórico — só marca o jogador como tendo desistido: cai para
+// último lugar no placar e o desafio deixa de esperar por ele para terminar
+// (ver ScoreBoard em Challenges.jsx).
+//
+// Recusa em dois casos: ainda dentro do intervalo desde a última
+// desistência (FORFEIT_COOLDOWN_MS), ou cedo demais neste desafio sem ter
+// jogado nada (FORFEIT_MIN_WAIT_MS). As verificações são feitas aqui, à
+// beira da escrita, e não só no botão — assim valem para qualquer caminho
+// que chame isto.
+// AVISO: isto NÃO é uma defesa a sério; como o resto da app, não há
+// autenticação nenhuma e as políticas são abertas (ver schema.sql), por isso
+// um cliente modificado escreve o que quiser. Serve para travar o exploit
+// acidental/fácil, não um determinado.
+export async function forfeitChallenge(roomId, username) {
+  const lastAt = await getLastForfeitAt(username);
+  if (lastAt) {
+    const elapsed = Date.now() - new Date(lastAt).getTime();
+    if (elapsed < FORFEIT_COOLDOWN_MS) {
+      return { success: false, error: "forfeit-cooldown", retryInMs: FORFEIT_COOLDOWN_MS - elapsed };
+    }
+  }
+
+  // Jogou alguma partida neste desafio? Se sim, desistir é sempre legítimo,
+  // independentemente do tempo. Se não, tem de ter esperado o mínimo desde
+  // o arranque (ver FORFEIT_MIN_WAIT_MS).
+  const [roomRes, gamesRes] = await Promise.all([
+    supabase.from("challenge_rooms").select("started_at").eq("id", roomId).maybeSingle(),
+    supabase
+      .from("challenge_games")
+      .select("id", { count: "exact", head: true })
+      .eq("room_id", roomId)
+      .eq("username", username),
+  ]);
+
+  const gamesPlayed = gamesRes.count || 0;
+  const startedAt = roomRes.data?.started_at;
+  // Sem "started_at" conhecido não dá para medir a espera — nesse caso não
+  // se trava nada (é preferível deixar desistir do que prender o jogador
+  // por causa de um dado em falta).
+  const waited = startedAt ? Date.now() - new Date(startedAt).getTime() : Infinity;
+
+  if (gamesPlayed === 0 && waited < FORFEIT_MIN_WAIT_MS) {
+    return { success: false, error: "forfeit-too-early", retryInMs: FORFEIT_MIN_WAIT_MS - waited };
+  }
+
+  return forfeitChallengeUnchecked(roomId, username);
+}
+
+async function forfeitChallengeUnchecked(roomId, username) {
+  const { error } = await supabase
+    .from("challenge_room_players")
+    .update({ forfeited: true, forfeited_at: new Date().toISOString() })
+    .eq("room_id", roomId)
+    .eq("username", username);
+
+  if (error) {
+    console.error("forfeitChallenge error:", error);
+    return { success: false, error: error.message || String(error) };
+  }
+  return { success: true };
+}
+
 // Inicia o desafio — muda o estado de "lobby" para "running" e começa a
 // rastrear pontuações. Só o host pode fazer isto.
 export async function startRoom(roomId) {
@@ -230,7 +339,7 @@ export async function startRoom(roomId) {
 // contrário de closeRoom, isto NÃO apaga a sala: fica com status "finished"
 // e vira uma entrada de histórico (ver getChallengeHistory) e conta para a
 // conquista de vitórias em desafios (ver getChallengeWinCount).
-export async function finishRoom(roomId, { winnerUsername, results }) {
+export async function finishRoom(roomId, { winnerUsername, results, scoringRules }) {
   const { error } = await supabase
     .from("challenge_rooms")
     .update({
@@ -238,6 +347,10 @@ export async function finishRoom(roomId, { winnerUsername, results }) {
       finished_at: new Date().toISOString(),
       winner_username: winnerUsername || null,
       results: results || null,
+      // Regras com que "results" foi calculado — guardadas com a fotografia
+      // para o histórico continuar interpretável depois de as regras
+      // mudarem (ver persistFinish em Challenges.jsx).
+      scoring_rules: scoringRules || null,
     })
     .eq("id", roomId);
 
@@ -419,7 +532,7 @@ export async function closeUnfinishedChallengeGame(gameId) {
 export async function findSyncedMatchDetails(username, { champion, kills, deaths, assists, after }) {
   const { data, error } = await supabase
     .from("matches")
-    .select("damage_dealt, damage_taken, healing, double_kills, triple_kills")
+    .select("damage_dealt, damage_taken, healing, double_kills, triple_kills, participants")
     .eq("username", username)
     .eq("champion", champion)
     .eq("kills", kills)
@@ -443,7 +556,7 @@ export async function findSyncedMatchDetails(username, { champion, kills, deaths
 // findSyncedMatchDetails acima).
 export async function enrichChallengeGame(
   gameId,
-  { damageDealt, damageTaken, healing, doubleKills, tripleKills }
+  { damageDealt, damageTaken, healing, doubleKills, tripleKills, participants }
 ) {
   const { error } = await supabase
     .from("challenge_games")
@@ -453,6 +566,10 @@ export async function enrichChallengeGame(
       healing: healing ?? null,
       double_kills: doubleKills ?? null,
       triple_kills: tripleKills ?? null,
+      // Necessário para a regra "só jogos sem adversários do desafio" (ver
+      // onlySoloGames em challengeScoring.js) — sem isto, essa regra não
+      // tinha como saber quem mais esteve nesta Arena.
+      participants: participants || null,
       status: "enriched",
     })
     .eq("id", gameId);
@@ -473,7 +590,8 @@ export async function getRoomChallengeGames(usernames, sinceISO) {
     .from("challenge_games")
     .select(
       "id, username, champion, kills, deaths, assists, win, damage_dealt, damage_taken, healing, " +
-        "double_kills, triple_kills, kill_streaks, assist_streaks, death_streaks, status, started_at, updated_at"
+        "double_kills, triple_kills, kill_streaks, assist_streaks, death_streaks, participants, " +
+        "status, started_at, updated_at"
     )
     .in("username", usernames)
     .gte("started_at", sinceISO)
@@ -508,7 +626,7 @@ export async function recoverMissingChallengeGames(roomId, username, sinceISO) {
       .select(
         "champion, kills, deaths, assists, win, damage_dealt, damage_taken, healing, " +
           "double_kills, triple_kills, kill_streaks, assist_streaks, death_streaks, " +
-          "game_duration, created_at"
+          "participants, game_duration, created_at"
       )
       .eq("username", username)
       .gte("created_at", sinceISO)
@@ -580,6 +698,7 @@ export async function recoverMissingChallengeGames(roomId, username, sinceISO) {
       kill_streaks: m.kill_streaks || [],
       assist_streaks: m.assist_streaks || [],
       death_streaks: m.death_streaks || [],
+      participants: m.participants || null,
       status: "enriched",
       started_at: m.created_at,
       updated_at: new Date().toISOString(),
