@@ -3,7 +3,13 @@ import { motion, AnimatePresence } from "framer-motion";
 import Tooltip from "./Tooltip";
 import ConfirmDialog from "./ConfirmDialog";
 import { useLanguage } from "../lib/i18n";
-import { TAG_OPTIONS, CUSTOM_TAG, FALLBACK_REGIONS, regionForTag } from "../lib/riotTags";
+import {
+  TAG_OPTIONS,
+  CUSTOM_TAG,
+  FALLBACK_REGIONS,
+  regionForTag,
+  normalizeRiotId,
+} from "../lib/riotTags";
 
 export default function AccountManager({
   accounts,
@@ -45,12 +51,25 @@ export default function AccountManager({
     setEditRegion(acc.region || "europe");
   };
 
+  // Os dois formulários passam pelo mesmo normalizador (ver normalizeRiotId):
+  // tira o "#" que se escreve por hábito na tag e parte o Riot ID completo se
+  // ele for colado no campo do nome. Sem isto, um "#EUW" ficava guardado tal e
+  // qual e a sincronização falhava sem dizer porquê.
   const saveEdit = () => {
+    const { gameName, tagLine } = normalizeRiotId(editRiotAccount, editRiotTag);
+    // A tag pode ter vindo do nome colado ("Nome#NA1") e já não corresponder à
+    // escolha do menu — nesse caso o servidor tem de ser o dela, não o da
+    // opção que ficou para trás.
     const region =
-      editTagChoice === CUSTOM_TAG ? editRegion : regionForTag(editTagChoice) || "europe";
+      tagLine && regionForTag(tagLine)
+        ? regionForTag(tagLine)
+        : editTagChoice === CUSTOM_TAG
+        ? editRegion
+        : regionForTag(editTagChoice) || "europe";
+
     onUpdateRiotAccount(editingUsername, {
-      riotAccount: editRiotAccount,
-      riotTag: editRiotTag,
+      riotAccount: gameName,
+      riotTag: tagLine,
       region,
     });
     setEditingUsername(null);
@@ -58,8 +77,15 @@ export default function AccountManager({
 
   const handleCreate = () => {
     if (!newUsername.trim()) return;
-    const region = newTagChoice === CUSTOM_TAG ? newRegion : regionForTag(newTagChoice) || "europe";
-    onCreate(newUsername.trim(), newRiotAccount.trim(), newRiotTag.trim(), region);
+    const { gameName, tagLine } = normalizeRiotId(newRiotAccount, newRiotTag);
+    const region =
+      tagLine && regionForTag(tagLine)
+        ? regionForTag(tagLine)
+        : newTagChoice === CUSTOM_TAG
+        ? newRegion
+        : regionForTag(newTagChoice) || "europe";
+
+    onCreate(newUsername.trim(), gameName, tagLine, region);
     setNewUsername("");
     setNewRiotAccount("");
     setNewTagChoice(TAG_OPTIONS[0].value);
@@ -171,6 +197,7 @@ export default function AccountManager({
                             </select>
                           </div>
                         )}
+                        <div style={styles.hashHint}>{t("tag_no_hash_hint")}</div>
                         <div style={{ display: "flex", gap: 6 }}>
                           <button onClick={saveEdit} style={styles.smallBtn}>
                             {t("save_btn")}
@@ -273,6 +300,7 @@ export default function AccountManager({
             <div style={styles.tagHint}>
               {t("tag_hint")}
             </div>
+            <div style={styles.hashHint}>{t("tag_no_hash_hint")}</div>
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={handleCreate} style={styles.primaryBtn}>
                 {t("create_btn")}
@@ -436,6 +464,16 @@ const styles = {
     fontSize: 10,
     color: "var(--text-muted)",
     marginTop: -4,
+  },
+
+  // Um pouco mais visível que o tagHint (que explica o servidor): esta é a
+  // que evita um erro concreto na hora de escrever, por isso ganha a cor de
+  // destaque em vez do cinzento de nota de rodapé.
+  hashHint: {
+    fontSize: 10,
+    lineHeight: 1.45,
+    color: "var(--accent-text)",
+    opacity: 0.85,
   },
 
   input: {

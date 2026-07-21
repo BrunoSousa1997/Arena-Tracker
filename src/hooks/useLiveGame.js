@@ -48,6 +48,10 @@ export function useLiveGame({
   setMatches,
   setWins,
   lang,
+  // Base do Data Dragon, só para montar o URL do retrato do campeão que vai
+  // na sobreposição (ver o efeito no fim deste hook) — esta janela não
+  // carrega nada por si.
+  DRAGON,
   // Chamado sozinho depois do fim de uma partida, para não obrigar a
   // clicar manualmente em "Sincronizar" — ver o setTimeout mais abaixo.
   onAutoSync,
@@ -467,6 +471,7 @@ export function useLiveGame({
         roast: getRoast(championId, winCount, lang),
         kda: { kills: 0, deaths: 0, assists: 0 },
         items: [],
+        streaks: { kill: [], assist: [], death: [] },
       });
 
       // Challenges: se a conta ativa estiver dentro de uma sala "running",
@@ -479,6 +484,11 @@ export function useLiveGame({
           liveChallengeRoomId.current = room.id;
           const game = await startChallengeGame(room.id, activeAccount, championId);
           if (game) liveChallengeGameId.current = game.id;
+          // Guardado também no alerta (e não só no ref) porque a tab Em Jogo
+          // precisa das regras da sala para pontuar com o mesmo handicap com
+          // que esta partida vai ser contada no fim — pontuar com as regras
+          // por omissão dava um número que não bate certo com o placar.
+          setLiveChampionAlert((prev) => (prev ? { ...prev, challengeRoom: room } : prev));
         }
       }
     });
@@ -550,6 +560,17 @@ export function useLiveGame({
                 ...prev,
                 kda: { kills: kills ?? 0, deaths: deaths ?? 0, assists: assists ?? 0 },
                 items: items || [],
+                // As sequências já vinham neste evento mas só seguiam para a
+                // Supabase (ver updateChallengeGameProgress abaixo), o que
+                // deixava o próprio jogador a ser o único a NÃO poder ver o
+                // efeito delas na sua pontuação enquanto joga — a tab Em Jogo
+                // precisa delas em memória para chamar o scoreLiveGame sem
+                // ter de ir ler à rede aquilo que acabou de escrever.
+                streaks: {
+                  kill: killStreaks || [],
+                  assist: assistStreaks || [],
+                  death: deathStreaks || [],
+                },
               }
             : prev
         );
@@ -570,6 +591,37 @@ export function useLiveGame({
 
     return unsubscribe;
   }, []);
+
+  // ================= ALIMENTAR A SOBREPOSIÇÃO NO JOGO =================
+  // A janela de sobreposição (ver electron/overlay.js) não sabe nada sobre
+  // contas, histórico ou campeões — recebe daqui o cartão já montado. É este
+  // efeito o único ponto de contacto entre as duas, e corre a cada mudança do
+  // alerta, o que inclui cada atualização de KDA (de 3 em 3s).
+  //
+  // Enviar "null" quando não há alerta é o que faz a sobreposição desaparecer
+  // no fim da partida — sem isso ficaria pendurada por cima do jogo.
+  useEffect(() => {
+    if (!window.electron?.updateOverlay) return;
+
+    if (!liveChampionAlert) {
+      window.electron.updateOverlay(null);
+      return;
+    }
+
+    const champion = champions.find((c) => c.id === liveChampionAlert.championId);
+
+    window.electron.updateOverlay({
+      championName: champion?.name || liveChampionAlert.championId,
+      championIcon: DRAGON
+        ? `${DRAGON}/img/champion/${liveChampionAlert.championId}.png`
+        : null,
+      hasWin: liveChampionAlert.hasWin,
+      roast: liveChampionAlert.roast,
+      kda: liveChampionAlert.kda,
+      gameEnded: !!liveChampionAlert.gameEnded,
+      gameWon: !!liveChampionAlert.gameWon,
+    });
+  }, [liveChampionAlert, champions, DRAGON]);
 
   return {
     liveChampionAlert,

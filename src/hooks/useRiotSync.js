@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { loadSyncReport, saveSyncReport } from "../lib/syncReport";
 import {
   getWins,
   addWin,
@@ -74,6 +75,7 @@ const DB_UPDATE_CONCURRENCY = 10;
 // desligada.
 const CANARY_CHECK_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 
+
 // Sincronização com a Riot API (importação de partidas novas + correção de
 // partidas antigas incompletas) para a conta ativa. Depende de accounts/
 // matches/champions/patch geridos por outros hooks (useAccounts,
@@ -86,6 +88,14 @@ export function useRiotSync({ accounts, setAccounts, activeAccount, matches, set
   // gasta mais pedidos do que o normal e reescreve dados já guardados, por
   // isso pede confirmação em vez de disparar logo ao clicar.
   const [showRepairAllConfirm, setShowRepairAllConfirm] = useState(false);
+
+  // Relatório da última sincronização desta conta (ver lib/syncReport.js) —
+  // relido do localStorage a cada troca de conta, para estar lá mesmo numa
+  // sessão em que ainda não se sincronizou nada.
+  const [syncReport, setSyncReport] = useState(null);
+  useEffect(() => {
+    setSyncReport(activeAccount ? loadSyncReport(activeAccount) : null);
+  }, [activeAccount]);
 
   // Marca de "desde quando sincronizar" — antes vinha de "lastSyncAt" só no
   // localStorage (por conta), que se perdia ao limpar dados locais ou
@@ -127,13 +137,33 @@ export function useRiotSync({ accounts, setAccounts, activeAccount, matches, set
       message: t("syncing"),
     });
 
+    // Relatório desta passagem (ver lib/syncReport.js). Preenchido à medida
+    // que cada passo corre e gravado no fim, INCLUINDO quando algo falha a
+    // meio — um sync que rebentou é precisamente o caso em que os números
+    // parciais mais valem, porque dizem até onde é que se chegou.
+    const startedAt = Date.now();
+    const report = {
+      at: startedAt,
+      mode: forceFullHistory ? "full" : "incremental",
+      latestMatchAt: latestMatchTimestamp || null,
+    };
+    const finish = (extra = {}) => {
+      Object.assign(report, extra, { durationMs: Date.now() - startedAt });
+      setSyncReport(report);
+      saveSyncReport(account.username, report);
+    };
+
     try {
+      const sinceUsed = forceFullHistory ? null : latestMatchTimestamp || null;
+      report.sinceUsed = sinceUsed;
+      report.queueIds = getExtraQueueIds();
+
       // 1) Só a lista de ids — barato, 1 pedido por cada 100 partidas.
       const listRes = await window.electron.listMatchIds({
         gameName: account.riotAccount,
         tagLine: account.riotTag,
         region: account.region || "europe",
-        since: forceFullHistory ? null : (latestMatchTimestamp || null),
+        since: sinceUsed,
         // Se já sabemos o puuid desta conta (ver abaixo), poupa o pedido a
         // account-v1 que resolveria gameName+tagLine -> puuid outra vez —
         // um Riot ID só muda por ação do próprio jogador (ver
@@ -148,6 +178,7 @@ export function useRiotSync({ accounts, setAccounts, activeAccount, matches, set
             ? t("missing_api_key")
             : listRes.error || t("unknown_error");
         setSyncStatus({ status: "error", message: msg });
+        finish({ error: msg });
         return;
       }
 
@@ -174,6 +205,10 @@ export function useRiotSync({ accounts, setAccounts, activeAccount, matches, set
 
       const existingIds = await getImportedMatchIds(account.username);
       const candidateIds = listRes.ids.filter((id) => !existingIds.has(id));
+
+      report.listed = listRes.ids.length;
+      report.candidates = candidateIds.length;
+      report.alreadyKnown = listRes.ids.length - candidateIds.length;
 
       // 2) Antes de gastar pedidos à Riot API pelos detalhes de cada
       // partida, vê se algum amigo já a importou — a Arena tem sempre
@@ -205,8 +240,12 @@ export function useRiotSync({ accounts, setAccounts, activeAccount, matches, set
             ? t("missing_api_key")
             : detailsRes.error || t("unknown_error");
         setSyncStatus({ status: "error", message: msg });
+        finish({ fromCache: cachedMatches.length, error: msg });
         return;
       }
+
+      report.fromCache = cachedMatches.length;
+      report.fromApi = detailsRes.matches.length;
 
       // 4) De vez em quando (não a cada sync), confirma que a listagem
       // filtrada por queue (passo 1) não está a deixar escapar partidas de
@@ -240,6 +279,7 @@ export function useRiotSync({ accounts, setAccounts, activeAccount, matches, set
         (patch
           ? account.lastCanaryPatch !== patch
           : !account.lastCanaryCheck || Date.now() - account.lastCanaryCheck > CANARY_CHECK_INTERVAL_MS);
+      report.canaryRan = canaryDue && !!window.electron?.canaryCheck;
       if (canaryDue && window.electron?.canaryCheck) {
         const canaryRes = await window.electron.canaryCheck({
           puuid: listRes.puuid,
@@ -250,6 +290,8 @@ export function useRiotSync({ accounts, setAccounts, activeAccount, matches, set
 
         if (canaryRes.success) {
           canaryMatches = canaryRes.newArenaMatches || [];
+          report.fromCanary = canaryMatches.length;
+          report.canaryUnknownQueueIds = canaryRes.unknownQueueIds || [];
           if (canaryRes.unknownQueueIds?.length) {
             console.warn(
               "[canary] queueId(s) de Arena desconhecido(s) detetado(s):",
@@ -290,8 +332,11 @@ export function useRiotSync({ accounts, setAccounts, activeAccount, matches, set
           status: "error",
           message: t("save_matches_error").replace("{error}", result.error),
         });
+        finish({ error: result.error });
         return;
       }
+
+      report.inserted = result.inserted;
 
       for (const m of newMatches) {
         if (m.win) await addWin(account.username, m.champion);
@@ -328,7 +373,9 @@ export function useRiotSync({ accounts, setAccounts, activeAccount, matches, set
       // Passa o puuid já resolvido acima para não o voltar a pedir à Riot.
       await enrichHistory(false, listRes.puuid);
     } catch (err) {
-      setSyncStatus({ status: "error", message: err?.message || String(err) });
+      const msg = err?.message || String(err);
+      setSyncStatus({ status: "error", message: msg });
+      finish({ error: msg });
     }
   };
 
@@ -588,6 +635,7 @@ export function useRiotSync({ accounts, setAccounts, activeAccount, matches, set
   return {
     syncStatus,
     setSyncStatus,
+    syncReport,
     showRepairAllConfirm,
     setShowRepairAllConfirm,
     latestMatchTimestamp,

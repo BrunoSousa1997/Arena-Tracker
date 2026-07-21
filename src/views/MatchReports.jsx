@@ -7,11 +7,7 @@ import { buildFormatBuckets, bestFormatAvg, bestFormatKda } from "../lib/formatS
 import { augmentRarityStyle } from "../lib/augments";
 import { useLanguage } from "../lib/i18n";
 import Tooltip from "../components/Tooltip";
-
-// Item de trinket obrigatório em qualquer partida (toda a gente o leva) —
-// não diz nada sobre o estilo de jogo do campeão, por isso sai da lista de
-// "itens mais usados" para não ocupar espaço com informação óbvia.
-const ALWAYS_EXCLUDED_ITEM_NAMES = new Set(["Oracle Lens"]);
+import { ALWAYS_EXCLUDED_ITEM_NAMES } from "../lib/items";
 
 // 1º-8º — a Arena de 2 (8 equipas) tem sempre estes 8 lugares possíveis; na
 // Arena de 3 (6 equipas) só existem até ao 6º, mas mostramos os 8 cartões
@@ -233,21 +229,54 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
 
   const champName = (id) => champions.find((c) => c.id === id)?.name || id;
 
-  // Listas pesquisáveis, construídas uma vez a partir dos mapas já
-  // carregados (id -> nome/objeto vindos do Data Dragon).
+  // Listas pesquisáveis — construídas a partir do que aparece MESMO nas tuas
+  // partidas, não do catálogo completo do Data Dragon.
+  //
+  // Duas razões. A primeira é a que se vê: o catálogo traz tudo o que existe
+  // no jogo, incluindo montes de itens que a Arena nem tem, e a pesquisa
+  // enchia-se de coisas que nada tinham a ver com o modo. A segunda é que este
+  // campo serve para RESTRINGIR as tuas partidas ("mostra-me só onde levei
+  // isto") — sugerir uma peça que nunca levaste só pode dar zero resultados,
+  // por isso é uma opção que nunca vale a pena oferecer.
+  //
+  // Filtrar por mapa no Data Dragon (maps["30"]) parecia o caminho óbvio para
+  // os itens e está errado: deixaria de fora a linha Guardian's inteira e o
+  // Twin Mask, que são itens de Arena com centenas de utilizações no
+  // histórico e que a Riot simplesmente não marca para esse mapa.
+  //
+  // Ordenado por nº de utilizações, para as sugestões começarem pelo que mais
+  // levas (a lista de sugestões é curta, ver augmentSuggestions).
+  const optionsFromMatches = (extractIds, nameOf) => {
+    const counts = new Map();
+    matches.forEach((m) => {
+      extractIds(m).forEach((id) => {
+        if (id == null) return;
+        const key = String(id);
+        counts.set(key, (counts.get(key) || 0) + 1);
+      });
+    });
+
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([id]) => ({ id, ...nameOf(id) }));
+  };
+
   const augmentOptions = useMemo(
     () =>
-      Object.entries(augmentsMap || {}).map(([id, info]) => ({
-        id,
-        name: info?.name || `Augment #${id}`,
-        icon: info?.icon,
-      })),
-    [augmentsMap]
+      optionsFromMatches(
+        (m) => m.augments || [],
+        (id) => ({ name: augmentsMap?.[id]?.name || `Augment #${id}`, icon: augmentsMap?.[id]?.icon })
+      ),
+    [matches, augmentsMap]
   );
 
   const itemOptions = useMemo(
-    () => Object.entries(itemsMap || {}).map(([id, name]) => ({ id, name: name || `Item #${id}` })),
-    [itemsMap]
+    () =>
+      optionsFromMatches(
+        (m) => (m.items || []).map((it) => it?.itemID),
+        (id) => ({ name: itemsMap?.[id] || `Item #${id}` })
+      ),
+    [matches, itemsMap]
   );
 
   const augmentSuggestions = useMemo(() => {

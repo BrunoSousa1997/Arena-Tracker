@@ -1,6 +1,4 @@
 import { useMemo } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { placementColor } from "../lib/placement";
 import { normalizeChampionId } from "../lib/champions";
 import { useLanguage } from "../lib/i18n";
 
@@ -8,30 +6,27 @@ function kdaLabel(k, d, a) {
   return `${k.toFixed(1)} / ${d.toFixed(1)} / ${a.toFixed(1)}`;
 }
 
-// Fundo translúcido por trás dos números com resultado (vitórias/top3/
-// derrotas/winrate) — antes só a cor do texto distinguia cada métrica, o que
-// deixava a barra visualmente plana. Um chip com a mesma cor do texto, bem
-// suave, dá presença a cada número sem competir com ele.
-function chipStyle(color) {
-  return {
-    padding: "4px 10px",
-    borderRadius: 9,
-    background: `color-mix(in srgb, ${color} 14%, transparent)`,
-    border: `1px solid color-mix(in srgb, ${color} 30%, transparent)`,
-  };
-}
+// O pódio é verde nesta app inteira (ver placementColor), por isso o 1º e o
+// 2º/3º não podem ser duas cores diferentes sem trair essa linguagem — mas
+// também não podem ser a MESMA, que era o que acontecia antes (ambos usavam
+// --place-good e liam-se como o mesmo número duas vezes). Fica o mesmo verde
+// com força diferente: cheio para o 1º, esbatido para o resto do pódio.
+const SEG_COLORS = {
+  first: "var(--place-good)",
+  podium: "color-mix(in srgb, var(--place-good) 45%, var(--text-muted))",
+  below: "var(--place-low)",
+};
 
-// Resumo geral partilhado por todas as tabs — antes só existia (de forma
-// diferente) dentro de Visão Geral e Estatísticas; agora é um único
-// componente sempre visível, logo abaixo das tabs. "matches" já vem
-// filtrado por formato (2v2/3v3) quando aplicável — ver teamSizeFilter em
-// App.jsx — porque "top 3" e os baldes de lugar não significam o mesmo
-// num jogo de 8 equipas e num de 6. "compact" vem de App.jsx (um único
-// interruptor para o cabeçalho todo, ver headerCompact) — nunca esconde
-// nenhum destes números, só troca o grid por uma única linha. O filtro de
-// formato já não é renderizado aqui — mudou-se para a mesma linha das tabs
-// em App.jsx (ver navRow); "teamSizeFilter" continua a vir por prop só
-// para o cálculo de "uniqueWinChamps" abaixo.
+// Resumo geral partilhado por todas as tabs. "matches" já vem filtrado por
+// formato (2v2/3v3) quando aplicável — ver teamSizeFilter em App.jsx — porque
+// "top 3" não significa o mesmo num jogo de 8 equipas e num de 6.
+//
+// A leitura é em três blocos, e é essa a mudança que interessa face à versão
+// anterior: sete números em fila, todos com o mesmo peso, escondiam que eles
+// não são sete coisas independentes. O total parte-se em três resultados que
+// somam de volta ao total (1º + 2º/3º + fora = jogos), e só depois vêm as
+// médias. A barra existe para essa soma ser visível em vez de ter de ser
+// feita de cabeça.
 export default function StatsBar({ matches, teamSizeFilter, wins: winsList, champions, compact }) {
   const { t } = useLanguage();
 
@@ -41,23 +36,20 @@ export default function StatsBar({ matches, teamSizeFilter, wins: winsList, cham
     const wins = winMatches.length;
 
     // O nº de campeões distintos com vitória NÃO pode vir só das "matches":
-    // vitórias marcadas manualmente (sem partida associada) não geram uma
-    // linha em "matches", por isso contar só a partir daí sub-representava
-    // este número (ex: mostrava 50 quando a Coleção já tinha 52). Com "todos
-    // os formatos" usamos a lista de vitórias (fonte oficial da Coleção,
-    // sempre completa); com um formato específico não há forma fiável de
-    // saber em que formato cada vitória manual aconteceu, por isso caímos de
-    // volta para o que der para apurar a partir das partidas desse formato.
+    // vitórias marcadas manualmente (sem partida associada) não geram linha
+    // em "matches". Com "todos os formatos" usamos a lista de vitórias (fonte
+    // da Coleção, sempre completa); com um formato específico não há forma de
+    // saber em que formato cada vitória manual aconteceu, e caímos para o que
+    // se apura das partidas desse formato.
     const uniqueWinChamps =
       teamSizeFilter === "all" && winsList
         ? new Set(winsList.map((c) => normalizeChampionId(c, champions))).size
         : new Set(winMatches.map((m) => normalizeChampionId(m.champion, champions))).size;
 
-    // Top 3 / abaixo do Top 3: usa o lugar exato quando existe; partidas
-    // antigas (só Live Client Data, sem lugar) caem no par vitória/derrota,
-    // já que uma vitória implica sempre estar no Top 3.
+    // Usa o lugar exato quando existe; partidas antigas (só Live Client Data,
+    // sem lugar) caem no par vitória/derrota, já que uma vitória implica
+    // sempre estar no top 3.
     const top3Games = matches.filter((m) => (m.placement ? m.placement <= 3 : m.win)).length;
-    const belowTop3Games = games - top3Games;
 
     const totals = matches.reduce(
       (acc, m) => {
@@ -74,7 +66,11 @@ export default function StatsBar({ matches, teamSizeFilter, wins: winsList, cham
       wins,
       uniqueWinChamps,
       top3Games,
-      belowTop3Games,
+      // O pódio SEM o 1º lugar. É este o número que a barra desenha, e não o
+      // top 3 inteiro: o 1º já ocupa o seu próprio segmento, e somar os dois
+      // dava uma barra mais comprida do que o total de jogos.
+      podiumGames: top3Games - wins,
+      belowTop3Games: games - top3Games,
       winrate: games ? Math.round((wins / games) * 100) : 0,
       top3Rate: games ? Math.round((top3Games / games) * 100) : 0,
       avgK: games ? totals.k / games : 0,
@@ -83,177 +79,193 @@ export default function StatsBar({ matches, teamSizeFilter, wins: winsList, cham
     };
   }, [matches, teamSizeFilter, winsList, champions]);
 
+  const segments = [
+    { key: "first", value: stats.wins, label: t("stat_seg_first"), color: SEG_COLORS.first },
+    { key: "podium", value: stats.podiumGames, label: t("stat_seg_podium"), color: SEG_COLORS.podium },
+    { key: "below", value: stats.belowTop3Games, label: t("stat_seg_below"), color: SEG_COLORS.below },
+  ];
+
+  const rates = [
+    { key: "wr1", value: `${stats.winrate}%`, label: t("stat_winrate_first"), color: SEG_COLORS.first },
+    { key: "wr3", value: `${stats.top3Rate}%`, label: t("stat_winrate_top3"), color: SEG_COLORS.podium },
+    { key: "kda", value: kdaLabel(stats.avgK, stats.avgD, stats.avgA), label: t("stat_kda"), color: null },
+  ];
+
+  // Isto esteve envolvido num <AnimatePresence mode="wait"> com dois filhos
+  // keyed ("compact"/"full") para animar a troca de densidade. Estava
+  // partido, e de forma silenciosa: com mode="wait" o filho que sai tem de
+  // terminar a animação de altura antes de o novo entrar, e a saída nunca
+  // fechava — carregar em comprimir mudava o estado mas o ecrã ficava na
+  // versão anterior indefinidamente. Medido no browser: vários segundos após
+  // o clique, com o estado já em "compact", continuava a desenhar a versão
+  // completa. Trocar a densidade do cabeçalho é uma preferência e não uma
+  // navegação; funcionar sempre vale mais do que a transição de 0,15s.
   return (
     <div style={styles.wrap}>
-      <AnimatePresence initial={false} mode="wait">
-        {compact ? (
-          // Resumo condensado numa única linha — cabe a mesma informação
-          // toda, só que lida da esquerda para a direita em vez de espalhada
-          // num grid com legendas por baixo de cada valor.
-          <motion.div
-            key="compact"
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.15 }}
-            style={styles.compactBarWrap}
-          >
-            <div style={styles.compactBar}>
-              <span style={styles.compactItem}>
-                <b>{stats.games}</b> {t("stat_games")}
-              </span>
-              <span style={{ ...styles.compactItem, color: "var(--place-good)" }}>
-                <b>{stats.wins}</b> {t("stat_wins_first")}
-              </span>
-              <span style={{ ...styles.compactItem, color: placementColor(3) }}>
-                <b>{stats.top3Games}</b> {t("stat_wins_top3")}
-              </span>
-              <span style={{ ...styles.compactItem, color: "var(--place-low)" }}>
-                <b>{stats.belowTop3Games}</b> {t("stat_losses")}
-              </span>
-              <span style={{ ...styles.compactItem, color: "var(--accent-text)" }}>
-                <b>{stats.winrate}%</b> {t("stat_winrate_first")}
-              </span>
-              <span style={styles.compactItem}>
-                <b>{stats.top3Rate}%</b> {t("stat_winrate_top3")}
-              </span>
-              <span style={styles.compactItem}>
-                <b>{kdaLabel(stats.avgK, stats.avgD, stats.avgA)}</b> {t("stat_kda")}
-              </span>
+      <div style={{ ...styles.bar, padding: compact ? "8px 16px" : "12px 18px" }}>
+          {/* ---- âncora: o total de que tudo o resto é uma fatia ---- */}
+          <div style={styles.anchor}>
+            <span style={{ ...styles.anchorValue, fontSize: compact ? 20 : 26 }}>
+              {stats.games}
+            </span>
+            <span style={styles.anchorLabel}>{t("stat_games")}</span>
+          </div>
+
+          <div style={styles.divider} />
+
+          {/* ---- resultados: a barra e a legenda que somam ao total ---- */}
+          <div style={styles.outcomes}>
+            {!compact && (
+              <div style={styles.track}>
+                {segments.map((s) => (
+                  <div
+                    key={s.key}
+                    title={`${s.value} — ${s.label}`}
+                    style={{
+                      width: stats.games ? `${(s.value / stats.games) * 100}%` : "0%",
+                      background: s.color,
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+
+            <div style={styles.legend}>
+              {segments.map((s) => (
+                <span key={s.key} style={styles.legendItem}>
+                  <span style={{ ...styles.legendDot, background: s.color }} />
+                  <b style={{ ...styles.legendValue, color: s.color }}>{s.value}</b>
+                  <span style={styles.legendLabel}>{s.label}</span>
+                  {/* Só no 1º lugar: quantos campeões DIFERENTES já deram
+                      vitória, que é o número que a Coleção persegue. */}
+                  {s.key === "first" && stats.wins > 0 && (
+                    <span style={styles.legendExtra}>
+                      · {stats.uniqueWinChamps} {t("champions_suffix")}
+                    </span>
+                  )}
+                </span>
+              ))}
             </div>
-          </motion.div>
-        ) : (
-          <motion.div
-            key="full"
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.15 }}
-            style={{ overflow: "hidden" }}
-          >
-            <div style={styles.summaryBar}>
-              <div style={styles.summaryItem}>
-                <div style={styles.summaryValue}>{stats.games}</div>
-                <div style={styles.summaryLabel}>{t("stat_games")}</div>
+          </div>
+
+          <div style={styles.divider} />
+
+          {/* ---- médias ---- */}
+          <div style={styles.rates}>
+            {rates.map((r) => (
+              <div key={r.key} style={styles.rateItem}>
+                <span style={{ ...styles.rateValue, color: r.color || "var(--text-body)" }}>
+                  {r.value}
+                </span>
+                <span style={styles.rateLabel}>{r.label}</span>
               </div>
-              <div style={styles.summaryDivider} />
-              <div style={{ ...styles.summaryItem, ...chipStyle("var(--place-good)") }}>
-                <div style={{ ...styles.summaryValue, color: "var(--place-good)" }}>
-                  {stats.wins}
-                  {stats.wins > 0 && <span style={styles.summarySub}> ({stats.uniqueWinChamps} {t("champions_suffix")})</span>}
-                </div>
-                <div style={styles.summaryLabel}>{t("stat_wins_first")}</div>
-              </div>
-              <div style={styles.summaryDivider} />
-              <div style={{ ...styles.summaryItem, ...chipStyle(placementColor(3)) }}>
-                <div style={{ ...styles.summaryValue, color: placementColor(3) }}>{stats.top3Games}</div>
-                <div style={styles.summaryLabel}>{t("stat_wins_top3")}</div>
-              </div>
-              <div style={styles.summaryDivider} />
-              <div style={{ ...styles.summaryItem, ...chipStyle("var(--place-low)") }}>
-                <div style={{ ...styles.summaryValue, color: "var(--place-low)" }}>{stats.belowTop3Games}</div>
-                <div style={styles.summaryLabel}>{t("stat_losses")}</div>
-              </div>
-              <div style={styles.summaryDivider} />
-              <div style={{ ...styles.summaryItem, ...chipStyle("var(--accent-text)") }}>
-                <div style={{ ...styles.summaryValue, color: "var(--accent-text)" }}>{stats.winrate}%</div>
-                <div style={styles.summaryLabel}>{t("stat_winrate_first")}</div>
-              </div>
-              <div style={styles.summaryDivider} />
-              <div style={styles.summaryItem}>
-                <div style={styles.summaryValue}>{stats.top3Rate}%</div>
-                <div style={styles.summaryLabel}>{t("stat_winrate_top3")}</div>
-              </div>
-              <div style={styles.summaryDivider} />
-              <div style={styles.summaryItem}>
-                <div style={styles.summaryValue}>
-                  {kdaLabel(stats.avgK, stats.avgD, stats.avgA)}
-                </div>
-                <div style={styles.summaryLabel}>{t("stat_kda")}</div>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+            ))}
+          </div>
+      </div>
     </div>
   );
 }
 
 const styles = {
-  wrap: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 6,
-  },
+  wrap: { display: "flex", flexDirection: "column" },
 
-  summaryBar: {
+  bar: {
     display: "flex",
-    justifyContent: "space-between",
-    gap: 10,
-    padding: "10px 16px",
+    alignItems: "center",
+    gap: 18,
     borderRadius: 13,
     background: "var(--panel-bg)",
     backdropFilter: "var(--panel-blur)",
     border: "1px solid rgba(var(--border-rgb),0.5)",
   },
 
-  summaryItem: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    gap: 1,
-    flex: 1,
-  },
-
-  // Separador fino entre cada valor do resumo — mesma ideia do divisor da
-  // topBar (ver App.jsx), só para dar uma leitura mais organizada em vez de
-  // 7 números soltos lado a lado sem qualquer separação visual.
-  summaryDivider: {
+  // Uma única divisória por fronteira de BLOCO, em vez de uma entre cada
+  // número. Antes havia sete divisórias e quatro caixas coloridas a fazer o
+  // mesmo trabalho ao mesmo tempo, e nenhum dos dois se lia.
+  divider: {
     width: 1,
     alignSelf: "stretch",
+    flexShrink: 0,
     background: "rgba(var(--border-rgb),0.35)",
   },
 
-  summaryValue: {
-    fontSize: 16,
+  anchor: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    flexShrink: 0,
+    minWidth: 64,
+  },
+
+  anchorValue: {
     fontWeight: 700,
+    lineHeight: 1.1,
     color: "var(--text-body)",
+    fontVariantNumeric: "tabular-nums",
+    fontFamily: "Cinzel, serif",
   },
 
-  summaryLabel: {
-    fontSize: 10.5,
-    color: "var(--text-secondary)",
-    textAlign: "center",
+  anchorLabel: {
+    fontSize: 10,
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+    color: "var(--text-muted)",
   },
 
-  summarySub: {
-    fontSize: 11,
-    fontWeight: 600,
-    color: "var(--text-secondary)",
+  outcomes: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 7,
+    flex: 1,
+    minWidth: 220,
   },
 
-  // Modo colapsado: a mesma informação toda numa única linha compacta, em
-  // vez do grid com legenda por baixo de cada valor — muito menos altura,
-  // sem esconder nenhum número.
-  compactBarWrap: {
+  track: {
+    display: "flex",
+    height: 7,
+    borderRadius: 999,
     overflow: "hidden",
+    background: "rgba(var(--soft-rgb),0.07)",
   },
 
-  compactBar: {
+  legend: {
     display: "flex",
     flexWrap: "wrap",
     alignItems: "center",
-    gap: "4px 14px",
-    padding: "8px 14px",
-    borderRadius: 12,
-    background: "var(--panel-bg)",
-    backdropFilter: "var(--panel-blur)",
-    border: "1px solid rgba(var(--border-rgb),0.5)",
-    fontSize: 11.5,
-    color: "var(--text-secondary)",
+    gap: "3px 16px",
   },
 
-  compactItem: {
+  legendItem: { display: "inline-flex", alignItems: "baseline", gap: 5 },
+
+  legendDot: {
+    width: 7,
+    height: 7,
+    borderRadius: "50%",
+    alignSelf: "center",
+    flexShrink: 0,
+  },
+
+  legendValue: { fontSize: 14, fontWeight: 700, fontVariantNumeric: "tabular-nums" },
+
+  legendLabel: { fontSize: 11, color: "var(--text-secondary)" },
+
+  legendExtra: { fontSize: 10.5, color: "var(--text-muted)" },
+
+  rates: { display: "flex", alignItems: "center", gap: 20, flexShrink: 0 },
+
+  rateItem: { display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 1 },
+
+  rateValue: {
+    fontSize: 15,
+    fontWeight: 700,
+    lineHeight: 1.2,
+    fontVariantNumeric: "tabular-nums",
+    whiteSpace: "nowrap",
+  },
+
+  rateLabel: {
+    fontSize: 10,
+    color: "var(--text-muted)",
     whiteSpace: "nowrap",
   },
 };

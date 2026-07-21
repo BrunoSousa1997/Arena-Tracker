@@ -1,13 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { X } from "lucide-react";
+import { X, Power, BookOpen } from "lucide-react";
 import { useLanguage } from "../lib/i18n";
 import AccountManager from "../components/AccountManager";
 import PatchHistoryModal from "../components/PatchHistoryModal";
+import SyncReportPanel from "../components/SyncReportPanel";
+import ConfirmDialog from "../components/ConfirmDialog";
+import HowItWorks from "../components/HowItWorks";
 
 const TABS = [
   { key: "general", labelKey: "settings_tab_general" },
   { key: "accounts", labelKey: "settings_tab_accounts" },
+  { key: "sync", labelKey: "settings_tab_sync" },
 ];
 
 // Resoluções mais comuns — filtradas em runtime (ver maxSize/useEffect
@@ -46,10 +50,25 @@ export default function Settings({
   onCreate,
   onUpdateRiotAccount,
   onDelete,
+  syncReport,
+  // Manutenção — vivia toda no cabeçalho, ao lado do Sincronizar, e era
+  // exactamente isso que fazia o Sincronizar passar despercebido: três botões
+  // parecidos em fila, sem hierarquia nenhuma entre "o que se usa todos os
+  // dias" e "o que se usa quando algo correu mal". Ver a aba Sincronização.
+  syncStatus,
+  missingEnrichmentCount = 0,
+  onEnrich,
+  missingWinsCount = 0,
+  onRepairWins,
+  canRepairAll = false,
+  onRepairAll,
+  onStartTour,
 }) {
   const { t } = useLanguage();
   const [tab, setTab] = useState(initialTab);
   const [showPatchHistory, setShowPatchHistory] = useState(false);
+  const [showQuitConfirm, setShowQuitConfirm] = useState(false);
+  const [showHowItWorks, setShowHowItWorks] = useState(false);
 
   // ================= RESOLUÇÃO / ECRÃ INTEIRO =================
   // "maxSize" é a área útil do ecrã onde a janela está agora (não sempre o
@@ -111,6 +130,41 @@ export default function Settings({
     setIsFullScreen(value);
   };
 
+  // ================= SEGUNDO PLANO / ARRANQUE COM O WINDOWS =================
+  // O processo principal é a fonte da verdade nos dois (o arranque automático
+  // vive no registo do Windows e pode ser desligado por fora, ver isAutoLaunch
+  // em electron/background.js), por isso cada ação devolve o estado real e é
+  // esse que se guarda — nunca o que se pediu.
+  const [background, setBackground] = useState({ backgroundMode: false, autoLaunch: false });
+  const [overlayOn, setOverlayOn] = useState(false);
+
+  useEffect(() => {
+    window.electron?.getBackgroundSettings?.().then(setBackground);
+    window.electron?.isOverlayEnabled?.().then(setOverlayOn);
+  }, []);
+
+  const applyOverlay = async (value) => {
+    const next = await window.electron?.setOverlayEnabled?.(value);
+    setOverlayOn(!!next);
+  };
+
+  // As etiquetas do menu da bandeja vivem no processo principal (que não tem
+  // acesso ao i18n do renderer) — enviamo-las sempre que o idioma muda, para o
+  // menu não ficar preso na língua que estava quando a app arrancou.
+  useEffect(() => {
+    window.electron?.setTrayLabels?.({ open: t("tray_open"), quit: t("tray_quit") });
+  }, [lang]);
+
+  const applyBackgroundMode = async (value) => {
+    const next = await window.electron?.setBackgroundMode?.(value);
+    if (next) setBackground(next);
+  };
+
+  const applyAutoLaunch = async (value) => {
+    const next = await window.electron?.setAutoLaunch?.(value);
+    if (next) setBackground(next);
+  };
+
   return (
     <motion.div
       style={styles.backdrop}
@@ -153,6 +207,27 @@ export default function Settings({
         {tab === "general" && (
           <div style={styles.generalList}>
             <div style={styles.generalHint}>{t("settings_general_hint")}</div>
+
+            {/* Primeiro da lista de propósito: é o que uma pessoa que abre as
+                Definições sem saber bem o que procura deve encontrar antes de
+                tudo o resto. */}
+            <div style={styles.row}>
+              <div style={styles.rowText}>
+                <div style={styles.rowLabel}>{t("settings_how_label")}</div>
+                <div style={styles.rowHint}>{t("settings_how_hint")}</div>
+              </div>
+              <div style={styles.howBtns}>
+                {onStartTour && (
+                  <button onClick={onStartTour} style={styles.linkBtn}>
+                    {t("settings_tour_btn")}
+                  </button>
+                )}
+                <button onClick={() => setShowHowItWorks(true)} style={styles.linkBtn}>
+                  <BookOpen size={13} strokeWidth={2.25} style={{ marginRight: 5, verticalAlign: -2 }} />
+                  {t("settings_how_btn")}
+                </button>
+              </div>
+            </div>
             <div style={styles.row}>
               <div style={styles.rowLabel}>{t("language_label")}</div>
               <div style={styles.segGroup}>
@@ -252,13 +327,136 @@ export default function Settings({
                 </div>
 
                 <div style={styles.row}>
+                  <div style={styles.rowText}>
+                    <div style={styles.rowLabel}>{t("settings_background_label")}</div>
+                    <div style={styles.rowHint}>{t("settings_background_hint")}</div>
+                  </div>
+                  <div style={styles.segGroup}>
+                    <button
+                      onClick={() => applyBackgroundMode(false)}
+                      style={{ ...styles.segBtn, ...(!background.backgroundMode ? styles.segBtnActive : null) }}
+                    >
+                      {t("settings_off")}
+                    </button>
+                    <button
+                      onClick={() => applyBackgroundMode(true)}
+                      style={{ ...styles.segBtn, ...(background.backgroundMode ? styles.segBtnActive : null) }}
+                    >
+                      {t("settings_on")}
+                    </button>
+                  </div>
+                </div>
+
+                <div style={styles.row}>
+                  <div style={styles.rowText}>
+                    <div style={styles.rowLabel}>{t("settings_overlay_label")}</div>
+                    <div style={styles.rowHint}>{t("settings_overlay_hint")}</div>
+                  </div>
+                  <div style={styles.segGroup}>
+                    <button
+                      onClick={() => applyOverlay(false)}
+                      style={{ ...styles.segBtn, ...(!overlayOn ? styles.segBtnActive : null) }}
+                    >
+                      {t("settings_off")}
+                    </button>
+                    <button
+                      onClick={() => applyOverlay(true)}
+                      style={{ ...styles.segBtn, ...(overlayOn ? styles.segBtnActive : null) }}
+                    >
+                      {t("settings_on")}
+                    </button>
+                  </div>
+                </div>
+
+                <div style={styles.row}>
+                  <div style={styles.rowText}>
+                    <div style={styles.rowLabel}>{t("settings_autolaunch_label")}</div>
+                    <div style={styles.rowHint}>{t("settings_autolaunch_hint")}</div>
+                  </div>
+                  <div style={styles.segGroup}>
+                    <button
+                      onClick={() => applyAutoLaunch(false)}
+                      style={{ ...styles.segBtn, ...(!background.autoLaunch ? styles.segBtnActive : null) }}
+                    >
+                      {t("settings_off")}
+                    </button>
+                    <button
+                      onClick={() => applyAutoLaunch(true)}
+                      style={{ ...styles.segBtn, ...(background.autoLaunch ? styles.segBtnActive : null) }}
+                    >
+                      {t("settings_on")}
+                    </button>
+                  </div>
+                </div>
+
+                <div style={styles.row}>
                   <div style={styles.rowLabel}>{t("settings_patch_history_label")}</div>
                   <button onClick={() => setShowPatchHistory(true)} style={styles.linkBtn}>
                     {t("settings_patch_history_btn")}
                   </button>
                 </div>
+
+                {/* Fechar mesmo, ao contrário do X da janela — que com o modo
+                    em segundo plano ligado passa a esconder para a bandeja. */}
+                <div style={styles.row}>
+                  <div style={styles.rowText}>
+                    <div style={styles.rowLabel}>{t("settings_quit_label")}</div>
+                    <div style={styles.rowHint}>{t("settings_quit_hint")}</div>
+                  </div>
+                  <button onClick={() => setShowQuitConfirm(true)} style={styles.dangerBtn}>
+                    <Power size={13} strokeWidth={2.25} />
+                    {t("settings_quit_btn")}
+                  </button>
+                </div>
               </>
             )}
+          </div>
+        )}
+
+        {tab === "sync" && (
+          <div style={styles.syncTab}>
+            <SyncReportPanel report={syncReport} account={activeAccount} />
+
+            <div style={styles.maintenance}>
+              <div style={styles.maintenanceHead}>
+                <div style={styles.rowLabel}>{t("settings_maintenance_title")}</div>
+                <div style={styles.rowHint}>{t("settings_maintenance_hint")}</div>
+              </div>
+
+              {!missingEnrichmentCount && !missingWinsCount && !canRepairAll ? (
+                <div style={styles.rowHint}>{t("settings_maintenance_clean")}</div>
+              ) : (
+                <div style={styles.maintenanceBtns}>
+                  {missingEnrichmentCount > 0 && (
+                    <button
+                      onClick={onEnrich}
+                      disabled={syncStatus?.status === "loading"}
+                      style={styles.linkBtn}
+                    >
+                      {t("enrich_btn")} ({missingEnrichmentCount})
+                    </button>
+                  )}
+                  {missingWinsCount > 0 && (
+                    <button
+                      onClick={onRepairWins}
+                      disabled={syncStatus?.status === "loading"}
+                      style={styles.linkBtn}
+                    >
+                      {t("repair_wins_btn")} ({missingWinsCount})
+                    </button>
+                  )}
+                  {canRepairAll && (
+                    <button
+                      onClick={onRepairAll}
+                      disabled={syncStatus?.status === "loading"}
+                      style={styles.linkBtn}
+                    >
+                      {t("repair_all_btn")}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -275,6 +473,19 @@ export default function Settings({
       </motion.div>
 
       {showPatchHistory && <PatchHistoryModal onClose={() => setShowPatchHistory(false)} />}
+
+      {showHowItWorks && <HowItWorks onClose={() => setShowHowItWorks(false)} />}
+
+      {showQuitConfirm && (
+        <ConfirmDialog
+          title={t("settings_quit_confirm_title")}
+          message={t("settings_quit_confirm_msg")}
+          confirmLabel={t("settings_quit_btn")}
+          danger
+          onConfirm={() => window.electron?.quitApp?.()}
+          onCancel={() => setShowQuitConfirm(false)}
+        />
+      )}
     </motion.div>
   );
 }
@@ -398,6 +609,24 @@ const styles = {
     color: "var(--text-body)",
   },
 
+  // As linhas com explicação por baixo do título (segundo plano, arranque
+  // automático) — sem o minWidth:0 o texto longo empurrava os botões para
+  // fora da linha em vez de quebrar.
+  rowText: {
+    flex: 1,
+    minWidth: 0,
+    display: "flex",
+    flexDirection: "column",
+    gap: 3,
+  },
+
+  rowHint: {
+    fontSize: 10.5,
+    fontWeight: 500,
+    lineHeight: 1.4,
+    color: "var(--text-muted)",
+  },
+
   segGroup: {
     display: "flex",
     gap: 2,
@@ -423,6 +652,42 @@ const styles = {
   segBtnActive: {
     background: "var(--accent-solid)",
     color: "var(--accent-solid-text)",
+  },
+
+  howBtns: { display: "flex", gap: 6, flexShrink: 0 },
+
+  syncTab: { display: "flex", flexDirection: "column", gap: 14 },
+
+  maintenance: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 9,
+    padding: "12px 14px",
+    borderRadius: "var(--radius-lg)",
+    background: "rgba(var(--panel-deep-rgb),0.85)",
+    border: "1px solid rgba(var(--accent-rgb),0.15)",
+  },
+
+  maintenanceHead: { display: "flex", flexDirection: "column", gap: 3 },
+
+  maintenanceBtns: { display: "flex", flexWrap: "wrap", gap: 6 },
+
+  // Vermelho, ao contrário do "linkBtn" — é a única ação nas Definições que
+  // tira a app do ecrã, e não deve parecer só mais um botão da lista.
+  dangerBtn: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    padding: "6px 14px",
+    borderRadius: "var(--radius-md)",
+    border: "1px solid color-mix(in srgb, var(--place-low) 45%, transparent)",
+    background: "color-mix(in srgb, var(--place-low) 14%, transparent)",
+    color: "var(--place-low)",
+    cursor: "pointer",
+    fontSize: 12,
+    fontWeight: 600,
+    fontFamily: "Cinzel, serif",
+    whiteSpace: "nowrap",
   },
 
   linkBtn: {

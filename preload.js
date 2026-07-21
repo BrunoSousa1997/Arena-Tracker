@@ -19,6 +19,24 @@ contextBridge.exposeInMainWorld("electron", {
     return () => ipcRenderer.removeListener("window:fullScreenChanged", listener);
   },
 
+  // Modo em segundo plano / arranque com o Windows — ver electron/background.js.
+  quitApp: () => ipcRenderer.invoke("app:quit"),
+
+  // Sobreposição no jogo — ver electron/overlay.js.
+  isOverlayEnabled: () => ipcRenderer.invoke("overlay:isEnabled"),
+  setOverlayEnabled: (value) => ipcRenderer.invoke("overlay:setEnabled", value),
+  updateOverlay: (data) => ipcRenderer.invoke("overlay:update", data),
+  notifyOverlayReady: () => ipcRenderer.invoke("overlay:ready"),
+  onOverlayData: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("overlay:data", listener);
+    return () => ipcRenderer.removeListener("overlay:data", listener);
+  },
+  getBackgroundSettings: () => ipcRenderer.invoke("background:getSettings"),
+  setBackgroundMode: (value) => ipcRenderer.invoke("background:setBackgroundMode", value),
+  setAutoLaunch: (value) => ipcRenderer.invoke("background:setAutoLaunch", value),
+  setTrayLabels: (labels) => ipcRenderer.invoke("background:setTrayLabels", labels),
+
   getVersion: () => ipcRenderer.invoke("app:getVersion"),
   checkForUpdates: () => ipcRenderer.invoke("updater:check"),
   installUpdate: () => ipcRenderer.invoke("updater:install"),

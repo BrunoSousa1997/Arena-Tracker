@@ -768,21 +768,3 @@ export function subscribeToInvites(username, onChange) {
 
   return () => supabase.removeChannel(channel);
 }
-
-// Convites que ESTA conta enviou (não recebeu) — só usado para a
-// confirmação "convite enviado" nas notificações (ver useNotifications.js).
-// Canal à parte de subscribeToInvites: cada canal do Realtime só filtra por
-// UMA coluna, por isso "de quem enviei" e "quem me convidou" não cabem na
-// mesma subscrição.
-export function subscribeToSentInvites(username, onChange) {
-  const channel = supabase
-    .channel(uniqueChannelName(`invites-sent-${username}`))
-    .on(
-      "postgres_changes",
-      { event: "INSERT", schema: "public", table: "challenge_invites", filter: `from_username=eq.${username}` },
-      onChange
-    )
-    .subscribe();
-
-  return () => supabase.removeChannel(channel);
-}

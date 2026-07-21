@@ -251,6 +251,55 @@ export function scoreGame(match, { champions, rules = DEFAULT_RULES }) {
   return { total: base * multiplier, base, multiplier, parts };
 }
 
+// As regras efetivas de uma sala. Parte-se sempre das regras por omissão e
+// aplica-se por cima o que ficou guardado em rules_config na criação da sala
+// — nunca se confia só no rules_config, porque um campo que ainda não
+// existisse quando a sala foi criada viria "undefined" e desligava
+// silenciosamente uma regra em vez de a deixar no valor por omissão.
+export function resolveRoomRules(room) {
+  return room?.rules === "custom" && room.rules_config
+    ? { ...DEFAULT_RULES, ...room.rules_config }
+    : DEFAULT_RULES;
+}
+
+// ================= PONTUAÇÃO DE UMA PARTIDA A DECORRER =================
+// Os pontos que uma partida AINDA A DECORRER já vale, a partir do que a Live
+// Client Data dá a cada poll (ver onLiveStats em hooks/useLiveGame.js).
+//
+// É deliberadamente PARCIAL, e quem mostra isto tem de o dizer: a Live Client
+// Data expõe KDA, inventário e as sequências, mas não expõe dano, cura nem
+// dano recebido — três das categorias que o scoreGame conta. O total real da
+// partida só se sabe depois de sincronizar, e é sempre MAIOR do que este
+// (as três em falta nunca são negativas). Por isso o campo devolvido chama-se
+// "partial" e não "total": um número apresentado como final que depois sobe
+// sozinho lê-se como um bug, mesmo quando é o comportamento correto.
+//
+// Os multikills também ficam de fora pelo mesmo motivo. As streaks entram,
+// porque essas a Live Client Data mede-as ao vivo e são exatamente a mesma
+// lista que o scoreGame usa no fim (ver kill_streaks em scoreGame).
+export function scoreLiveGame(
+  { champion, kills = 0, deaths = 0, assists = 0, killStreaks, assistStreaks, deathStreaks } = {},
+  { champions = [], rules = DEFAULT_RULES } = {}
+) {
+  const deathStreakPenalty = sumStreakBonus(deathStreaks);
+
+  const parts = {
+    kills: kills * SCORE_POINTS.kill,
+    deaths: deaths * SCORE_POINTS.death,
+    assists: assists * SCORE_POINTS.assist,
+    killStreak: sumStreakBonus(killStreaks),
+    assistStreak: sumStreakBonus(assistStreaks),
+    // Mesma precaução do scoreGame: negar 0 dá "-0", que sobrevive ao
+    // JSON.stringify e falha comparações com Object.is.
+    deathStreak: deathStreakPenalty === 0 ? 0 : -deathStreakPenalty,
+  };
+
+  const base = Object.values(parts).reduce((sum, v) => sum + v, 0);
+  const multiplier = rules.classHandicap ? classMultiplier(champion, champions) : 1;
+
+  return { partial: base * multiplier, base, multiplier, parts };
+}
+
 // A partida cruzou com algum dos outros jogadores do desafio? (regra especial
 // "só jogos onde não estão os dois"). Compara por puuid (estável) e cai para o
 // nome Riot quando a linha em cache é antiga e ainda não tem puuid por

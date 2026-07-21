@@ -574,3 +574,50 @@ select:hover {
   transform: translateY(-2px);
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.3);
 }
+/* ================= CABEÇALHO RESPONSIVO =================
+   O cabeçalho é a única parte da app que tem de caber SEMPRE, seja qual for
+   a largura da janela: as tabs, o resumo e o Sincronizar não são conteúdo
+   que se possa deixar rolar para o lado. A janela vai de 900px (o mínimo
+   imposto em electron/window.js) até um ecrã ultrawide, e a 900px a fila de
+   8 tabs com texto + o filtro de formato + a marca + a conta + o Sincronizar
+   não cabem na mesma largura — alguma coisa tem de ceder, e é melhor
+   decidirmos nós o quê do que deixar a linha rebentar.
+
+   Isto vive em CSS e não nos estilos inline do App.jsx por um motivo
+   simples: media queries não existem em estilos inline. As regras abaixo
+   tocam SÓ em propriedades que o App.jsx não define inline (display,
+   max-width) — estilos inline ganham sempre à folha de estilo, e a
+   alternativa era encher isto de !important.
+
+   A ordem por que as coisas cedem, da menos à mais custosa:
+     1. a legenda do último sync (é repetível nas Definições);
+     2. o nome "Arena Tracker" (o logótipo fica, a identidade não se perde);
+     3. o texto das tabs (o ícone fica, e o botão mantém o title com o nome).
+   O que NUNCA cede: os números do resumo, o botão Sincronizar, e a
+   existência das 8 tabs. Esconder uma tab era esconder funcionalidade. */
+
+/* O texto de cada tab. Escondê-lo deixa o ícone centrado e o botão estreito,
+   que é o que permite às 8 caberem lado a lado numa janela pequena. */
+.at-tab-label {
+  display: inline;
+}
+
+/* Não é preciso mexer no espaço entre o ícone e o texto: o botão separa-os
+   com "gap", e um gap com um só filho visível não ocupa nada. */
+@media (max-width: 1180px) {
+  .at-tab-label {
+    display: none;
+  }
+}
+
+@media (max-width: 1060px) {
+  .at-brand-name {
+    display: none;
+  }
+}
+
+@media (max-width: 960px) {
+  .at-sync-caption {
+    display: none;
+  }
+}

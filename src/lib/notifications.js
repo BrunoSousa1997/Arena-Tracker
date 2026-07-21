@@ -57,6 +57,11 @@ export function makeNotification(event) {
     color: event.color,
     title: event.title,
     body: event.body,
+    // Dados de que o toast precisa para AGIR, não só para avisar (ver
+    // AchievementToasts.jsx). Só os convites de desafio o preenchem, com
+    // { kind: "invite", inviteId, roomId, roomName } — o resto das
+    // notificações é puramente informativo e deixa isto a undefined.
+    action: event.action,
     at: Date.now(),
     read: false,
   };

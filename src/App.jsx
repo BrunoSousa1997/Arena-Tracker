@@ -1,19 +1,21 @@
-import React, { useEffect, useState, useMemo, useRef } from "react";
-import { addWin } from "./db/api";
+import { useEffect, useState, useMemo, useRef } from "react";
+import { addWin, respondToInvite, joinRoom } from "./db/api";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard,
-  Trophy,
-  ScrollText,
-  TrendingUp,
+  LayoutGrid,
+  History,
+  ChartColumn,
   Award,
   Info,
   Settings as SettingsIcon,
   X,
   RotateCw,
   Search,
+  Scale,
   Swords,
-  Users,
+  Sparkles,
+  Crosshair,
 } from "lucide-react";
 import UpdateNotifier from "./components/UpdateNotifier";
 import Loading from "./components/Loading";
@@ -21,6 +23,11 @@ import Facets from "./components/Facets";
 import Overview from "./views/Overview";
 import MatchHistory from "./views/MatchHistory";
 import MatchReports from "./views/MatchReports";
+import Augments from "./views/Augments";
+import InGame from "./views/InGame";
+import Welcome from "./components/Welcome";
+import TabTour from "./components/TabTour";
+import HowItWorks from "./components/HowItWorks";
 import Achievements from "./views/Achievements";
 import Compare from "./views/Compare";
 import Challenges from "./views/Challenges";
@@ -39,17 +46,41 @@ import { useLiveGame } from "./hooks/useLiveGame";
 import { useRiotSync } from "./hooks/useRiotSync";
 import { useNotifications } from "./hooks/useNotifications";
 
+// Marcas de "isto já foi mostrado uma vez" (ver PRIMEIRA UTILIZAÇÃO). Ficam
+// em localStorage e não na Supabase de propósito: descrevem o que ESTE
+// computador já mostrou a quem está sentado à frente dele, não um dado da
+// conta — quem instala a app noutro sítio merece a apresentação de novo.
+const WELCOME_SEEN_KEY = "onboarding-welcome-seen";
+const TOUR_SEEN_KEY = "onboarding-tour-seen";
+
 export default function App() {
   const { t, lang, setLang } = useLanguage();
 
+  // Ícones escolhidos para cada tab dizer o que é sem depender da etiqueta, e
+  // para nenhum par se confundir entre si:
+  //  - as espadas passaram de Comparar para Desafios, que é onde um duelo
+  //    entre pessoas faz sentido; Comparar fica com a balança, que é o
+  //    símbolo universal de pôr duas coisas lado a lado;
+  //  - a Coleção tinha um troféu e as Conquistas um louro — dois prémios
+  //    quase iguais a dois botões de distância. A Coleção é uma grelha de
+  //    campeões a preencher, por isso fica com a grelha, e o prémio passa a
+  //    ser só das Conquistas;
+  //  - o Histórico troca o pergaminho pelo relógio (é uma lista cronológica,
+  //    não um texto) e as Estatísticas trocam a seta de tendência pelas
+  //    barras (é uma tabela de números, não uma métrica a subir).
+  // "Em Jogo" NÃO está aqui de propósito: é a única vista que só faz sentido
+  // com uma partida a decorrer, e uma tab permanente para ela ficava morta a
+  // maior parte do tempo. Vive como botão ao lado do Sincronizar e só aparece
+  // enquanto se está mesmo em jogo (ver liveSessionActive na topBar).
   const TABS = [
     { key: "overview", icon: LayoutDashboard, label: t("tab_overview") },
-    { key: "wins", icon: Trophy, label: t("tab_wins") },
-    { key: "history", icon: ScrollText, label: t("tab_history") },
-    { key: "stats", icon: TrendingUp, label: t("tab_stats") },
+    { key: "wins", icon: LayoutGrid, label: t("tab_wins") },
+    { key: "history", icon: History, label: t("tab_history") },
+    { key: "stats", icon: ChartColumn, label: t("tab_stats") },
+    { key: "augments", icon: Sparkles, label: t("tab_augments") },
     { key: "achievements", icon: Award, label: t("tab_achievements") },
-    { key: "compare", icon: Swords, label: t("tab_compare") },
-    { key: "challenges", icon: Users, label: t("tab_challenges") },
+    { key: "compare", icon: Scale, label: t("tab_compare") },
+    { key: "challenges", icon: Swords, label: t("tab_challenges") },
   ];
 
   // Formato (Todos/2v2/3v3) — agora ao lado das tabs, na mesma linha (ver
@@ -62,8 +93,16 @@ export default function App() {
     { key: 3, label: t("format_3v3_short"), full: t("format_3v3") },
   ];
 
-  const { patch, patchFailed, champions, augmentsMap, summonerSpellsMap, itemsMap, DRAGON } =
-    useStaticData();
+  const {
+    patch,
+    patchFailed,
+    champions,
+    augmentsMap,
+    summonerSpellsMap,
+    itemsMap,
+    itemTiersMap,
+    DRAGON,
+  } = useStaticData();
 
   // Campeão a destacar/abrir automaticamente nas Estatísticas quando se
   // clica num atalho da Visão Geral (ver goToChampionStats mais abaixo).
@@ -100,7 +139,48 @@ export default function App() {
     updateRiotAccountFor,
     deleteAccount,
     switchAccount: switchAccountRaw,
-  } = useAccounts({ onNeedsAccountSetup: () => openSettings("accounts") });
+  } = useAccounts({
+    // Sem conta nenhuma: da primeira vez mostra-se o ecrã de boas-vindas; se
+    // já foi visto (e a pessoa continua sem conta), vai-se direto ao
+    // formulário, que é o comportamento de sempre.
+    onNeedsAccountSetup: () =>
+      localStorage.getItem(WELCOME_SEEN_KEY) ? openSettings("accounts") : setShowWelcome(true),
+  });
+
+  // ================= PRIMEIRA UTILIZAÇÃO =================
+  // Duas peças, cada uma mostrada uma única vez (marcadas em localStorage):
+  //  1. Welcome — sem nenhuma conta ligada. Antes a app abria de imediato o
+  //     modal de Definições na aba Contas: o formulário certo, mas sem uma
+  //     palavra sobre o que era aquilo. Agora explica-se primeiro, e é o
+  //     botão do próprio ecrã que leva ao formulário.
+  //  2. TabTour — quando a primeira conta passa a existir. Vai abrindo cada
+  //     tab enquanto a descreve, com os dados reais já lá dentro.
+  const [showWelcome, setShowWelcome] = useState(false);
+  const [tourStep, setTourStep] = useState(null); // null = visita não está a correr
+  const [showGuide, setShowGuide] = useState(false);
+
+  const finishTour = () => {
+    setTourStep(null);
+    localStorage.setItem(TOUR_SEEN_KEY, "1");
+  };
+
+  const dismissWelcome = () => {
+    setShowWelcome(false);
+    localStorage.setItem(WELCOME_SEEN_KEY, "1");
+  };
+
+  // A visita arranca quando a primeira conta aparece — não no arranque da
+  // app. Antes de haver conta não há tab nenhuma com conteúdo para mostrar, e
+  // uma visita guiada a ecrãs vazios não ensina nada.
+  const hadAccountRef = useRef(false);
+  useEffect(() => {
+    if (!accounts.length) return;
+    const first = !hadAccountRef.current;
+    hadAccountRef.current = true;
+    if (first && !localStorage.getItem(TOUR_SEEN_KEY) && localStorage.getItem(WELCOME_SEEN_KEY)) {
+      setTourStep(0);
+    }
+  }, [accounts.length]);
 
   // Fecha as Definições no mesmo instante em que a troca de conta se torna
   // visível — ver comentário em switchAccount, useAccounts.js.
@@ -109,6 +189,7 @@ export default function App() {
   const {
     syncStatus,
     setSyncStatus,
+    syncReport,
     showRepairAllConfirm,
     setShowRepairAllConfirm,
     latestMatchTimestamp,
@@ -121,9 +202,35 @@ export default function App() {
   // "top 3" e os baldes de lugar não significam o mesmo nos dois formatos,
   // por isso o resumo/estatísticas podem ser filtrados para um só formato.
   // "all" = sem filtro, 2 = equipas de 2 (8 equipas), 3 = equipas de 3 (6 equipas).
-  const [teamSizeFilter, setTeamSizeFilter] = useState("all");
+  // Persistidos, tal como o tema e o idioma: reabrir a app e encontrá-la
+  // exatamente como se deixou é o comportamento que se espera de qualquer
+  // preferência. O filtro guarda-se como texto ("all"/"2"/"3") e volta a
+  // número quando é um formato, porque é assim que se compara com team_size.
+  const [teamSizeFilter, setTeamSizeFilter] = useState(() => {
+    const saved = localStorage.getItem("team-size-filter");
+    if (saved === "2" || saved === "3") return Number(saved);
+    return "all";
+  });
 
-  const [view, setView] = useState("overview");
+  useEffect(() => {
+    localStorage.setItem("team-size-filter", String(teamSizeFilter));
+  }, [teamSizeFilter]);
+
+  // Validado contra as tabs que existem AGORA: uma versão futura pode remover
+  // ou renomear uma tab, e restaurar uma chave que já não existe deixaria a
+  // app aberta num ecrã vazio, sem nada a indicar porquê.
+  const [view, setView] = useState(() => {
+    const saved = localStorage.getItem("last-view");
+    return TABS.some((tb) => tb.key === saved) ? saved : "overview";
+  });
+
+  // "ingame" nunca é guardada: não é uma tab da barra e só existe enquanto há
+  // partida, por isso restaurá-la no arranque seguinte abria a app numa vista
+  // sem partida nenhuma e sem botão que a explicasse. (O restauro acima já a
+  // filtrava por não estar em TABS — não a escrever poupa o ida e volta.)
+  useEffect(() => {
+    if (view !== "ingame") localStorage.setItem("last-view", view);
+  }, [view]);
 
   // Ao trocar de tab, os dados (matches/wins/champions) já estão todos em
   // memória — não há nada "a carregar" de verdade. Mesmo assim, mostrar o
@@ -166,6 +273,7 @@ export default function App() {
     setMatches,
     setWins,
     lang,
+    DRAGON,
     onAutoSync: syncActiveAccount,
   });
 
@@ -185,14 +293,68 @@ export default function App() {
       t,
     });
 
-  const goToChampionInCollection = (championId) => {
-    const name = champions.find((c) => c.id === championId)?.name || "";
-    setView("wins");
-    setSearch(name);
+  // ================= RESPONDER A UM CONVITE DIRETO DO TOAST =================
+  // Aceitar um desafio implicava ir de propósito à tab Desafios e procurar o
+  // convite na lista — mas o aviso já está no ecrã no momento em que chega, e
+  // é aí que faz sentido decidir. Aceitar entra mesmo na sala e leva-nos para
+  // lá; a tab Desafios lê o estado do zero ao montar (ver loadState em
+  // Challenges.jsx), por isso encontra a sala já com esta conta lá dentro sem
+  // precisar de nenhuma comunicação entre os dois.
+  const handleInviteResponse = async (toast, accepted) => {
+    const action = toast?.action;
+    if (!action?.inviteId) return;
+
+    await respondToInvite(action.inviteId, accepted ? "accepted" : "declined");
+    if (!accepted) return;
+
+    const account = accounts.find((a) => a.username === activeAccount);
+    const res = await joinRoom(action.roomId, activeAccount, {
+      riotGameName: account?.riotAccount,
+      riotTagLine: account?.riotTag,
+    });
+
+    // Entrar pode falhar por motivos legítimos (a sala encheu ou já arrancou
+    // entretanto) — nesse caso vamos à mesma para a tab, que mostra o estado
+    // real e a mensagem correspondente, em vez de ficar tudo em silêncio.
+    if (!res.success) console.warn("[invite] falhou entrar na sala:", res.error);
+    setView("challenges");
+  };
+
+  // De onde se veio ao abrir o Em Jogo, para lá voltar quando a partida
+  // acabar (ver o efeito abaixo). Sem isto, o fim do jogo deixava a app numa
+  // vista que já não tem botão nenhum a apontar para ela — nem na barra de
+  // tabs, porque o Em Jogo não é uma delas.
+  const viewBeforeInGame = useRef("overview");
+
+  // Clicar no banner da partida a decorrer abre o Em Jogo, que é o
+  // desenvolvimento do próprio banner: tem o que ele mostra e mais o que não
+  // cabe num cartão flutuante (augments, core da build, pontos do desafio).
+  // Antes levava à Coleção com o campeão pesquisado — resposta a "já ganhei
+  // com este?", que continua a estar no banner e agora também no cabeçalho
+  // da vista, e que era pouco para um clique feito a meio de uma partida.
+  const goToInGameTab = () => {
+    // Sem partida a decorrer não se vai a lado nenhum. O banner continua
+    // clicável depois de o jogo acabar (fica a mostrar o resultado), e sem
+    // esta guarda esse clique abria a vista para o efeito abaixo a fechar no
+    // render seguinte — um piscar sem explicação nenhuma para quem clicou.
+    if (!liveSessionActive) return;
+
+    if (view !== "ingame") viewBeforeInGame.current = view;
+    setView("ingame");
     // Esconde (não destrói): a partida continua a decorrer, por isso o botão
     // no cabeçalho tem de conseguir trazer o banner de volta.
     setLiveBannerHidden(true);
   };
+
+  // Acabou a partida: o Em Jogo deixa de ter dados ao vivo e o botão que lá
+  // levava desaparece, por isso quem lá estiver volta a onde estava. O
+  // resultado final não se perde — continua no banner, com o lembrete para
+  // sincronizar (ver liveChampionAlert.gameEnded).
+  useEffect(() => {
+    if (!liveSessionActive && view === "ingame") {
+      setView(viewBeforeInGame.current || "overview");
+    }
+  }, [liveSessionActive, view]);
 
   // Atalho usado pelos destaques da Visão Geral — abre a tab de Estatísticas
   // já ordenada pela métrica do cartão em que se clicou (ver highlightChampion
@@ -460,9 +622,36 @@ export default function App() {
 
       <UpdateNotifier />
 
-      {/* Avisos momentâneos de conquistas novas — renderizam-se num portal
-          (ver AchievementToasts), por isso o sítio na árvore é indiferente. */}
-      <AchievementToasts toasts={toasts} onDismiss={dismissToast} />
+      {/* Avisos momentâneos de conquistas novas (e convites de desafio, esses
+          com botões para responder logo ali) — renderizam-se num portal (ver
+          AchievementToasts), por isso o sítio na árvore é indiferente. */}
+      <AchievementToasts
+        toasts={toasts}
+        onDismiss={dismissToast}
+        onInviteResponse={handleInviteResponse}
+      />
+
+      {showWelcome && (
+        <Welcome
+          onAddAccount={() => {
+            dismissWelcome();
+            openSettings("accounts");
+          }}
+          onOpenGuide={() => setShowGuide(true)}
+          onDismiss={dismissWelcome}
+        />
+      )}
+
+      {showGuide && <HowItWorks onClose={() => setShowGuide(false)} />}
+
+      {tourStep !== null && (
+        <TabTour
+          stepIndex={tourStep}
+          onStepChange={setTourStep}
+          onSelectTab={setView}
+          onFinish={finishTour}
+        />
+      )}
 
       <AnimatePresence>
         {liveChampionAlert && !liveBannerHidden && (
@@ -495,12 +684,12 @@ export default function App() {
             onClick={() => {
               // Largar o rato no fim de um arrasto também dispara "click" —
               // se o gesto moveu a caixa, ignora-se este clique em vez de
-              // navegar para a Coleção sem se querer.
+              // navegar para a tab sem se querer.
               if (liveBannerJustDragged.current) {
                 liveBannerJustDragged.current = false;
                 return;
               }
-              goToChampionInCollection(liveChampionAlert.championId, liveChampionAlert.hasWin);
+              goToInGameTab();
             }}
           >
             {DRAGON && (
@@ -624,7 +813,9 @@ export default function App() {
           <div style={styles.topBarLeft}>
             <div style={styles.brandBox}>
               <img src="./logo.ico" style={styles.brandLogo} />
-              <span style={styles.brandName}>Arena Tracker</span>
+              <span className="at-brand-name" style={styles.brandName}>
+                Arena Tracker
+              </span>
               <Tooltip label={t("riot_disclaimer")}>
                 <span style={styles.infoIcon}>
                   <Info size={13} strokeWidth={2.25} />
@@ -648,6 +839,28 @@ export default function App() {
           </div>
 
           <div style={styles.topBarRight}>
+            {/* O "Em Jogo" vive aqui, ao lado do Sincronizar, e não na barra
+                de tabs: é a única vista que depende de haver uma partida a
+                decorrer, e uma tab permanente para ela ficava desligada a
+                maior parte do tempo. Aparece e desaparece com a partida — o
+                ponto a pulsar é o mesmo sinal que o botão de reabrir o banner
+                usa, para as duas coisas se lerem como o mesmo estado. */}
+            {activeAccount && liveSessionActive && (
+              <Tooltip label={t("ingame_btn_tooltip")}>
+                <button
+                  onClick={goToInGameTab}
+                  style={{
+                    ...styles.inGameBtn,
+                    ...(view === "ingame" ? styles.inGameBtnActive : null),
+                  }}
+                >
+                  <span style={styles.inGameBtnDot} />
+                  <Crosshair size={13} strokeWidth={2.25} />
+                  {t("tab_ingame")}
+                </button>
+              </Tooltip>
+            )}
+
             {activeAccount && (
               <div style={styles.syncBox}>
                 <div style={styles.syncTopRow}>
@@ -660,12 +873,27 @@ export default function App() {
                       Erros/progresso continuam sempre visíveis. */}
                   {(!headerCompact || syncStatus?.status) && (
                     <div
+                      // Sem classe quando há estado a reportar: a regra que a
+                      // esconde em janelas estreitas não pode engolir uma
+                      // mensagem de erro ou o progresso de uma sincronização.
+                      className={syncStatus?.status ? undefined : "at-sync-caption"}
                       style={{
                         ...styles.syncCaption,
                         color: syncStatus?.status === "error" ? "var(--place-low)" : "var(--text-muted)",
                       }}
                     >
-                      {syncStatus?.status ? syncStatus.message : `${t("last_sync")}: ${lastSyncLabel}`}
+                      {/* Duas forças em vez de uma cinzenta só: a etiqueta
+                          pode ser fraca (lê-se uma vez e sabe-se sempre o que
+                          é), a hora é o que se vem cá ver. Tudo com o mesmo
+                          tom, era preciso parar para a encontrar. */}
+                      {syncStatus?.status ? (
+                        syncStatus.message
+                      ) : (
+                        <>
+                          {t("last_sync")}{" "}
+                          <span style={styles.syncCaptionValue}>{lastSyncLabel}</span>
+                        </>
+                      )}
                     </div>
                   )}
                   <div style={styles.syncBtnRow}>
@@ -688,43 +916,13 @@ export default function App() {
                         )}
                       </button>
                     </Tooltip>
-                    {missingEnrichmentCount > 0 && (
-                      <Tooltip
-                        label={t("enrich_history_tooltip").replace("{count}", missingEnrichmentCount)}
-                      >
-                        <button
-                          onClick={() => enrichHistory()}
-                          style={styles.syncAllBtn}
-                          disabled={syncStatus?.status === "loading"}
-                        >
-                          {t("enrich_btn")} ({missingEnrichmentCount})
-                        </button>
-                      </Tooltip>
-                    )}
-                    {missingWinsChampions.length > 0 && (
-                      <Tooltip
-                        label={t("repair_wins_tooltip").replace("{count}", missingWinsChampions.length)}
-                      >
-                        <button
-                          onClick={repairWins}
-                          style={styles.syncAllBtn}
-                          disabled={syncStatus?.status === "loading"}
-                        >
-                          {t("repair_wins_btn")} ({missingWinsChampions.length})
-                        </button>
-                      </Tooltip>
-                    )}
-                    {matches.some((m) => m.riot_match_id) && (
-                      <Tooltip label={t("repair_all_tooltip")}>
-                        <button
-                          onClick={() => setShowRepairAllConfirm(true)}
-                          style={styles.syncAllBtn}
-                          disabled={syncStatus?.status === "loading"}
-                        >
-                          {t("repair_all_btn")}
-                        </button>
-                      </Tooltip>
-                    )}
+                    {/* As ferramentas de manutenção (completar dados, reparar
+                        vitórias, reparar dados) estavam aqui, em fila com o
+                        Sincronizar e com o mesmo peso visual — e era isso que
+                        fazia o Sincronizar, que é a única ação do dia a dia,
+                        desaparecer no meio delas. Passaram para Definições →
+                        Sincronização, junto ao relatório que diz quando é que
+                        fazem falta. */}
                   </div>
                 </div>
                 {syncStatus?.status === "loading" && (
@@ -815,11 +1013,14 @@ export default function App() {
                         transition={{ type: "spring", stiffness: 480, damping: 34 }}
                       />
                     )}
-                    <span style={styles.tabBtnLabel}>
+                    {/* O título nativo é o que salva o botão quando a janela
+                        é estreita e o texto desaparece (ver .at-tab-label em
+                        index.css): sem ele ficavam 8 ícones sem nome. */}
+                    <span style={styles.tabBtnLabel} title={tab.label}>
                       <span style={styles.tabBtnIcon}>
                         <tab.icon size={14} strokeWidth={2.25} />
                       </span>
-                      {tab.label}
+                      <span className="at-tab-label">{tab.label}</span>
                     </span>
                   </button>
                 );
@@ -829,35 +1030,33 @@ export default function App() {
             <div style={styles.navDivider} />
 
             <div style={styles.formatBar}>
-              {FORMAT_OPTIONS.map((opt, i) => {
+              {FORMAT_OPTIONS.map((opt) => {
                 const isActive = teamSizeFilter === opt.key;
                 return (
-                  <React.Fragment key={opt.key}>
-                    {/* Divisória fina entre os 3 botões — antes só havia o
-                        pequeno "gap", sem nada a separar visualmente cada
-                        opção. */}
-                    {i > 0 && <div style={styles.formatBtnDivider} />}
-                    <Tooltip label={opt.full} style={styles.formatBtnWrap}>
-                      <button
-                        className="formatSegBtn"
-                        onClick={() => setTeamSizeFilter(opt.key)}
-                        style={{
-                          ...styles.formatBtn,
-                          padding: headerCompact ? "4px 10px" : "6px 10px",
-                          color: isActive ? "var(--accent-solid-text)" : "var(--text-secondary)",
-                        }}
-                      >
-                        {isActive && (
-                          <motion.div
-                            layoutId="formatIndicator"
-                            style={styles.formatIndicator}
-                            transition={{ type: "spring", stiffness: 480, damping: 34 }}
-                          />
-                        )}
-                        <span style={styles.formatBtnLabel}>{opt.label}</span>
-                      </button>
-                    </Tooltip>
-                  </React.Fragment>
+                  // As divisórias entre os três botões saíram: agora o grupo
+                  // tem fundo próprio (ver formatBar) e o marcador da opção
+                  // ativa desliza por cima dele — com as duas coisas, os
+                  // traços passaram a ser ruído.
+                  <Tooltip key={opt.key} label={opt.full} style={styles.formatBtnWrap}>
+                    <button
+                      className="formatSegBtn"
+                      onClick={() => setTeamSizeFilter(opt.key)}
+                      style={{
+                        ...styles.formatBtn,
+                        padding: headerCompact ? "4px 10px" : "6px 10px",
+                        color: isActive ? "var(--accent-solid-text)" : "var(--text-secondary)",
+                      }}
+                    >
+                      {isActive && (
+                        <motion.div
+                          layoutId="formatIndicator"
+                          style={styles.formatIndicator}
+                          transition={{ type: "spring", stiffness: 480, damping: 34 }}
+                        />
+                      )}
+                      <span style={styles.formatBtnLabel}>{opt.label}</span>
+                    </button>
+                  </Tooltip>
                 );
               })}
             </div>
@@ -960,6 +1159,26 @@ export default function App() {
                 augmentsMap={augmentsMap}
                 itemsMap={itemsMap}
                 highlightChampion={statsHighlightChampion}
+              />
+            )}
+
+            {view === "augments" && (
+              <Augments matches={statsMatches} augmentsMap={augmentsMap} />
+            )}
+
+            {/* "matches" e não "statsMatches": o filtro de formato (2v2/3v3)
+                da barra de cima não se aplica aqui. A partida a decorrer tem
+                o formato que tem, e filtrar por outro dava recomendações de
+                um formato diferente daquele em que se está a jogar. */}
+            {view === "ingame" && (
+              <InGame
+                matches={matches}
+                champions={champions}
+                augmentsMap={augmentsMap}
+                itemsMap={itemsMap}
+                itemTiersMap={itemTiersMap}
+                DRAGON={DRAGON}
+                liveChampionAlert={liveChampionAlert}
               />
             )}
 
@@ -1168,6 +1387,18 @@ export default function App() {
           onCreate={createAccountFromManager}
           onUpdateRiotAccount={updateRiotAccountFor}
           onDelete={deleteAccount}
+          syncReport={syncReport}
+          syncStatus={syncStatus}
+          missingEnrichmentCount={missingEnrichmentCount}
+          onEnrich={() => enrichHistory()}
+          missingWinsCount={missingWinsChampions.length}
+          onRepairWins={repairWins}
+          canRepairAll={matches.some((m) => m.riot_match_id)}
+          onRepairAll={() => setShowRepairAllConfirm(true)}
+          onStartTour={() => {
+            setShowSettings(false);
+            setTourStep(0);
+          }}
         />
       )}
 
@@ -1348,10 +1579,14 @@ const styles = {
   // topo, antes de qualquer conteúdo real. Passou a viver dentro da própria
   // topBar (logo pequeno + nome), com o aviso legal escondido atrás de um
   // ícone "ⓘ" (tooltip), sem perder a informação mas sem consumir espaço.
+  // minWidth 0 para o nome da conta poder encolher em vez de forçar a linha
+  // a crescer: sem isto, um item flex nunca fica mais pequeno do que o seu
+  // conteúdo e um Riot ID longo empurrava o Sincronizar para fora.
   topBarLeft: {
     display: "flex",
     alignItems: "center",
     gap: 16,
+    minWidth: 0,
   },
 
   brandBox: {
@@ -1412,11 +1647,17 @@ const styles = {
   // opções curtas — Todos/2v2/3v3 — em vez de 5 tabs com texto). Largura
   // fixa para não competir por espaço com as tabs à medida que a janela
   // muda de tamanho.
+  // Fundo próprio, ligeiramente rebaixado. As tabs navegam, isto filtra — são
+  // dois tipos de controlo diferentes e antes só uma linha de 1px os separava,
+  // o que os fazia ler como uma fila de 11 botões em vez de 8 + 3.
   formatBar: {
     display: "flex",
     flexShrink: 0,
-    width: 176,
-    gap: 4,
+    width: 168,
+    gap: 2,
+    padding: 2,
+    borderRadius: 10,
+    background: "rgba(var(--soft-rgb),0.05)",
   },
 
   // O Tooltip embrulha cada botão num <span display:inline-flex> — sem isto,
@@ -1431,12 +1672,6 @@ const styles = {
 
   // Divisória fina entre os 3 botões (Todos/2v2/3v3) — antes só havia o
   // "gap" do formatBar, sem nada a separar visualmente cada opção.
-  formatBtnDivider: {
-    width: 1,
-    alignSelf: "stretch",
-    background: "rgba(var(--border-rgb),0.35)",
-  },
-
   // ".formatSegBtn:hover" (ver index.css) dá um fundo visível ao passar o
   // rato — o filtro global "button:hover { filter: brightness(1.16) }" quase
   // não se nota aqui porque o fundo destes botões é transparente.
@@ -1535,10 +1770,17 @@ const styles = {
 
   // Linha de topo (marca/conta à esquerda, sync/preferências à direita) —
   // já sem fundo/borda própria, porque agora vive dentro do headerShell.
+  // "wrap" como rede de segurança, não como layout: com as regras de
+  // index.css o conteúdo cabe numa linha em qualquer largura permitida pela
+  // janela (mínimo 900px). Mas basta um nome de conta muito longo, ou um
+  // idioma com palavras maiores, para estourar a conta — e passar para a
+  // linha de baixo é sempre melhor do que transbordar para fora do cartão.
   headerRow: {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
+    flexWrap: "wrap",
+    gap: 10,
   },
 
   topBarDivider: {
@@ -1571,12 +1813,25 @@ const styles = {
     flexShrink: 0,
   },
 
-  accountName: { color: "var(--accent-text)", fontWeight: 600, fontSize: 13 },
+  // Um Riot ID pode ser bem mais longo do que cabe no cabeçalho. Corta-se
+  // com reticências em vez de se deixar crescer — o nome completo continua
+  // a uma passagem de rato de distância, no tooltip do próprio botão.
+  accountName: {
+    color: "var(--accent-text)",
+    fontWeight: 600,
+    fontSize: 13,
+    maxWidth: 180,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
 
   // Sem "marginTop" — já não fica numa linha própria por baixo do botão,
   // vive ao lado dele agora (ver syncTopRow). "whiteSpace: nowrap" evita que
   // quebre a meio e desalinhe a linha com o botão.
-  syncCaption: { fontSize: 10, color: "var(--text-muted)", whiteSpace: "nowrap" },
+  syncCaption: { fontSize: 10.5, color: "var(--text-muted)", whiteSpace: "nowrap" },
+
+  syncCaptionValue: { color: "var(--text-secondary)", fontWeight: 600 },
 
   // Cluster único (3 botões visualmente unidos, com divisores finos) em vez
   // de 3 cartões soltos com espaço entre eles — sinaliza que são um grupo
@@ -1593,6 +1848,45 @@ const styles = {
   // Botão para reabrir o banner da partida ao vivo — mostra o ícone do
   // próprio campeão (mais direto do que um símbolo genérico) com um ponto
   // verde a piscar, para se perceber que há mesmo jogo a decorrer.
+  // Contorno e não preenchido: fica encostado ao Sincronizar, que é o botão
+  // cheio na cor de destaque. Dois botões cheios lado a lado disputavam a
+  // atenção um com o outro e o Sincronizar deixava de se ler como a ação
+  // principal do cabeçalho.
+  inGameBtn: {
+    padding: "8px 14px",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 7,
+    borderRadius: "var(--radius-md)",
+    border: "1px solid rgba(var(--accent-rgb),0.5)",
+    background: "rgba(var(--accent-rgb),0.1)",
+    color: "var(--accent-text)",
+    cursor: "pointer",
+    fontSize: 12.5,
+    fontWeight: 700,
+    letterSpacing: 0.2,
+    whiteSpace: "nowrap",
+    transition: "all 0.15s ease",
+  },
+
+  // Com a vista aberta o botão passa a preenchido — é o substituto do
+  // indicador que a barra de tabs dá às outras vistas e que esta, por não
+  // estar lá, não tem.
+  inGameBtnActive: {
+    background: "var(--accent-solid)",
+    color: "var(--accent-solid-text)",
+    borderColor: "transparent",
+  },
+
+  inGameBtnDot: {
+    width: 7,
+    height: 7,
+    flexShrink: 0,
+    borderRadius: "50%",
+    background: "var(--place-good)",
+    animation: "livePulse 1.6s ease-in-out infinite",
+  },
+
   liveReopenBtn: {
     position: "relative",
     padding: "6px 10px",
@@ -1658,34 +1952,29 @@ const styles = {
 
   syncBtnRow: { display: "flex", gap: 6 },
 
+  // Botão cheio, na cor de destaque, em vez do contorno discreto de antes.
+  // É a única ação que uma pessoa precisa mesmo de encontrar no cabeçalho —
+  // tudo o resto que ali estava passou para as Definições — por isso tem de
+  // se ler como o botão principal da app e não como mais um de uma fila.
   syncBtn: {
-    padding: "6px 10px",
+    padding: "8px 16px",
     display: "inline-flex",
     alignItems: "center",
-    gap: 5,
+    gap: 7,
     borderRadius: "var(--radius-md)",
-    border: "1px solid rgba(var(--accent-rgb),0.25)",
-    background: "rgba(var(--panel-deep-rgb),0.85)",
-    color: "var(--accent-text)",
+    border: "1px solid transparent",
+    background: "var(--accent-solid)",
+    color: "var(--accent-solid-text)",
     cursor: "pointer",
-    fontSize: 12,
-    fontWeight: 600,
+    fontSize: 12.5,
+    fontWeight: 700,
+    letterSpacing: 0.2,
+    boxShadow: "0 4px 14px rgba(var(--accent-rgb),0.35)",
     transition: "all 0.15s ease",
   },
 
   syncBtnIcon: {
     flexShrink: 0,
-  },
-
-  syncAllBtn: {
-    padding: "6px 10px",
-    borderRadius: "var(--radius-md)",
-    border: "1px solid rgba(var(--soft-rgb),0.15)",
-    background: "transparent",
-    color: "var(--text-secondary)",
-    cursor: "pointer",
-    fontSize: 11,
-    transition: "all 0.15s ease",
   },
 
   syncProgressTrack: {

@@ -114,6 +114,20 @@ function buildSessions(matches) {
   });
 }
 
+// Sessões de uma partida só passaram a aparecer na lista (ver "sessions"),
+// e com elas o "1 jogos"/"1 games" que antes nunca chegava a ser visível.
+function gamesWord(count, lang) {
+  if (lang === "en") return count === 1 ? "game" : "games";
+  return count === 1 ? "jogo" : "jogos";
+}
+
+function fmtTime(date, lang) {
+  return date.toLocaleTimeString(lang === "en" ? "en-US" : "pt-PT", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function heatColor(games) {
   if (!games) return "rgba(var(--soft-rgb),0.08)";
   if (games === 1) return "rgba(var(--accent-rgb),0.35)";
@@ -211,13 +225,18 @@ export default function Overview({ matches, wins, champions, DRAGON, onOpenChamp
       .slice(0, 6);
   }, [matches, lang]);
 
-  // Só sessões com pelo menos 2 partidas (uma partida sozinha não é bem uma
-  // "sessão") e só as mais recentes, para não sobrecarregar o ecrã com
-  // histórico antigo.
-  const sessions = useMemo(
-    () => buildSessions(matches).filter((s) => s.games >= 2).slice(0, 6),
-    [matches]
-  );
+  // Todas as sessões, mesmo as de uma partida só — apenas as mais recentes,
+  // para não sobrecarregar o ecrã com histórico antigo.
+  //
+  // Havia aqui um filtro "games >= 2", com a ideia de que uma partida sozinha
+  // não é bem uma "sessão". Na prática o que isso fazia era esconder dias
+  // inteiros: quem entra, joga uma partida e sai — que é metade das idas ao
+  // jogo — simplesmente não aparecia em lado nenhum, e o painel dava a
+  // impressão de estar parado num dia antigo enquanto o heatmap logo ao lado
+  // (que nunca filtrou nada) mostrava esses dias pintados. Entre "a lista tem
+  // entradas curtas" e "a lista mente sobre quando jogaste", a primeira é bem
+  // menos má.
+  const sessions = useMemo(() => buildSessions(matches).slice(0, 6), [matches]);
 
   const heatmapWeeks = useMemo(() => {
     const dayMap = {};
@@ -446,15 +465,18 @@ export default function Overview({ matches, wins, champions, DRAGON, onOpenChamp
                       <span style={styles.sessionDate}>
                         {s.start.toLocaleDateString(lang === "en" ? "en-US" : "pt-PT")}
                       </span>
+                      {/* Numa sessão de uma partida só o início e o fim são o
+                          mesmo instante — mostrar "17:21 – 17:21" parecia um
+                          erro, por isso nesse caso fica só a hora. */}
                       <span style={styles.sessionTime}>
-                        {s.start.toLocaleTimeString(lang === "en" ? "en-US" : "pt-PT", { hour: "2-digit", minute: "2-digit" })}
-                        –
-                        {s.end.toLocaleTimeString(lang === "en" ? "en-US" : "pt-PT", { hour: "2-digit", minute: "2-digit" })}
+                        {s.games > 1
+                          ? `${fmtTime(s.start, lang)}–${fmtTime(s.end, lang)}`
+                          : fmtTime(s.start, lang)}
                       </span>
                     </div>
                     <div style={styles.sessionStats}>
                       <span style={styles.sessionStat}>
-                        {s.games} {lang === "en" ? "games" : "jogos"}
+                        {s.games} {gamesWord(s.games, lang)}
                       </span>
                       {s.withPlacementCount > 0 ? (
                         <>

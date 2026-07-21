@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { loadAugments } from "../lib/augments";
+import { buildItemTierMap } from "../lib/itemTiers";
 
 // Dados estáticos (Data Dragon + Community Dragon) que a app inteira lê mas
 // nunca escreve — patch atual, campeões, augments, feitiços, itens. Extraído
@@ -16,6 +17,12 @@ export function useStaticData() {
   const [augmentsMap, setAugmentsMap] = useState({});
   const [summonerSpellsMap, setSummonerSpellsMap] = useState({});
   const [itemsMap, setItemsMap] = useState({});
+  // Mapa à parte em vez de enriquecer o itemsMap: seis sítios na app fazem
+  // itemsMap[id] à espera de uma STRING com o nome (tooltips do Histórico,
+  // das Estatísticas, do banner). Trocar o valor por um objeto partia-os
+  // todos de uma vez, e por um ganho nenhum — quem precisa do tier procura-o
+  // aqui. Ver lib/itemTiers.js para o que é um tier e como é decidido.
+  const [itemTiersMap, setItemTiersMap] = useState({});
 
   // ================= PATCH =================
   useEffect(() => {
@@ -87,7 +94,7 @@ export function useStaticData() {
       });
   }, [DRAGON]);
 
-  // ================= ITENS (nomes, para tooltip no Histórico) =================
+  // ================= ITENS (nomes + tier da Arena) =================
   useEffect(() => {
     if (!DRAGON) return;
 
@@ -99,8 +106,18 @@ export function useStaticData() {
           map[Number(id)] = item.name;
         });
         setItemsMap(map);
+        setItemTiersMap(buildItemTierMap(data.data));
       });
   }, [DRAGON]);
 
-  return { patch, patchFailed, champions, augmentsMap, summonerSpellsMap, itemsMap, DRAGON };
+  return {
+    patch,
+    patchFailed,
+    champions,
+    augmentsMap,
+    summonerSpellsMap,
+    itemsMap,
+    itemTiersMap,
+    DRAGON,
+  };
 }

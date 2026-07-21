@@ -131,9 +131,8 @@ const DICTIONARY = {
   chal_invite_from: { pt: "convidou-te", en: "invited you" },
   chal_accept: { pt: "Aceitar", en: "Accept" },
   chal_decline: { pt: "Recusar", en: "Decline" },
+  chal_invite_dismiss: { pt: "Dispensar convite", en: "Dismiss invite" },
   chal_notif_invite_title: { pt: "Convite para desafio", en: "Challenge invite" },
-  chal_notif_invite_sent_title: { pt: "Convite enviado", en: "Invite sent" },
-  chal_notif_invite_sent_prefix: { pt: "Convite enviado para", en: "Invite sent to" },
   chal_no_account: {
     pt: "Precisas de uma conta ativa para criar ou entrar numa sala.",
     en: "You need an active account to create or join a room.",
@@ -315,6 +314,233 @@ const DICTIONARY = {
   settings_display_mode_label: { pt: "Modo de ecrã", en: "Display mode" },
   settings_display_windowed_opt: { pt: "Janela", en: "Windowed" },
   settings_display_fullscreen_opt: { pt: "Ecrã inteiro", en: "Full screen" },
+  welcome_title: { pt: "Bem-vindo ao Arena Tracker", en: "Welcome to Arena Tracker" },
+  welcome_subtitle: {
+    pt: "Segue o teu progresso na Arena: que campeões já ganhaste, como te correm os augments, e desafios com os teus amigos. Três passos e está a andar.",
+    en: "Track your Arena progress: which champions you have won with, how your augments perform, and challenges with your friends. Three steps and you are running.",
+  },
+  welcome_step1_title: { pt: "1 · Liga a tua conta", en: "1 · Connect your account" },
+  welcome_step1_body: {
+    pt: "Precisas do teu Riot ID para a app saber quem procurar na Riot. É o único dado que tens de escrever.",
+    en: "The app needs your Riot ID to know who to look up. It is the only thing you have to type.",
+  },
+  welcome_step2_title: { pt: "2 · Sincroniza", en: "2 · Sync" },
+  welcome_step2_body: {
+    pt: "O botão no cabeçalho traz o teu histórico de Arena. A primeira vez pode demorar uns minutos; a partir daí é rápido.",
+    en: "The button in the header pulls your Arena history. The first run can take a few minutes; after that it is quick.",
+  },
+  welcome_step3_title: { pt: "3 · Deixa a app aberta a jogar", en: "3 · Keep the app open while you play" },
+  welcome_step3_body: {
+    pt: "Com a app aberta, ela deteta as partidas sozinha, mostra o teu KDA ao vivo e sincroniza no fim sem tocares em nada.",
+    en: "With the app open it detects your matches on its own, shows live KDA, and syncs at the end without you doing a thing.",
+  },
+  welcome_tip_label: { pt: "Atenção:", en: "Heads up:" },
+  welcome_tip_text: {
+    pt: "o Riot ID é o nome E a tag, como Nome#EUW. Só o nome não chega — a tag vê-se no perfil, dentro do cliente do League.",
+    en: "the Riot ID is the name AND the tag, like Name#EUW. The name alone is not enough — you can see the tag on your profile in the League client.",
+  },
+  welcome_add_btn: { pt: "Ligar conta", en: "Connect account" },
+  welcome_later_btn: { pt: "Agora não", en: "Not now" },
+  welcome_guide_btn: { pt: "Ver o guia completo", en: "See the full guide" },
+
+  tour_next: { pt: "Seguinte", en: "Next" },
+  tour_prev: { pt: "Anterior", en: "Back" },
+  tour_done: { pt: "Terminar", en: "Finish" },
+  tour_skip: { pt: "Saltar", en: "Skip" },
+  settings_tour_btn: { pt: "Visita guiada", en: "Guided tour" },
+
+  how_it_works_title: { pt: "Como funciona", en: "How it works" },
+  how_it_works_close: { pt: "Fechar", en: "Close" },
+  settings_how_label: { pt: "Como funciona", en: "How it works" },
+  settings_how_hint: {
+    pt: "Um guia rápido de tudo: contas, sincronização, deteção ao vivo, tabs, desafios e manutenção.",
+    en: "A quick guide to everything: accounts, syncing, live detection, tabs, challenges and maintenance.",
+  },
+  settings_how_btn: { pt: "Abrir guia", en: "Open guide" },
+  settings_maintenance_title: { pt: "Manutenção", en: "Maintenance" },
+  settings_maintenance_hint: {
+    pt: "Só é preciso quando alguma coisa parece fora do sítio. O botão Sincronizar, no cabeçalho, chega para o dia a dia.",
+    en: "Only needed when something looks out of place. The Sync button in the header is enough day to day.",
+  },
+  settings_maintenance_clean: {
+    pt: "Está tudo em ordem — não há nada por corrigir nesta conta.",
+    en: "All good — nothing to fix on this account.",
+  },
+
+  settings_quit_label: { pt: "Sair da aplicação", en: "Quit the app" },
+  settings_quit_hint: {
+    pt: "Fecha a Arena Tracker por completo, incluindo o modo em segundo plano. Deixa de detetar partidas e de sincronizar até voltares a abri-la.",
+    en: "Closes Arena Tracker completely, background mode included. It stops detecting matches and syncing until you open it again.",
+  },
+  settings_quit_btn: { pt: "Sair", en: "Quit" },
+  settings_quit_confirm_title: { pt: "Sair da aplicação?", en: "Quit the app?" },
+  settings_quit_confirm_msg: {
+    pt: "A app fecha mesmo. Se estiver uma sincronização a decorrer, fica a meio — o que já foi gravado mantém-se.",
+    en: "The app will close for good. Any sync in progress stops midway — whatever was already saved stays.",
+  },
+
+  tab_augments: { pt: "Augments", en: "Augments" },
+  aug_pop_mine: { pt: "As minhas", en: "Mine" },
+  aug_pop_all: { pt: "Todos os jogadores", en: "All players" },
+  aug_sort_best: { pt: "Melhores", en: "Best" },
+  aug_sort_worst: { pt: "Piores", en: "Worst" },
+  aug_sort_winrate: { pt: "Vitórias", en: "Win rate" },
+  aug_sort_games: { pt: "Mais levados", en: "Most picked" },
+  aug_min_games: { pt: "Mínimo de jogos", en: "Min games" },
+  aug_search_placeholder: { pt: "Procurar augment…", en: "Search augment…" },
+  aug_baseline_mine: { pt: "A tua média", en: "Your average" },
+  aug_baseline_all: { pt: "Média de todos", en: "Everyone's average" },
+  aug_top3: { pt: "Pódio:", en: "Top 3:" },
+  aug_winrate: { pt: "1º lugar:", en: "1st place:" },
+  aug_picks: { pt: "escolhas", en: "picks" },
+  aug_col_augment: { pt: "Augment", en: "Augment" },
+  aug_col_games: { pt: "Jogos", en: "Games" },
+  aug_col_winrate: { pt: "1º", en: "1st" },
+  aug_col_top3: { pt: "Pódio", en: "Top 3" },
+  aug_col_avg: { pt: "Lugar", en: "Place" },
+  aug_col_delta: { pt: "vs. média", en: "vs. average" },
+  aug_empty_no_matches: {
+    pt: "Ainda não há partidas com augments guardados nesta conta. Sincroniza para os importar.",
+    en: "No matches with saved augments on this account yet. Sync to import them.",
+  },
+  aug_empty_filtered: {
+    pt: "Nenhum augment com jogos suficientes. Baixa o mínimo de jogos ou muda para “Todos os jogadores”.",
+    en: "No augment has enough games. Lower the minimum, or switch to “All players”.",
+  },
+  aug_footnote: {
+    pt: "A coluna “vs. média” é a diferença, em pontos percentuais, entre a taxa de pódio deste augment e a média da população escolhida. O pódio é usado (e não o 1º lugar) por ser a única métrica comparável entre os formatos de 8 e de 6 equipas. Partidas antigas sem lugar exato não entram na conta.",
+    en: "The “vs. average” column is the gap, in percentage points, between this augment's top-3 rate and the average of the selected population. Top 3 is used (not 1st place) because it is the only metric comparable across the 8-team and 6-team formats. Older matches without an exact placement are excluded.",
+  },
+
+  tab_ingame: { pt: "Em Jogo", en: "In Game" },
+  ingame_btn_tooltip: {
+    pt: "Acompanhar a partida a decorrer: augments, build e pontos do desafio. Só aparece enquanto estás em jogo.",
+    en: "Follow the match in progress: augments, build and challenge points. Only shows while you are in a game.",
+  },
+  ingame_badge_live: { pt: "A decorrer", en: "Live" },
+  ingame_badge_idle: { pt: "Sem partida", en: "No game" },
+  ingame_has_win: { pt: "Já tens vitória", en: "Already won" },
+  ingame_needs_win: { pt: "Falta a vitória", en: "Win missing" },
+  ingame_picker_label: { pt: "Campeão:", en: "Champion:" },
+  ingame_empty_no_champion: {
+    pt: "Ainda não há partidas nesta conta e não está nenhuma a decorrer. Assim que entrares num jogo, esta tab enche-se sozinha.",
+    en: "No matches on this account yet, and no game running. As soon as you start one, this tab fills itself in.",
+  },
+
+  ingame_score_title: { pt: "Pontuação do desafio", en: "Challenge score" },
+  ingame_score_room: { pt: "Sala a decorrer", en: "Running room" },
+  ingame_score_kills: { pt: "Abates", en: "Kills" },
+  ingame_score_deaths: { pt: "Mortes", en: "Deaths" },
+  ingame_score_assists: { pt: "Assistências", en: "Assists" },
+  ingame_score_streaks: { pt: "Sequências", en: "Streaks" },
+  ingame_score_handicap: { pt: "Handicap", en: "Handicap" },
+  ingame_score_partial_note: {
+    pt: "Parcial: só conta abates, mortes, assistências e sequências. O dano, a cura, o dano recebido e os multikills não são expostos durante a partida — entram só depois de sincronizares, e por isso o total final é sempre maior do que este.",
+    en: "Partial: counts only kills, deaths, assists and streaks. Damage, healing, damage taken and multikills are not exposed during the game — they only land after you sync, so the final total is always higher than this.",
+  },
+
+  ingame_sample_games: { pt: "partidas na amostra", en: "games in sample" },
+  ingame_low_sample_all: {
+    pt: "Amostra pequena — trata isto como indício, não como estatística.",
+    en: "Small sample — treat this as a hint, not a statistic.",
+  },
+  ingame_low_sample_mine: {
+    pt: "Amostra pequena — experimenta “Todos os jogadores” para dados a sério.",
+    en: "Small sample — try “All players” for real data.",
+  },
+
+  rarity_silver: { pt: "Prata", en: "Silver" },
+  rarity_gold: { pt: "Ouro", en: "Gold" },
+  rarity_prismatic: { pt: "Prismático", en: "Prismatic" },
+  rarity_bronze: { pt: "Bronze", en: "Bronze" },
+  rarity_event: { pt: "Evento", en: "Event" },
+  rarity_other: { pt: "Outros", en: "Other" },
+
+  tier_prismatic: { pt: "Prismáticos", en: "Prismatic" },
+  tier_legendary: { pt: "Legendary", en: "Legendary" },
+  tier_boots: { pt: "Botas", en: "Boots" },
+
+  ingame_shelf_avg: { pt: "média", en: "avg" },
+
+  ingame_augments_title: { pt: "Augments", en: "Augments" },
+  ingame_augments_hint: { pt: "por raridade", en: "by rarity" },
+  ingame_augments_empty: {
+    pt: "Ainda não há augments com jogos suficientes para este campeão.",
+    en: "No augment has enough games for this champion yet.",
+  },
+
+  ingame_build_title: { pt: "Build", en: "Build" },
+  ingame_build_hint: { pt: "por prateleira", en: "by shelf" },
+  ingame_build_owned: { pt: "tens", en: "owned" },
+  ingame_build_empty: {
+    pt: "Ainda não há itens com jogos suficientes para este campeão.",
+    en: "No item has enough games for this champion yet.",
+  },
+  ingame_build_none_above: {
+    pt: "Há jogos que cheguem, mas nenhum item está acima da média de pódio deste campeão — não há nada de honesto para recomendar aqui.",
+    en: "There are enough games, but no item sits above this champion's average podium rate — there is nothing honest to recommend here.",
+  },
+  ingame_build_note: {
+    pt: "Conjunto, não ordem de compra: o que fica guardado de cada partida é o inventário final, sem ordem nem tempos.",
+    en: "A set, not a build order: what gets saved from each match is the final inventory, with no order or timings.",
+  },
+
+  ingame_footnote: {
+    pt: "Os desvios são em pontos percentuais face à média da PRÓPRIA prateleira, com este campeão: um augment prismático é comparado com prismáticos e um item Legendary com Legendary. É essa a comparação que decide, porque a Arena oferece sempre opções da mesma raridade ao mesmo tempo — medir tudo contra uma média única só dizia que os prismáticos são mais fortes, o que já se sabe. Os augments não aparecem durante a partida (a Riot não os expõe ao vivo), por isso as recomendações vêm sempre do histórico já sincronizado.",
+    en: "Gaps are in percentage points against the average of the SAME shelf, on this champion: a prismatic augment is compared with prismatics, a Legendary item with Legendaries. That is the comparison that decides, because Arena always offers options of the same rarity at once — measuring everything against a single average only said that prismatics are stronger, which is already known. Augments are not visible during a game (Riot does not expose them live), so recommendations always come from already-synced history.",
+  },
+
+  settings_tab_sync: { pt: "Sincronização", en: "Sync" },
+  sync_report_empty: {
+    pt: "Ainda não há nenhuma sincronização registada nesta conta. Carrega em Sincronizar e o resultado detalhado aparece aqui.",
+    en: "No sync recorded for this account yet. Hit Sync and the detailed result shows up here.",
+  },
+  sync_report_when: { pt: "Última sincronização", en: "Last sync" },
+  sync_report_copy: { pt: "Copiar", en: "Copy" },
+  sync_report_copied: { pt: "Copiado", en: "Copied" },
+  sync_report_copy_failed: { pt: "Não deu", en: "Failed" },
+  sync_report_window: { pt: "Intervalo pedido", en: "Requested window" },
+  sync_report_mode: { pt: "Modo", en: "Mode" },
+  sync_report_mode_full: { pt: "Histórico completo", en: "Full history" },
+  sync_report_mode_incremental: { pt: "Incremental", en: "Incremental" },
+  sync_report_latest: { pt: "Partida mais recente", en: "Most recent match" },
+  sync_report_since: { pt: "Pedido à Riot a partir de", en: "Asked Riot from" },
+  sync_report_riot: { pt: "O que a Riot devolveu", en: "What Riot returned" },
+  sync_report_listed: { pt: "Partidas listadas", en: "Matches listed" },
+  sync_report_known: { pt: "Já conhecidas", en: "Already known" },
+  sync_report_candidates: { pt: "Novas a importar", en: "New to import" },
+  sync_report_sources: { pt: "De onde vieram os detalhes", en: "Where details came from" },
+  sync_report_cache: { pt: "Cache partilhada", en: "Shared cache" },
+  sync_report_api: { pt: "Riot API", en: "Riot API" },
+  sync_report_canary: { pt: "Canário", en: "Canary" },
+  sync_report_canary_skipped: { pt: "não correu", en: "did not run" },
+  sync_report_result: { pt: "Resultado", en: "Result" },
+  sync_report_inserted: { pt: "Gravadas", en: "Saved" },
+  sync_report_duration: { pt: "Demorou", en: "Took" },
+  sync_report_new_queues: { pt: "QueueIds de Arena novos detetados", en: "New Arena queueIds detected" },
+  sync_report_hint: {
+    pt: "Se \"Novas a importar\" for 0, a Riot não tinha nada de novo no intervalo pedido — não é uma falha. Se for maior que 0 mas \"Gravadas\" for 0, alguma coisa se perdeu entre a Riot e a base de dados.",
+    en: "If \"New to import\" is 0, Riot had nothing new in the requested window — that is not a failure. If it is above 0 but \"Saved\" is 0, something was lost between Riot and the database.",
+  },
+  settings_background_label: { pt: "Modo em segundo plano", en: "Background mode" },
+  settings_background_hint: {
+    pt: "Fechar a janela deixa a app a correr no tabuleiro do sistema, a detetar partidas e a sincronizar. Clica no ícone para a trazer de volta.",
+    en: "Closing the window leaves the app running in the system tray, still detecting matches and syncing. Click the icon to bring it back.",
+  },
+  settings_overlay_label: { pt: "Sobreposição no jogo", en: "In-game overlay" },
+  settings_overlay_hint: {
+    pt: "Mostra o campeão, o KDA e se já tens vitória por cima do League, sem precisares da janela da app. Funciona com o jogo em \"Sem margens\" ou \"Janela\" — em ecrã inteiro exclusivo o Windows não deixa nada aparecer por cima.",
+    en: "Shows the champion, KDA and whether you already have a win on top of League, without needing the app window. Works with the game in \"Borderless\" or \"Windowed\" — in exclusive fullscreen, Windows lets nothing draw on top.",
+  },
+  settings_autolaunch_label: { pt: "Abrir com o Windows", en: "Launch on startup" },
+  settings_autolaunch_hint: {
+    pt: "Arranca em segundo plano ao ligar o PC, sem abrir a janela.",
+    en: "Starts in the background when the PC boots, without opening the window.",
+  },
+  settings_on: { pt: "Ligado", en: "On" },
+  settings_off: { pt: "Desligado", en: "Off" },
+  tray_open: { pt: "Abrir Arena Tracker", en: "Open Arena Tracker" },
+  tray_quit: { pt: "Sair", en: "Quit" },
   settings_resolution_label: { pt: "Resolução da janela", en: "Window resolution" },
   settings_resolution_disabled_fullscreen: {
     pt: "Indisponível em ecrã inteiro",
@@ -357,6 +583,14 @@ const DICTIONARY = {
   stat_wins_first: { pt: "Vitórias (1º)", en: "Wins (1st)" },
   stat_wins_top3: { pt: "Vitórias (Top 3)", en: "Wins (Top 3)" },
   stat_losses: { pt: "Derrotas (abaixo do Top 3)", en: "Losses (below Top 3)" },
+  // Os três resultados possíveis de uma partida, mutuamente exclusivos e a
+  // somar ao total de jogos (ver a barra em components/StatsBar.jsx). São
+  // diferentes de stat_wins_top3, que conta o pódio INTEIRO (1º incluído) e
+  // continua a ser usado na tab Comparar.
+  stat_seg_first: { pt: "1º lugar", en: "1st place" },
+  stat_seg_podium: { pt: "2º/3º", en: "2nd/3rd" },
+  stat_seg_below: { pt: "Fora do pódio", en: "Off the podium" },
+
   stat_winrate_first: { pt: "Winrate (1º)", en: "Winrate (1st)" },
   stat_winrate_top3: { pt: "Winrate (Top 3)", en: "Winrate (Top 3)" },
   stat_kda: { pt: "KDA médio", en: "Average KDA" },
@@ -797,7 +1031,11 @@ const DICTIONARY = {
   riot_label: { pt: "Riot:", en: "Riot:" },
   no_tag: { pt: "(sem tag)", en: "(no tag)" },
   riot_name_placeholder: { pt: "Nome Riot (antes do #)", en: "Riot name (before the #)" },
-  tag_placeholder: { pt: "Tag (ex: EUW)", en: "Tag (e.g. EUW)" },
+  tag_placeholder: { pt: "Tag (ex: EUW, sem #)", en: "Tag (e.g. EUW, no #)" },
+  tag_no_hash_hint: {
+    pt: "Não escrevas o # — a app junta-o sozinha. Se colares o Riot ID completo (Nome#EUW) no campo do nome, também é separado automaticamente.",
+    en: "No need to type the # — the app adds it for you. If you paste the full Riot ID (Name#EUW) into the name field, it gets split automatically too.",
+  },
   tag_custom_option: { pt: "Outra (introduzir manualmente)", en: "Other (enter manually)" },
   region_europe: { pt: "Europa (EUW, EUNE, TR, RU)", en: "Europe (EUW, EUNE, TR, RU)" },
   region_americas: { pt: "Américas (NA, BR, LAN, LAS, OCE)", en: "Americas (NA, BR, LAN, LAS, OCE)" },

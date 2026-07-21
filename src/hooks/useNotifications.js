@@ -13,7 +13,7 @@ import {
   saveAchievementSnapshot,
   makeNotification,
 } from "../lib/notifications";
-import { subscribeToInvites, subscribeToSentInvites, getRoom } from "../db/api";
+import { subscribeToInvites, getRoom } from "../db/api";
 
 // Caixa de notificações da conta ativa + o vigia que deteta conquistas novas.
 //
@@ -131,36 +131,25 @@ export function useNotifications({ activeAccount, matches, champions, wins, chal
         body: room
           ? `${invite.from_username} ${translate("chal_invite_from")} — ${room.name}`
           : `${invite.from_username} ${translate("chal_invite_from")}`,
+        // Torna o toast acionável: aceitar/recusar sem ter de ir à tab
+        // Desafios de propósito (ver AchievementToasts.jsx e
+        // handleInviteResponse em App.jsx). Sem "roomId" não há para onde
+        // entrar, por isso nesse caso o toast fica só informativo.
+        action: room
+          ? { kind: "invite", inviteId: invite.id, roomId: room.id, roomName: room.name }
+          : undefined,
       });
     });
 
     return unsubscribe;
   }, [activeAccount, pushNotification]);
 
-  // ================= CONVITES DE DESAFIO (enviado) =================
-  // Confirmação de que o convite saiu mesmo — pelo mesmo canal Realtime que
-  // o resto (não um callback vindo da tab Desafios), para funcionar também
-  // se o convite for enviado de outro dispositivo com a mesma conta.
-  useEffect(() => {
-    if (!activeAccount) return;
-
-    const unsubscribe = subscribeToSentInvites(activeAccount, async (payload) => {
-      const invite = payload.new;
-      if (!invite) return;
-
-      const translate = tRef.current;
-      pushNotification({
-        type: "invite_sent",
-        key: `invite-sent:${invite.id}`,
-        iconId: "bond",
-        color: "#5b8cff",
-        title: translate("chal_notif_invite_sent_title"),
-        body: `${translate("chal_notif_invite_sent_prefix")} ${invite.to_username}`,
-      });
-    });
-
-    return unsubscribe;
-  }, [activeAccount, pushNotification]);
+  // Não há aqui nenhum aviso de "convite enviado": quem convida acabou de o
+  // fazer e já vê o convite na lista da sala — dizer-lho outra vez numa
+  // notificação (e num toast) é ruído sobre uma ação que a pessoa fez de
+  // propósito há um segundo. O canal Realtime que existia só para isso foi
+  // removido com ele (ver subscribeToSentInvites, entretanto apagado de
+  // db/rooms.js). Os convites RECEBIDOS continuam a avisar, esses sim.
 
   const unreadCount = useMemo(() => items.filter((n) => !n.read).length, [items]);
 

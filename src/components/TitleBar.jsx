@@ -1,9 +1,20 @@
 import { useEffect, useState } from "react";
 import { Minus, Square, Copy, X } from "lucide-react";
 
+// Barra de janela própria (a BrowserWindow é "frame: false", ver
+// electron/window.js) — minimizar/maximizar/fechar.
+//
+// EM ECRÃ INTEIRO não se desenha nada: nem esta barra, nem qualquer botão
+// flutuante por cima do conteúdo. Era a barra com os três botões de janela
+// que fazia o ecrã inteiro parecer só uma janela esticada até às bordas, e um
+// botão de "sair" a pairar no canto tem o mesmo efeito, além de tapar o que
+// está por baixo. Para sair: F11, Escape (ver os globalShortcut em
+// electron/window.js) ou Definições → Modo de ecrã → Janela.
 export default function TitleBar() {
     if (!window.electron) return null;
+
     const [isMaximized, setIsMaximized] = useState(false);
+    const [isFullScreen, setIsFullScreen] = useState(false);
 
     useEffect(() => {
         async function check() {
@@ -16,6 +27,18 @@ export default function TitleBar() {
         const interval = setInterval(check, 500); // simples sync com estado window
         return () => clearInterval(interval);
     }, []);
+
+    // Estado de ecrã inteiro: lido uma vez à entrada e depois mantido pelo
+    // aviso do processo principal, que cobre TODAS as vias de mudança (o botão
+    // nas Definições, F11, Escape, ou o próprio SO) — ver os eventos
+    // enter-full-screen/leave-full-screen em electron/window.js.
+    useEffect(() => {
+        window.electron.isFullScreen?.().then(setIsFullScreen);
+        return window.electron.onFullScreenChanged?.(setIsFullScreen);
+    }, []);
+
+    if (isFullScreen) return null;
+
     return (
         <div style={styles.titleBar}>
             <div style={styles.drag} />
@@ -93,4 +116,5 @@ const styles = {
         cursor: "pointer",
         padding: 0,
     },
+
 };
