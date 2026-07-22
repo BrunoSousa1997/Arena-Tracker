@@ -1,5 +1,6 @@
 import { supabase } from "./supabase";
 import { normalizeItems } from "../lib/items";
+import { findBestSyncedMatch } from "../lib/matchMatching";
 
 // ================= MATCHES (histórico de partidas de Arena) =================
 // "extra" carrega as estatísticas ao estilo op.gg que a Live Client Data
@@ -129,29 +130,33 @@ export async function addMatchesBulk(username, matches) {
 // tentar: uma partida acabada em 3º-8º lugar só fica disponível na Riot API
 // depois do jogo TERMINAR mesmo para toda a gente (as equipas que ainda não
 // foram eliminadas continuam a jogar), o que pode demorar bem mais do que a
-// sincronização automática de quem ficou em 1º/2º. Compara por
-// campeão+KDA exatos (o suficiente para não confundir com outra partida
-// qualquer, sem precisar do riot_match_id que ainda não existe do lado de
-// cá) e só aceita linhas já com riot_match_id (senão a própria linha ao
-// vivo que estamos à espera de confirmar contava como "já sincronizada").
+// sincronização automática de quem ficou em 1º/2º.
+//
+// Só aceita linhas já com riot_match_id (senão a própria linha ao vivo que
+// estamos à espera de confirmar contava como "já sincronizada"). O casamento
+// não é por KDA exato: busca os candidatos do mesmo campeão a partir do fim
+// do jogo e decide com findBestSyncedMatch (campeão + janela temporal + KDA
+// mais próximo) — assim um poll final que perdeu o abate/morte derradeiro não
+// deixa a partida eternamente por confirmar (ver src/lib/matchMatching.js).
 export async function hasSyncedMatch(username, { champion, kills, deaths, assists, after }) {
   const { data, error } = await supabase
     .from("matches")
-    .select("id")
+    .select("champion, kills, deaths, assists, created_at")
     .eq("username", username)
     .eq("champion", champion)
-    .eq("kills", kills)
-    .eq("deaths", deaths)
-    .eq("assists", assists)
     .not("riot_match_id", "is", null)
-    .gte("created_at", after)
-    .limit(1);
+    .gte("created_at", after);
 
   if (error) {
     console.error("hasSyncedMatch error:", error.message);
     return false;
   }
-  return (data || []).length > 0;
+
+  const best = findBestSyncedMatch(
+    { champion, kills, deaths, assists, anchorTime: after },
+    data || []
+  );
+  return best != null;
 }
 
 export async function getMatches(username) {

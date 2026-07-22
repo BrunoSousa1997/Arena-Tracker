@@ -46,7 +46,7 @@ import {
   finishRoom,
   getRoomChallengeGames,
   subscribeToChallengeGames,
-  recoverMissingChallengeGames,
+  enrichFinishedChallengeGames,
   forfeitChallenge,
   getChallengeHistory,
 } from "../db/api";
@@ -234,7 +234,7 @@ function ScoringRulesInfo() {
 }
 
 // idle = escolher entre criar/entrar · creating = formulário · lobby = já numa sala
-export default function Challenges({ activeAccount, accounts, champions = [], DRAGON, onChallengeWon }) {
+export default function Challenges({ activeAccount, accounts, champions = [], DRAGON, onChallengeWon, onSyncAccount }) {
   const { t } = useLanguage();
 
   const [screen, setScreen] = useState("idle");
@@ -375,7 +375,9 @@ export default function Challenges({ activeAccount, accounts, champions = [], DR
   };
 
   const handleClose = async () => {
-    await closeRoom(room.id);
+    // Só o anfitrião fecha (o botão só aparece para ele) — a conta ativa é
+    // verificada no servidor contra o anfitrião real (ver rpc_close_room).
+    await closeRoom(room.id, activeAccount);
     setRoom(null);
     setPlayers([]);
     setScreen("idle");
@@ -430,6 +432,7 @@ export default function Challenges({ activeAccount, accounts, champions = [], DR
           champions={champions}
           DRAGON={DRAGON}
           onChallengeWon={onChallengeWon}
+          onSyncAccount={onSyncAccount}
           onRoomUpdate={setRoom}
         />
       )}
@@ -771,7 +774,7 @@ function CreateForm({ hostUsername, identity, onCancel, onCreated }) {
 }
 
 // ================= LOBBY (+ convidar) =================
-function Lobby({ room, players, activeAccount, onLeave, onClose, champions, DRAGON, onChallengeWon, onRoomUpdate }) {
+function Lobby({ room, players, activeAccount, onLeave, onClose, champions, DRAGON, onChallengeWon, onSyncAccount, onRoomUpdate }) {
   const { t } = useLanguage();
   const [confirmClose, setConfirmClose] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -783,7 +786,8 @@ function Lobby({ room, players, activeAccount, onLeave, onClose, champions, DRAG
   const handleStart = useCallback(async () => {
     setBusy(true);
     const startedAt = new Date().toISOString();
-    const res = await startRoom(room.id);
+    // Só o anfitrião arranca — verificado no servidor (ver rpc_start_room).
+    const res = await startRoom(room.id, activeAccount);
     // Otimista: passa já para o placar sem esperar pela volta pelo Realtime
     // (escrever -> Supabase difundir -> Challenges.jsx voltar a ler tudo) —
     // esse ciclo pode facilmente demorar 1-2s, e quem escreveu a mudança já
@@ -793,7 +797,7 @@ function Lobby({ room, players, activeAccount, onLeave, onClose, champions, DRAG
       onRoomUpdate?.({ ...room, status: "running", started_at: startedAt });
     }
     setBusy(false);
-  }, [room, onRoomUpdate]);
+  }, [room, activeAccount, onRoomUpdate]);
 
   // Assim que a sala atinge o nº máximo de jogadores, o anfitrião arranca o
   // desafio automaticamente — ninguém precisa de clicar em nada. A ref evita
@@ -823,6 +827,7 @@ function Lobby({ room, players, activeAccount, onLeave, onClose, champions, DRAG
         champions={champions}
         DRAGON={DRAGON}
         onChallengeWon={onChallengeWon}
+        onSyncAccount={onSyncAccount}
       />
     );
   }
@@ -998,13 +1003,13 @@ function getCombatGridStyle(playerCount) {
 // aberta, ver db/rooms.js) e mantém-se em tempo real via subscrição à
 // própria sala nessa tabela — cada partida (a decorrer ou já terminada) é a
 // sua própria linha, coleção separada do histórico normal.
-function ScoreBoard({ room, players, activeAccount, onLeave, champions = [], DRAGON, onChallengeWon }) {
+function ScoreBoard({ room, players, activeAccount, onLeave, champions = [], DRAGON, onChallengeWon, onSyncAccount }) {
   const { t } = useLanguage();
   const [finishedByUsername, setFinishedByUsername] = useState({});
   const [liveByUsername, setLiveByUsername] = useState({});
   const [loaded, setLoaded] = useState(false);
-  // Recuperação manual de partidas que o desafio perdeu (ver
-  // recoverMissingChallengeGames em db/rooms.js). null = nunca corrida.
+  // Sincronização manual dos dados de combate de todos os jogadores (ver
+  // handleSyncCombat + enrichFinishedChallengeGames em db/rooms.js).
   const [recovering, setRecovering] = useState(false);
   const [recoverMsg, setRecoverMsg] = useState(null);
   const [confirmForfeit, setConfirmForfeit] = useState(false);
@@ -1040,21 +1045,45 @@ function ScoreBoard({ room, players, activeAccount, onLeave, champions = [], DRA
     fetchAll();
   }, [fetchAll]);
 
-  // Repesca partidas que a captura ao vivo não apanhou (app fechada durante
-  // o jogo, aberta a meio, sala que só arrancou depois) — só para a PRÓPRIA
-  // conta: o histórico de cada um só está acessível a partir do seu próprio
-  // dispositivo, por isso cada jogador recupera as suas.
-  const handleRecover = async () => {
+  // Sincroniza os dados de combate (dano, cura, dano recebido, multikills) de
+  // TODOS os jogadores do desafio num só gesto. É possível fazê-lo por todos a
+  // partir de um dispositivo qualquer porque "matches" é uma tabela ABERTA no
+  // Supabase (ver schema.sql) — não é preciso o dispositivo de cada um para
+  // LER os seus jogos já sincronizados; só é preciso para os PÔR lá (o pull da
+  // Riot, que só a conta local sabe fazer).
+  //
+  // Por ordem: (1) puxa a Riot para a PRÓPRIA conta, para os jogos locais mais
+  // recentes entrarem em "matches" com dano/cura; (2) percorre todos os
+  // jogadores da sala e enriquece as partidas que a captura ao vivo registou
+  // mas ficaram sem esses dados (enrichFinishedChallengeGames).
+  //
+  // Só toca em jogos COMPATÍVEIS com os dados do live game: o enriquecimento
+  // casa por campeão + KDA exatos com o que a captura ao vivo gravou, e nunca
+  // cria partidas que a captura nunca viu — um desafio conta só o que foi
+  // seguido ao vivo, com a app aberta.
+  const handleSyncCombat = async () => {
     setRecovering(true);
     setRecoverMsg(null);
-    const res = await recoverMissingChallengeGames(room.id, activeAccount, sinceISO);
+
+    // Pull da Riot para a conta local primeiro — o enrich só casa com
+    // partidas já sincronizadas (riot_match_id preenchido). Degrada se não
+    // houver função (ex: chamado sem a prop).
+    await onSyncAccount?.();
+
+    let enriched = 0;
+    let anyError = false;
+    for (const p of players) {
+      const res = await enrichFinishedChallengeGames(room.id, p.username, sinceISO);
+      if (res.success) enriched += res.enriched;
+      else anyError = true;
+    }
     setRecovering(false);
 
-    if (!res.success) setRecoverMsg(t("chal_recover_error"));
-    else if (!res.recovered) setRecoverMsg(t("chal_recover_none"));
-    else setRecoverMsg(t("chal_recover_done").replace("{count}", res.recovered));
+    if (anyError && enriched === 0) setRecoverMsg(t("chal_recover_error"));
+    else if (enriched > 0) setRecoverMsg(t("chal_sync_enriched_done").replace("{count}", enriched));
+    else setRecoverMsg(t("chal_sync_none"));
 
-    if (res.recovered) await fetchAll();
+    if (enriched > 0) await fetchAll();
   };
 
   const handleForfeit = async () => {
@@ -1172,11 +1201,46 @@ function ScoreBoard({ room, players, activeAccount, onLeave, champions = [], DRA
   // que ficaram (todos com os jogos feitos), ou sobra um só jogador em prova
   // (os outros desistiram todos) e o desafio acaba aí.
   const activePlayers = sortedPlayers.filter((p) => !p.forfeited);
+
+  // As duas formas de um desafio chegar ao fim, separadas porque só uma delas
+  // espera pelos dados de combate (ver abaixo):
+  //  - por desistência: sobra um só jogador em prova (ou nenhum). É uma saída
+  //    de emergência e não espera por sync nenhuma.
+  //  - por jogos: todos os que ficaram fizeram os jogos alvo. É o fim normal,
+  //    e é este que pode ter de esperar pelos dados de combate.
+  const endedByForfeit =
+    activePlayers.length === 0 || (activePlayers.length === 1 && sortedPlayers.length > 1);
+  const everyoneFinishedGames =
+    activePlayers.length > 0 &&
+    activePlayers.every((p) => (scored[p.username]?.games?.length || 0) >= targetGames);
+
+  // Faltam dados de combate por sincronizar? Só importa quando as regras
+  // CONTAM dano/cura/dano recebido/multikills (tudo menos o modo "só KDA", ver
+  // activeRules) — nesse caso um desafio não pode fechar com partidas ainda
+  // sem esses dados, senão o placar final ficava com pontuações a menos. Uma
+  // partida está por enriquecer se está terminada mas ainda sem dano
+  // (damage_dealt a null) — ver enrichFinishedChallengeGames em db/rooms.js.
+  const needsCombatData = !activeRules.onlyKda;
+  const combatPendingPlayers = needsCombatData
+    ? activePlayers.filter((p) =>
+        (finishedByUsername[p.username] || []).some((g) => g.damage_dealt == null)
+      )
+    : [];
+  const combatDataPending = combatPendingPlayers.length > 0;
+
+  // Um desafio já persistido como "finished" na base de dados fica finished,
+  // aconteça o que acontecer aos dados (a fotografia em "results" é que manda
+  // a partir daí) — o bloqueio por dados de combate é só para o fim AO VIVO.
   const challengeFinished =
-    sortedPlayers.length > 0 &&
-    (activePlayers.length === 0 ||
-      (activePlayers.length === 1 && sortedPlayers.length > 1) ||
-      activePlayers.every((p) => (scored[p.username]?.games?.length || 0) >= targetGames));
+    room.status === "finished" ||
+    (sortedPlayers.length > 0 &&
+      (endedByForfeit || (everyoneFinishedGames && !combatDataPending)));
+
+  // Todos os jogos feitos, mas o desafio está à espera dos dados de combate de
+  // alguém — é este o estado que pede o botão "Sincronizar dados de combate" e
+  // mostra o aviso, em vez de fechar o desafio com pontuações incompletas.
+  const waitingForCombatData =
+    room.status !== "finished" && everyoneFinishedGames && !endedByForfeit && combatDataPending;
 
   // O vencedor é sempre alguém que NÃO desistiu (sortedPlayers já os põe no
   // fim) — se desistiram todos, o desafio acaba sem vencedor.
@@ -1211,9 +1275,12 @@ function ScoreBoard({ room, players, activeAccount, onLeave, champions = [], DRA
       // handicap por classe esteve desligado durante um tempo, por isso os
       // desafios antigos não são comparáveis com os novos).
       scoringRules: activeRules,
+      // Verificado no servidor contra o anfitrião real da sala (ver
+      // rpc_finish_room) — este caminho já só corre para o anfitrião.
+      hostUsername: activeAccount,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sortedPlayers, scored, winner, room.id, activeRules]);
+  }, [sortedPlayers, scored, winner, room.id, activeRules, activeAccount]);
 
   // Assim que TODOS os jogadores atingem o nº de jogos alvo, o anfitrião
   // persiste o fim do desafio. A ref evita escrever duas vezes se este
@@ -1298,6 +1365,33 @@ function ScoreBoard({ room, players, activeAccount, onLeave, champions = [], DRA
           </div>
         )}
 
+        {/* Todos acabaram os jogos, mas o desafio não fecha enquanto faltarem
+            dados de combate (regras que os contam) — ver waitingForCombatData.
+            Cada jogador em falta tem de carregar em "Sincronizar dados de
+            combate" no seu próprio dispositivo. */}
+        {loaded && waitingForCombatData && (
+          <div style={styles.combatSyncBanner}>
+            <HeartPulse size={15} strokeWidth={2.5} style={{ flexShrink: 0 }} />
+            <span>
+              {t("chal_combat_sync_needed")}
+              {combatPendingPlayers.length > 0 && (
+                <>
+                  {" "}
+                  <b>
+                    {combatPendingPlayers
+                      .map((p) =>
+                        p.riot_game_name && p.riot_tag_line
+                          ? `${p.riot_game_name}#${p.riot_tag_line}`
+                          : p.username
+                      )
+                      .join(", ")}
+                  </b>
+                </>
+              )}
+            </span>
+          </div>
+        )}
+
         {!loaded ? (
           <div style={styles.scoreboardLoading}>
             <Loader2 size={16} strokeWidth={2.5} style={styles.spinIcon} /> {t("loading_generic")}
@@ -1358,14 +1452,27 @@ function ScoreBoard({ room, players, activeAccount, onLeave, champions = [], DRA
                   <Flag size={13} strokeWidth={2.25} /> {t("chal_forfeit")}
                 </button>
               )}
-              <button onClick={handleRecover} disabled={recovering} style={styles.ghostBtn}>
+              {/* Um só botão que sincroniza os dados de combate de TODOS os
+                  jogadores do desafio: puxa a Riot da conta local e enriquece
+                  as partidas seguidas ao vivo que ficaram sem dano/cura (ver
+                  handleSyncCombat). Fica em destaque (primário) quando o
+                  desafio está mesmo à espera destes dados para poder fechar. */}
+              <button
+                onClick={handleSyncCombat}
+                disabled={recovering}
+                style={
+                  waitingForCombatData
+                    ? { ...styles.primaryBtn, display: "inline-flex", alignItems: "center", gap: 6 }
+                    : styles.ghostBtn
+                }
+              >
                 {recovering ? (
                   <>
-                    <Loader2 size={13} strokeWidth={2.5} style={styles.spinIcon} /> {t("chal_recovering")}
+                    <Loader2 size={13} strokeWidth={2.5} style={styles.spinIcon} /> {t("chal_syncing")}
                   </>
                 ) : (
                   <>
-                    <History size={13} strokeWidth={2.25} /> {t("chal_recover_games")}
+                    <HeartPulse size={13} strokeWidth={2.25} /> {t("chal_sync_combat")}
                   </>
                 )}
               </button>
@@ -1388,7 +1495,7 @@ function ScoreBoard({ room, players, activeAccount, onLeave, champions = [], DRA
           <div style={styles.fieldHint}>{t("chal_you_forfeited")}</div>
         ) : (
           <>
-            <div style={styles.fieldHint}>{t("chal_recover_hint")}</div>
+            <div style={styles.fieldHint}>{t("chal_sync_combat_hint")}</div>
             <div style={styles.fieldHint}>{t("chal_forfeit_hint")}</div>
             {isHost && <div style={styles.fieldHint}>{t("chal_end_now_hint")}</div>}
           </>
@@ -2413,6 +2520,23 @@ const styles = {
     border: "1px solid rgba(245,196,81,0.3)",
     borderRadius: "var(--radius-lg)",
     padding: "9px 14px",
+    marginBottom: 16,
+  },
+
+  // Aviso de que o desafio está à espera dos dados de combate — âmbar como o
+  // KeepAppOpenNotice (é uma pendência, não um erro), com destaque para saltar
+  // à vista assim que todos acabam os jogos.
+  combatSyncBanner: {
+    display: "flex",
+    alignItems: "center",
+    gap: 9,
+    fontSize: 12.5,
+    lineHeight: 1.4,
+    color: "#fbbf24",
+    background: "linear-gradient(90deg, rgba(251,191,36,0.14), rgba(251,191,36,0.02))",
+    border: "1px solid rgba(251,191,36,0.35)",
+    borderRadius: "var(--radius-lg)",
+    padding: "10px 14px",
     marginBottom: 16,
   },
 

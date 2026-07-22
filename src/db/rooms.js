@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { findBestSyncedMatch, consumeBestMatches } from "../lib/matchMatching";
 
 // O cliente Supabase reutiliza um canal Realtime existente sempre que se
 // pede outro com o MESMO nome (ver RealtimeClient.channel) — em vez de criar
@@ -234,26 +235,6 @@ export const FORFEIT_COOLDOWN_MS = 60 * 60 * 1000;
 // mesmo jogar não ficar preso na sala para sempre).
 export const FORFEIT_MIN_WAIT_MS = 15 * 60 * 1000;
 
-// Quando foi a última desistência desta conta (em qualquer sala)? Base do
-// intervalo obrigatório acima. null = nunca desistiu.
-export async function getLastForfeitAt(username) {
-  const { data, error } = await supabase
-    .from("challenge_room_players")
-    .select("forfeited_at")
-    .eq("username", username)
-    .eq("forfeited", true)
-    .not("forfeited_at", "is", null)
-    .order("forfeited_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (error) {
-    console.error("getLastForfeitAt error:", error);
-    return null;
-  }
-  return data?.forfeited_at || null;
-}
-
 // Desistir do desafio já a decorrer. Ao contrário de leaveRoom (que apaga o
 // lugar na sala, e com ele o desafio do histórico desta conta), isto MANTÉM
 // tudo — a linha fica, os pontos já feitos ficam, o desafio continua a
@@ -261,76 +242,41 @@ export async function getLastForfeitAt(username) {
 // último lugar no placar e o desafio deixa de esperar por ele para terminar
 // (ver ScoreBoard em Challenges.jsx).
 //
-// Recusa em dois casos: ainda dentro do intervalo desde a última
-// desistência (FORFEIT_COOLDOWN_MS), ou cedo demais neste desafio sem ter
-// jogado nada (FORFEIT_MIN_WAIT_MS). As verificações são feitas aqui, à
-// beira da escrita, e não só no botão — assim valem para qualquer caminho
-// que chame isto.
-// AVISO: isto NÃO é uma defesa a sério; como o resto da app, não há
-// autenticação nenhuma e as políticas são abertas (ver schema.sql), por isso
-// um cliente modificado escreve o que quiser. Serve para travar o exploit
-// acidental/fácil, não um determinado.
+// As travas anti-farm (cooldown de FORFEIT_COOLDOWN_MS e mínimo de
+// FORFEIT_MIN_WAIT_MS, ver acima) são agora impostas NO SERVIDOR, dentro da
+// função rpc_forfeit_challenge (ver supabase/schema.sql) — antes eram só do
+// lado do cliente, que um build modificado contornava. Devolve os mesmos
+// códigos de sempre ("forfeit-cooldown"/"forfeit-too-early" + retryInMs) para
+// a UI (ver handleForfeit em Challenges.jsx) não precisar de mudar.
 export async function forfeitChallenge(roomId, username) {
-  const lastAt = await getLastForfeitAt(username);
-  if (lastAt) {
-    const elapsed = Date.now() - new Date(lastAt).getTime();
-    if (elapsed < FORFEIT_COOLDOWN_MS) {
-      return { success: false, error: "forfeit-cooldown", retryInMs: FORFEIT_COOLDOWN_MS - elapsed };
-    }
-  }
-
-  // Jogou alguma partida neste desafio? Se sim, desistir é sempre legítimo,
-  // independentemente do tempo. Se não, tem de ter esperado o mínimo desde
-  // o arranque (ver FORFEIT_MIN_WAIT_MS).
-  const [roomRes, gamesRes] = await Promise.all([
-    supabase.from("challenge_rooms").select("started_at").eq("id", roomId).maybeSingle(),
-    supabase
-      .from("challenge_games")
-      .select("id", { count: "exact", head: true })
-      .eq("room_id", roomId)
-      .eq("username", username),
-  ]);
-
-  const gamesPlayed = gamesRes.count || 0;
-  const startedAt = roomRes.data?.started_at;
-  // Sem "started_at" conhecido não dá para medir a espera — nesse caso não
-  // se trava nada (é preferível deixar desistir do que prender o jogador
-  // por causa de um dado em falta).
-  const waited = startedAt ? Date.now() - new Date(startedAt).getTime() : Infinity;
-
-  if (gamesPlayed === 0 && waited < FORFEIT_MIN_WAIT_MS) {
-    return { success: false, error: "forfeit-too-early", retryInMs: FORFEIT_MIN_WAIT_MS - waited };
-  }
-
-  return forfeitChallengeUnchecked(roomId, username);
-}
-
-async function forfeitChallengeUnchecked(roomId, username) {
-  const { error } = await supabase
-    .from("challenge_room_players")
-    .update({ forfeited: true, forfeited_at: new Date().toISOString() })
-    .eq("room_id", roomId)
-    .eq("username", username);
+  const { data, error } = await supabase.rpc("rpc_forfeit_challenge", {
+    p_room_id: roomId,
+    p_username: username,
+  });
 
   if (error) {
     console.error("forfeitChallenge error:", error);
     return { success: false, error: error.message || String(error) };
   }
+  if (!data?.success) {
+    return { success: false, error: data?.error, retryInMs: data?.retry_in_ms };
+  }
   return { success: true };
 }
 
-// Inicia o desafio — muda o estado de "lobby" para "running" e começa a
-// rastrear pontuações. Só o host pode fazer isto.
-export async function startRoom(roomId) {
-  const { error } = await supabase
-    .from("challenge_rooms")
-    .update({ status: "running", started_at: new Date().toISOString() })
-    .eq("id", roomId);
+// Inicia o desafio — de "lobby" para "running". Só o anfitrião, imposto no
+// servidor (ver rpc_start_room em supabase/schema.sql).
+export async function startRoom(roomId, hostUsername) {
+  const { data, error } = await supabase.rpc("rpc_start_room", {
+    p_room_id: roomId,
+    p_host_username: hostUsername,
+  });
 
   if (error) {
     console.error("startRoom error:", error);
     return { success: false, error: error.message || String(error) };
   }
+  if (!data?.success) return { success: false, error: data?.error };
   return { success: true };
 }
 
@@ -339,38 +285,45 @@ export async function startRoom(roomId) {
 // contrário de closeRoom, isto NÃO apaga a sala: fica com status "finished"
 // e vira uma entrada de histórico (ver getChallengeHistory) e conta para a
 // conquista de vitórias em desafios (ver getChallengeWinCount).
-export async function finishRoom(roomId, { winnerUsername, results, scoringRules }) {
-  const { error } = await supabase
-    .from("challenge_rooms")
-    .update({
-      status: "finished",
-      finished_at: new Date().toISOString(),
-      winner_username: winnerUsername || null,
-      results: results || null,
-      // Regras com que "results" foi calculado — guardadas com a fotografia
-      // para o histórico continuar interpretável depois de as regras
-      // mudarem (ver persistFinish em Challenges.jsx).
-      scoring_rules: scoringRules || null,
-    })
-    .eq("id", roomId);
+// "hostUsername" (a conta ativa de quem persiste o fim) é verificado no
+// servidor contra o anfitrião real da sala (ver rpc_finish_room em
+// supabase/schema.sql) — só o anfitrião termina. As "results"/scoring_rules
+// (a fotografia com que fica o histórico) continuam a ser calculadas no
+// cliente (ver persistFinish em Challenges.jsx); a RPC valida quem pede e o
+// estado, não recalcula a pontuação.
+export async function finishRoom(roomId, { winnerUsername, results, scoringRules, hostUsername }) {
+  const { data, error } = await supabase.rpc("rpc_finish_room", {
+    p_room_id: roomId,
+    p_host_username: hostUsername,
+    p_winner_username: winnerUsername || null,
+    p_results: results || null,
+    p_scoring_rules: scoringRules || null,
+  });
 
   if (error) {
     console.error("finishRoom error:", error);
     return { success: false, error: error.message || String(error) };
   }
+  if (!data?.success) return { success: false, error: data?.error };
   return { success: true };
 }
 
 // Sair sendo host desfaz a sala: sem host não há quem a comece, e deixar uma
 // sala órfã só ia confundir quem lá estivesse à espera. O "cascade" das
-// tabelas leva jogadores e convites atrás.
-export async function closeRoom(roomId) {
-  const { error } = await supabase.from("challenge_rooms").delete().eq("id", roomId);
+// tabelas leva jogadores e convites atrás. Só o anfitrião pode desfazer,
+// imposto no servidor (ver rpc_close_room em supabase/schema.sql) — antes
+// qualquer cliente apagava QUALQUER sala por id.
+export async function closeRoom(roomId, hostUsername) {
+  const { data, error } = await supabase.rpc("rpc_close_room", {
+    p_room_id: roomId,
+    p_host_username: hostUsername,
+  });
 
   if (error) {
     console.error("closeRoom error:", error);
     return { success: false, error: error.message || String(error) };
   }
+  if (!data?.success) return { success: false, error: data?.error };
   return { success: true };
 }
 
@@ -528,27 +481,26 @@ export async function closeUnfinishedChallengeGame(gameId) {
 // Vai buscar a "matches" (só LÊ — nunca escreve, nunca altera o que o sync
 // normal já fez) o dano/cura/multikills desta partida, para copiar para a
 // linha do challenge. Mesma heurística de correspondência que hasSyncedMatch
-// já usa (username + campeão + KDA exatos, depois de "after").
+// (campeão + janela temporal + KDA mais próximo, ver findBestSyncedMatch),
+// tolerante a um poll final que perdeu o abate/morte derradeiro.
 export async function findSyncedMatchDetails(username, { champion, kills, deaths, assists, after }) {
   const { data, error } = await supabase
     .from("matches")
-    .select("damage_dealt, damage_taken, healing, double_kills, triple_kills, participants")
+    .select(
+      "champion, kills, deaths, assists, created_at, " +
+        "damage_dealt, damage_taken, healing, double_kills, triple_kills, participants"
+    )
     .eq("username", username)
     .eq("champion", champion)
-    .eq("kills", kills)
-    .eq("deaths", deaths)
-    .eq("assists", assists)
     .not("riot_match_id", "is", null)
-    .gte("created_at", after)
-    .order("created_at", { ascending: true })
-    .limit(1)
-    .maybeSingle();
+    .gte("created_at", after);
 
   if (error) {
     console.error("findSyncedMatchDetails error:", error);
     return null;
   }
-  return data;
+
+  return findBestSyncedMatch({ champion, kills, deaths, assists, anchorTime: after }, data || []);
 }
 
 // Copia dano/cura/multikills para a linha do challenge assim que aparecerem
@@ -716,6 +668,91 @@ export async function recoverMissingChallengeGames(roomId, username, sinceISO) {
 
   console.log(`🔁 ${toInsert.length} partida(s) recuperada(s) para o desafio ${roomId}`);
   return { success: true, recovered: toInsert.length };
+}
+
+// ================= ENRIQUECER JOGOS JÁ REGISTADOS (dados de combate) =================
+// Complemento de recoverMissingChallengeGames: aquela CRIA linhas para
+// partidas que o desafio nunca chegou a registar; esta preenche as linhas que
+// JÁ existem mas ficaram sem dano/cura/dano recebido/multikills.
+//
+// Isso acontece sempre que a captura ao vivo fechou a partida (finishChallengeGame
+// -> status "finished") mas o ciclo de enriquecimento automático (ver
+// enrichChallengeGame + scheduleAutoSync em useLiveGame.js) não chegou a
+// completar-se — app fechada logo a seguir ao jogo, sync da Riot ainda por
+// fazer, etc. Sem dano/cura, um desafio cujas regras contam essas categorias
+// fica com pontuações incompletas.
+//
+// Casa cada linha "finished" sem dano com a partida correspondente em "matches"
+// (mesmo campeão + KDA exatos, o critério de sempre), mas SÓ com partidas já
+// sincronizadas com a Riot API (riot_match_id preenchido) — são as únicas que
+// têm dano/cura. Por isso o botão que chama isto sincroniza primeiro com a
+// Riot. Só LÊ de "matches", nunca escreve lá.
+export async function enrichFinishedChallengeGames(roomId, username, sinceISO) {
+  const [gamesRes, matchesRes] = await Promise.all([
+    supabase
+      .from("challenge_games")
+      .select("id, champion, kills, deaths, assists, started_at, finished_at")
+      .eq("room_id", roomId)
+      .eq("username", username)
+      .eq("status", "finished")
+      .is("damage_dealt", null),
+    supabase
+      .from("matches")
+      .select(
+        "champion, kills, deaths, assists, created_at, damage_dealt, damage_taken, healing, " +
+          "double_kills, triple_kills, participants"
+      )
+      .eq("username", username)
+      .not("riot_match_id", "is", null)
+      .gte("created_at", sinceISO)
+      .order("created_at", { ascending: true }),
+  ]);
+
+  if (gamesRes.error) {
+    console.error("enrichFinishedChallengeGames (games) error:", gamesRes.error);
+    return { success: false, enriched: 0 };
+  }
+  if (matchesRes.error) {
+    console.error("enrichFinishedChallengeGames (matches) error:", matchesRes.error);
+    return { success: false, enriched: 0 };
+  }
+
+  // Casa cada linha por enriquecer à melhor partida da Riot (campeão + janela
+  // temporal a partir do fim do jogo + KDA mais próximo), consumindo cada
+  // partida no máximo uma vez — dois jogos idênticos não roubam os dados um do
+  // outro (ver consumeBestMatches em src/lib/matchMatching.js). Tolerante a um
+  // poll final que perdeu o abate/morte derradeiro.
+  const targets = (gamesRes.data || []).map((g) => ({
+    id: g.id,
+    champion: g.champion,
+    kills: g.kills,
+    deaths: g.deaths,
+    assists: g.assists,
+    anchorTime: g.finished_at || g.started_at,
+  }));
+
+  const pairs = consumeBestMatches(targets, matchesRes.data || []);
+  let enriched = 0;
+
+  for (const { target, match: m } of pairs) {
+    const { error } = await supabase
+      .from("challenge_games")
+      .update({
+        damage_dealt: m.damage_dealt ?? null,
+        damage_taken: m.damage_taken ?? null,
+        healing: m.healing ?? null,
+        double_kills: m.double_kills ?? null,
+        triple_kills: m.triple_kills ?? null,
+        participants: m.participants || null,
+        status: "enriched",
+      })
+      .eq("id", target.id);
+
+    if (error) console.error("enrichFinishedChallengeGames (update) error:", error);
+    else enriched++;
+  }
+
+  return { success: true, enriched };
 }
 
 // Qualquer mudança nos jogos desta sala (nova partida a começar, KDA a

@@ -1,4 +1,5 @@
 import { useMemo, useState, useEffect } from "react";
+import { Sparkles, Star } from "lucide-react";
 import { useLanguage } from "../lib/i18n";
 import { normalizeChampionId } from "../lib/champions";
 import {
@@ -219,6 +220,17 @@ export default function InGame({
       }),
     [itemGroups, isLive, liveChampionAlert?.items]
   );
+
+  // O melhor prismático a escolher — a escolha única e cara que mais muda a
+  // partida, por isso vale um destaque próprio no topo da build em vez de se
+  // perder no meio da lista. É a primeira linha da prateleira dos prismáticos
+  // (recommendCore já a ordena por desvio e só deixa passar acima da média),
+  // ou null quando nenhum prismático está acima da média deste campeão — nesse
+  // caso não se inventa uma recomendação.
+  const topPrismatic = useMemo(() => {
+    const g = itemGroups.find((grp) => grp.key === ITEM_TIER.PRISMATIC);
+    return g?.rows?.[0] || null;
+  }, [itemGroups]);
 
   const liveScore = useMemo(() => {
     if (!isLive || !liveChampionAlert?.challengeRoom) return null;
@@ -451,6 +463,34 @@ export default function InGame({
             <span style={styles.panelHint}>{t("ingame_build_hint")}</span>
           </div>
 
+          {/* Destaque do prismático a escolher — a pergunta mais direta ("qual
+              prismático levo?") merece a resposta mais direta, no topo, antes
+              das prateleiras. Só aparece com um prismático mesmo acima da
+              média deste campeão (ver topPrismatic). */}
+          {topPrismatic && (
+            <div style={styles.prismaticPick}>
+              <Sparkles size={16} strokeWidth={2.25} style={styles.prismaticPickSpark} />
+              {DRAGON && (
+                <img
+                  src={`${DRAGON}/img/item/${topPrismatic.itemId}.png`}
+                  alt=""
+                  style={styles.prismaticPickIcon}
+                  loading="lazy"
+                />
+              )}
+              <div style={styles.prismaticPickText}>
+                <div style={styles.prismaticPickLabel}>{t("ingame_prismatic_pick")}</div>
+                <div style={styles.prismaticPickName}>
+                  {itemsMap?.[topPrismatic.itemId] || `#${topPrismatic.itemId}`}
+                </div>
+              </div>
+              <span style={styles.prismaticPickDelta}>
+                +{topPrismatic.delta.toFixed(0)}
+                <span style={styles.prismaticPickDeltaUnit}>{t("ingame_prismatic_pick_unit")}</span>
+              </span>
+            </div>
+          )}
+
           {itemGroupsWithProgress.length === 0 ? (
             <div style={styles.panelEmpty}>
               {hasEligibleItems ? t("ingame_build_none_above") : t("ingame_build_empty")}
@@ -472,6 +512,11 @@ export default function InGame({
                     DRAGON={DRAGON}
                     owned={owned}
                     ownedLabel={t("ingame_build_owned")}
+                    // A 1ª escolha da prateleira = maior desvio (group.rows já
+                    // vem ordenado por recommendCore). Marca só a de topo, para
+                    // o olho pousar logo no que comprar primeiro.
+                    topPick={row.itemId === group.rows[0]?.itemId}
+                    topPickLabel={t("ingame_build_top_pick")}
                   />
                 ))}
               </div>
@@ -537,7 +582,8 @@ function AugmentLine({ row, info }) {
 
 // Uma linha de item. "owned" só é passado com partida a decorrer — fora dela
 // o inventário não existe e não faz sentido marcar nada como já comprado.
-function ItemLine({ row, name, DRAGON, owned, ownedLabel }) {
+// "topPick" marca a melhor escolha da prateleira (ver InGame acima).
+function ItemLine({ row, name, DRAGON, owned, ownedLabel, topPick, topPickLabel }) {
   const good = row.delta >= 0;
 
   return (
@@ -555,6 +601,11 @@ function ItemLine({ row, name, DRAGON, owned, ownedLabel }) {
 
       <span style={styles.lineName}>
         {name || `#${row.itemId}`}
+        {topPick && !owned && (
+          <span style={styles.topPickTag}>
+            <Star size={9} strokeWidth={2.5} fill="currentColor" /> {topPickLabel}
+          </span>
+        )}
         {owned && <span style={styles.ownedTag}>{ownedLabel}</span>}
       </span>
 
@@ -766,6 +817,73 @@ const styles = {
     textTransform: "uppercase",
     color: "var(--place-good)",
   },
+
+  topPickTag: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 3,
+    marginLeft: 6,
+    fontSize: 8.5,
+    fontWeight: 800,
+    letterSpacing: 0.3,
+    textTransform: "uppercase",
+    color: "#ffc754",
+    verticalAlign: "middle",
+  },
+
+  // ---- destaque do prismático a escolher ----
+  prismaticPick: {
+    display: "flex",
+    alignItems: "center",
+    gap: 11,
+    margin: "10px 14px 4px",
+    padding: "10px 12px",
+    borderRadius: "var(--radius-md)",
+    background: "linear-gradient(90deg, rgba(177,101,255,0.16), rgba(177,101,255,0.03))",
+    border: "1px solid rgba(177,101,255,0.4)",
+  },
+
+  prismaticPickSpark: { color: "#b165ff", flexShrink: 0 },
+
+  prismaticPickIcon: {
+    width: 34,
+    height: 34,
+    flexShrink: 0,
+    borderRadius: "var(--radius-sm)",
+    border: "1px solid rgba(177,101,255,0.5)",
+  },
+
+  prismaticPickText: { display: "flex", flexDirection: "column", gap: 2, minWidth: 0, flex: 1 },
+
+  prismaticPickLabel: {
+    fontSize: 9,
+    fontWeight: 800,
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+    color: "#c99bff",
+  },
+
+  prismaticPickName: {
+    fontSize: 13.5,
+    fontWeight: 700,
+    color: "var(--text-body)",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  },
+
+  prismaticPickDelta: {
+    display: "flex",
+    alignItems: "baseline",
+    gap: 3,
+    flexShrink: 0,
+    fontSize: 17,
+    fontWeight: 800,
+    color: "var(--place-good)",
+    fontVariantNumeric: "tabular-nums",
+  },
+
+  prismaticPickDeltaUnit: { fontSize: 9, fontWeight: 700, color: "var(--text-muted)" },
 
   lineGames: {
     fontSize: 11,

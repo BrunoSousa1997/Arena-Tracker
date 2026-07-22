@@ -1,5 +1,5 @@
 const path = require("path");
-const { app, BrowserWindow, ipcMain, screen } = require("electron");
+const { app, BrowserWindow, ipcMain, screen, globalShortcut } = require("electron");
 const Store = require("electron-store");
 
 // ================= SOBREPOSIÇÃO NO JOGO =================
@@ -20,6 +20,12 @@ const Store = require("electron-store");
 // frente. É a mesma limitação de qualquer overlay que não injete no processo
 // do jogo (coisa que esta app não faz de propósito, ver a nota sobre a LCU em
 // riotApi.js).
+//
+// COMPORTAMENTO: por omissão isto é um FLASH, não um painel permanente —
+// acende no arranque da partida e no resultado final, e esconde-se sozinho
+// passados uns segundos (ver DEFAULT_DURATION_SEC e updateOverlay). Um atalho
+// global (ver TOGGLE_SHORTCUT) acende-a/esconde-a à ordem a meio do jogo. A
+// duração é configurável nas Definições; 0 volta ao painel sempre visível.
 
 const store = new Store();
 
@@ -29,7 +35,29 @@ const HEIGHT = 112;
 // barra de vida/minimapa, onde não tapa nada de útil durante a partida.
 const TOP_RATIO = 0.045;
 
+// Quantos segundos a sobreposição fica no ecrã depois de aparecer, antes de
+// se esconder sozinha. O objetivo é ser um flash de informação (início da
+// partida / resultado), não um painel permanente por cima do jogo — ver
+// updateOverlay. Configurável nas Definições; 0 = fica sempre visível
+// (comportamento antigo, para quem o prefere).
+const DEFAULT_DURATION_SEC = 12;
+
+// Atalho global para trazer a sobreposição de volta (ou escondê-la) à ordem,
+// já a meio do jogo, mesmo depois de ela se ter escondido sozinha. É a única
+// forma de interagir com ela: a janela é atravessável ao rato de propósito
+// (ver setIgnoreMouseEvents), por isso não há nada lá para clicar.
+const TOGGLE_SHORTCUT = "Alt+O";
+
 let overlayWin = null;
+// Timer do auto-esconder (ver scheduleHide). Guardado para se poder cancelar
+// quando uma fase nova o substitui ou quando a partida acaba de vez.
+let hideTimer = null;
+// Assinatura da última "fase" mostrada — início da partida vs. resultado
+// final. É isto que distingue um cartão que MERECE reaparecer (mudou de fase)
+// de uma simples atualização de KDA de 3 em 3s, que não deve voltar a acender
+// a sobreposição depois de ela já se ter escondido. null quando não há
+// partida (reposto sempre que chega updateOverlay(null)).
+let lastPhaseKey = null;
 // Último cartão recebido do renderer principal.
 //
 // Guardá-lo é obrigatório, não é otimização: a janela é criada e alimentada no
@@ -46,6 +74,40 @@ let lastPayload = null;
 
 function isEnabled() {
   return store.get("gameOverlay", false);
+}
+
+// Duração em milissegundos do auto-esconder. 0 (ou negativo) = nunca esconder.
+function hideDelayMs() {
+  const sec = store.get("overlayDurationSec", DEFAULT_DURATION_SEC);
+  return Number.isFinite(sec) && sec > 0 ? sec * 1000 : 0;
+}
+
+// A fase de um cartão: só interessa se é o arranque da partida ou o resultado
+// final — o KDA que muda no meio NÃO é uma fase nova. O campeão entra na
+// chave para dois jogos seguidos (mesmo campeão) não colapsarem no mesmo, e
+// para o cartão reaparecer a cada partida nova.
+function phaseKey(data) {
+  if (!data) return null;
+  return `${data.championName || "?"}|${data.gameEnded ? "end" : "live"}`;
+}
+
+function clearHideTimer() {
+  if (hideTimer) {
+    clearTimeout(hideTimer);
+    hideTimer = null;
+  }
+}
+
+// Esconde a sobreposição passado o tempo configurado. Não a destrói: fica
+// pronta a reaparecer sem o custo de recriar a janela (fase nova ou atalho).
+function scheduleHide() {
+  clearHideTimer();
+  const delay = hideDelayMs();
+  if (delay <= 0) return; // 0 = fica sempre visível
+  hideTimer = setTimeout(() => {
+    hideTimer = null;
+    if (overlayWin && !overlayWin.isDestroyed()) overlayWin.hide();
+  }, delay);
 }
 
 function createOverlay() {
@@ -113,13 +175,22 @@ function sendToOverlay(data) {
 }
 
 // Ponto único de decisão sobre a sobreposição estar no ecrã ou não: só com a
-// definição ligada E com uma partida a decorrer. Fechá-la (em vez de a deixar
+// definição ligada E com uma partida a decorrer. Esconder (em vez de a deixar
 // vazia) garante que não fica um retângulo invisível a apanhar nada por cima
 // do jogo depois da partida acabar.
+//
+// A visibilidade segue as FASES da partida (ver phaseKey), não cada
+// atualização: um cartão novo (arranque da partida, resultado final) acende a
+// sobreposição e arranca o auto-esconder; uma atualização de KDA no meio só
+// refresca o conteúdo — se a sobreposição já se escondeu, fica escondida (é
+// esse o objetivo: um flash de segundos, não um painel permanente). Trazê-la
+// de volta a meio do jogo faz-se pelo atalho global (ver toggleOverlay).
 function updateOverlay(data) {
   lastPayload = data;
 
   if (!isEnabled() || !data) {
+    clearHideTimer();
+    lastPhaseKey = null;
     if (overlayWin && !overlayWin.isDestroyed()) overlayWin.hide();
     return;
   }
@@ -127,20 +198,66 @@ function updateOverlay(data) {
   const win = createOverlay();
   sendToOverlay(data);
 
-  if (!win.isVisible()) {
+  const key = phaseKey(data);
+  if (key !== lastPhaseKey) {
+    // Fase nova — vale a pena mostrar (ou voltar a mostrar).
+    lastPhaseKey = key;
     // showInactive e não show: "show" traria a janela para a frente e tirava
     // o foco ao jogo.
-    win.showInactive();
+    if (!win.isVisible()) win.showInactive();
+    scheduleHide();
   }
+  // Mesma fase (só o KDA mudou): conteúdo já foi reenviado acima; não se toca
+  // na visibilidade nem no timer, para o auto-esconder não ser adiado para
+  // sempre pelo poll de 3 em 3s.
+}
+
+// Alterna a sobreposição à ordem (atalho global). Escondida -> aparece com o
+// último cartão e recomeça o auto-esconder; visível -> esconde já e cancela o
+// timer. Sem partida ativa ou com a definição desligada, não faz nada.
+function toggleOverlay() {
+  if (!isEnabled() || !lastPayload) return;
+
+  if (overlayWin && !overlayWin.isDestroyed() && overlayWin.isVisible()) {
+    clearHideTimer();
+    overlayWin.hide();
+    return;
+  }
+
+  const win = createOverlay();
+  sendToOverlay(lastPayload);
+  if (!win.isVisible()) win.showInactive();
+  scheduleHide();
 }
 
 function destroyOverlay() {
+  clearHideTimer();
+  lastPhaseKey = null;
   if (overlayWin && !overlayWin.isDestroyed()) overlayWin.destroy();
   overlayWin = null;
 }
 
 function registerOverlayHandlers() {
   ipcMain.handle("overlay:isEnabled", () => isEnabled());
+
+  // Duração do auto-esconder (segundos), lida/escrita nas Definições. 0 = fica
+  // sempre visível (comportamento antigo).
+  ipcMain.handle("overlay:getDuration", () =>
+    store.get("overlayDurationSec", DEFAULT_DURATION_SEC)
+  );
+  ipcMain.handle("overlay:setDuration", (_event, value) => {
+    const sec = Math.max(0, Math.min(60, Math.round(Number(value) || 0)));
+    store.set("overlayDurationSec", sec);
+    return sec;
+  });
+
+  // Atalho global para acender/esconder a sobreposição a meio do jogo. É de
+  // registo único (esta função corre uma vez, no arranque) — se falhar
+  // (atalho já tomado por outra app), degrada em silêncio: perde-se o atalho,
+  // não o auto-esconder, que é o essencial.
+  if (!globalShortcut.isRegistered(TOGGLE_SHORTCUT)) {
+    globalShortcut.register(TOGGLE_SHORTCUT, toggleOverlay);
+  }
 
   // O renderer da sobreposição já subscreveu o canal e pode receber dados.
   // Ver a nota em "lastPayload" para o porquê de isto existir.
@@ -159,8 +276,12 @@ function registerOverlayHandlers() {
   ipcMain.handle("overlay:update", (_event, data) => updateOverlay(data));
 
   // A sobreposição não deve sobreviver ao fecho da app nem ficar órfã se a
-  // janela principal morrer por alguma razão.
-  app.on("before-quit", destroyOverlay);
+  // janela principal morrer por alguma razão. O atalho global também tem de
+  // ser libertado, senão fica registado no sistema depois de a app sair.
+  app.on("before-quit", () => {
+    globalShortcut.unregister(TOGGLE_SHORTCUT);
+    destroyOverlay();
+  });
 }
 
 module.exports = { registerOverlayHandlers, destroyOverlay };

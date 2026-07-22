@@ -416,3 +416,198 @@ begin
   alter publication supabase_realtime add table public.challenge_invites;
 exception when duplicate_object then null;
 end $$;
+
+-- ============================================================
+-- 10) RPCs DE INTEGRIDADE (security definer) — FASE 1
+-- ============================================================
+-- Movem as operações destrutivas e o anti-abuso dos desafios para o SERVIDOR,
+-- em vez de dependerem só do cliente (que um build modificado contorna à
+-- vontade). Antes: o cooldown de desistência era verificado só em JS (ver
+-- forfeitChallenge em src/db/rooms.js), e closeRoom apagava QUALQUER sala por
+-- id sem verificar quem pedia.
+--
+-- NESTA fase a RLS acima continua ABERTA — a app passa a escrever por estas
+-- funções, mas nada quebra para clientes que ainda escrevam direto. O objetivo
+-- é (a) centralizar o anti-abuso no servidor e (b) preparar o fecho da RLS,
+-- que é a FASE 2 (bloco comentado no fim deste ficheiro).
+--
+-- security definer = a função corre com os privilégios do dono (ignora a RLS),
+-- por isso continuará a funcionar quando a RLS for fechada. "set search_path"
+-- fixa o esquema, boa prática obrigatória em funções security definer.
+--
+-- Convenção de retorno: jsonb { success: bool, error?: text, retry_in_ms?: bigint }.
+
+-- Desistir de um desafio, com as travas anti-farm impostas AQUI:
+--  - 1h de intervalo desde a última desistência da conta (em qualquer sala);
+--  - se ainda não jogou nada neste desafio, 15min desde o arranque da sala
+--    (sem started_at conhecido não se trava — preferível a prender o jogador).
+create or replace function public.rpc_forfeit_challenge(p_room_id bigint, p_username text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_cooldown_ms bigint := 60 * 60 * 1000;   -- 1h  (FORFEIT_COOLDOWN_MS)
+  v_min_wait_ms bigint := 15 * 60 * 1000;   -- 15min (FORFEIT_MIN_WAIT_MS)
+  v_last_forfeit timestamptz;
+  v_started_at timestamptz;
+  v_games int;
+  v_elapsed_ms bigint;
+  v_waited_ms bigint;
+begin
+  select max(forfeited_at) into v_last_forfeit
+    from public.challenge_room_players
+   where username = p_username and forfeited = true and forfeited_at is not null;
+
+  if v_last_forfeit is not null then
+    v_elapsed_ms := floor(extract(epoch from (now() - v_last_forfeit)) * 1000);
+    if v_elapsed_ms < v_cooldown_ms then
+      return jsonb_build_object('success', false, 'error', 'forfeit-cooldown',
+                                'retry_in_ms', v_cooldown_ms - v_elapsed_ms);
+    end if;
+  end if;
+
+  select started_at into v_started_at from public.challenge_rooms where id = p_room_id;
+  select count(*) into v_games
+    from public.challenge_games where room_id = p_room_id and username = p_username;
+
+  if v_games = 0 and v_started_at is not null then
+    v_waited_ms := floor(extract(epoch from (now() - v_started_at)) * 1000);
+    if v_waited_ms < v_min_wait_ms then
+      return jsonb_build_object('success', false, 'error', 'forfeit-too-early',
+                                'retry_in_ms', v_min_wait_ms - v_waited_ms);
+    end if;
+  end if;
+
+  update public.challenge_room_players
+     set forfeited = true, forfeited_at = now()
+   where room_id = p_room_id and username = p_username;
+
+  return jsonb_build_object('success', true);
+end;
+$$;
+grant execute on function public.rpc_forfeit_challenge(bigint, text) to anon, authenticated;
+
+-- Desfazer a sala — só o anfitrião. Corrige o "qualquer um apaga qualquer sala
+-- por id". O cascade leva jogadores/convites/jogos atrás (ver as FKs).
+create or replace function public.rpc_close_room(p_room_id bigint, p_host_username text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare v_host text;
+begin
+  select host_username into v_host from public.challenge_rooms where id = p_room_id;
+  if v_host is null then
+    return jsonb_build_object('success', false, 'error', 'room-not-found');
+  end if;
+  if v_host is distinct from p_host_username then
+    return jsonb_build_object('success', false, 'error', 'not-host');
+  end if;
+  delete from public.challenge_rooms where id = p_room_id;
+  return jsonb_build_object('success', true);
+end;
+$$;
+grant execute on function public.rpc_close_room(bigint, text) to anon, authenticated;
+
+-- Arrancar o desafio — só o anfitrião e só a partir do lobby.
+create or replace function public.rpc_start_room(p_room_id bigint, p_host_username text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare v_host text; v_status text;
+begin
+  select host_username, status into v_host, v_status
+    from public.challenge_rooms where id = p_room_id;
+  if v_host is null then
+    return jsonb_build_object('success', false, 'error', 'room-not-found');
+  end if;
+  if v_host is distinct from p_host_username then
+    return jsonb_build_object('success', false, 'error', 'not-host');
+  end if;
+  if v_status <> 'lobby' then
+    return jsonb_build_object('success', false, 'error', 'not-in-lobby');
+  end if;
+  update public.challenge_rooms
+     set status = 'running', started_at = now()
+   where id = p_room_id;
+  return jsonb_build_object('success', true);
+end;
+$$;
+grant execute on function public.rpc_start_room(bigint, text) to anon, authenticated;
+
+-- Terminar o desafio — só o anfitrião e só de "running". Grava a fotografia
+-- (winner/results/scoring_rules) tal como finishRoom em src/db/rooms.js.
+-- NOTA honesta: valida quem pede e o estado, mas NÃO recalcula "results" — a
+-- pontuação é lógica JS complexa (ver challengeScoring.js); a integridade
+-- total dos totais só com o âmbito de autenticação (fora deste passo).
+create or replace function public.rpc_finish_room(
+  p_room_id bigint,
+  p_host_username text,
+  p_winner_username text,
+  p_results jsonb,
+  p_scoring_rules jsonb
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare v_host text; v_status text;
+begin
+  select host_username, status into v_host, v_status
+    from public.challenge_rooms where id = p_room_id;
+  if v_host is null then
+    return jsonb_build_object('success', false, 'error', 'room-not-found');
+  end if;
+  if v_host is distinct from p_host_username then
+    return jsonb_build_object('success', false, 'error', 'not-host');
+  end if;
+  if v_status <> 'running' then
+    return jsonb_build_object('success', false, 'error', 'not-running');
+  end if;
+  update public.challenge_rooms
+     set status = 'finished',
+         finished_at = now(),
+         winner_username = p_winner_username,
+         results = p_results,
+         scoring_rules = p_scoring_rules
+   where id = p_room_id;
+  return jsonb_build_object('success', true);
+end;
+$$;
+grant execute on function public.rpc_finish_room(bigint, text, text, jsonb, jsonb) to anon, authenticated;
+
+-- ============================================================
+-- 11) FECHO DA RLS — FASE 2 (correr SÓ depois de toda a gente atualizar)
+-- ============================================================
+-- NÃO corras este bloco na mesma altura que o resto. Enquanto houver clientes
+-- numa versão que ainda escreve direto nas tabelas (a app auto-atualiza mas só
+-- instala ao fechar), fechar a escrita direta deixa-os sem poder escrever.
+-- Corre isto só quando tiveres a certeza de que toda a gente já está numa
+-- versão que escreve pelas RPCs acima.
+--
+-- IMPORTANTE, e é o limite desta fase: só se pode fechar a escrita das
+-- operações que JÁ passam por RPC (fechar/arrancar/terminar sala, desistir).
+-- As restantes escritas dos desafios (createRoom, joinRoom/leaveRoom,
+-- convites, e TODA a coleção challenge_games — captura ao vivo + enriquecimento)
+-- continuam a ser escrita direta; fechá-las exige primeiro passá-las também a
+-- RPC (é o âmbito do device token / auth, fora deste passo). Por isso o fecho
+-- abaixo é PARCIAL e está comentado até essa cobertura existir.
+--
+-- Quando fizer sentido, troca "for all using(true) with check(true)" por
+-- políticas só de leitura (as escritas passam pelas security definer, que
+-- ignoram a RLS). Esboço:
+--
+--   drop policy if exists "Allow anon read/write rooms" on public.challenge_rooms;
+--   create policy "read rooms" on public.challenge_rooms for select using (true);
+--   -- createRoom continua a precisar de INSERT direto até virar RPC:
+--   create policy "insert rooms" on public.challenge_rooms for insert with check (true);
+--   -- update/delete ficam só para as security definer (rpc_start/finish/close_room).
+--
+-- Repetir o mesmo raciocínio, tabela a tabela, à medida que cada escrita for
+-- passando a RPC. Até lá, manter a RLS aberta (secção 9) é o correto.

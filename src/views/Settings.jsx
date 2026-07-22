@@ -137,15 +137,26 @@ export default function Settings({
   // esse que se guarda — nunca o que se pediu.
   const [background, setBackground] = useState({ backgroundMode: false, autoLaunch: false });
   const [overlayOn, setOverlayOn] = useState(false);
+  // Duração do auto-esconder da sobreposição, em segundos (0 = sempre visível).
+  // Ver electron/overlay.js.
+  const [overlayDuration, setOverlayDuration] = useState(12);
 
   useEffect(() => {
     window.electron?.getBackgroundSettings?.().then(setBackground);
     window.electron?.isOverlayEnabled?.().then(setOverlayOn);
+    window.electron?.getOverlayDuration?.().then((v) => {
+      if (v != null) setOverlayDuration(v);
+    });
   }, []);
 
   const applyOverlay = async (value) => {
     const next = await window.electron?.setOverlayEnabled?.(value);
     setOverlayOn(!!next);
+  };
+
+  const applyOverlayDuration = async (value) => {
+    const next = await window.electron?.setOverlayDuration?.(value);
+    if (next != null) setOverlayDuration(next);
   };
 
   // As etiquetas do menu da bandeja vivem no processo principal (que não tem
@@ -367,6 +378,33 @@ export default function Settings({
                     </button>
                   </div>
                 </div>
+
+                {/* Duração do auto-esconder — só faz sentido com a sobreposição
+                    ligada. 0 = fica sempre visível (painel permanente). */}
+                {overlayOn && (
+                  <div style={styles.row}>
+                    <div style={styles.rowText}>
+                      <div style={styles.rowLabel}>{t("settings_overlay_duration_label")}</div>
+                      <div style={styles.rowHint}>{t("settings_overlay_duration_hint")}</div>
+                    </div>
+                    <div style={styles.segGroup}>
+                      {[
+                        { sec: 8, label: "8s" },
+                        { sec: 12, label: "12s" },
+                        { sec: 15, label: "15s" },
+                        { sec: 0, label: t("settings_overlay_duration_always") },
+                      ].map((opt) => (
+                        <button
+                          key={opt.sec}
+                          onClick={() => applyOverlayDuration(opt.sec)}
+                          style={{ ...styles.segBtn, ...(overlayDuration === opt.sec ? styles.segBtnActive : null) }}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <div style={styles.row}>
                   <div style={styles.rowText}>

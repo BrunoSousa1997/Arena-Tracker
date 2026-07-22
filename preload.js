@@ -25,6 +25,8 @@ contextBridge.exposeInMainWorld("electron", {
   // Sobreposição no jogo — ver electron/overlay.js.
   isOverlayEnabled: () => ipcRenderer.invoke("overlay:isEnabled"),
   setOverlayEnabled: (value) => ipcRenderer.invoke("overlay:setEnabled", value),
+  getOverlayDuration: () => ipcRenderer.invoke("overlay:getDuration"),
+  setOverlayDuration: (value) => ipcRenderer.invoke("overlay:setDuration", value),
   updateOverlay: (data) => ipcRenderer.invoke("overlay:update", data),
   notifyOverlayReady: () => ipcRenderer.invoke("overlay:ready"),
   onOverlayData: (callback) => {

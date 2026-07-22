@@ -1210,6 +1210,10 @@ export default function App() {
                 champions={champions}
                 DRAGON={DRAGON}
                 onChallengeWon={refreshChallengeWins}
+                onSyncAccount={async () => {
+                  await syncActiveAccount();
+                  reconcilePendingAutoSyncs();
+                }}
               />
             )}
 

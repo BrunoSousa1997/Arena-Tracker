@@ -215,6 +215,24 @@ const DICTIONARY = {
     pt: "Não foi possível recuperar as partidas. Tenta de novo.",
     en: "Couldn't recover the games. Try again.",
   },
+  chal_sync_combat: { pt: "Sincronizar dados de combate", en: "Sync combat data" },
+  chal_syncing: { pt: "A sincronizar…", en: "Syncing…" },
+  chal_sync_combat_hint: {
+    pt: "Num só clique, puxa a tua conta da Riot e sincroniza o dano, cura e dano recebido de todos os concorrentes cujos jogos já estejam no histórico. Só conta jogos seguidos ao vivo (mesmo campeão e KDA).",
+    en: "In one click, pulls your Riot account and syncs the damage, healing and damage taken of every competitor whose games are already in history. Only counts games tracked live (same champion and KDA).",
+  },
+  chal_sync_enriched_done: {
+    pt: "Dados de combate de {count} partida(s) sincronizados.",
+    en: "Combat data synced for {count} game(s).",
+  },
+  chal_sync_none: {
+    pt: "Nada por sincronizar — os dados de combate já estão todos.",
+    en: "Nothing to sync — all combat data is already in.",
+  },
+  chal_combat_sync_needed: {
+    pt: "O desafio conta dano, cura e dano recebido e ainda faltam dados de combate. Carrega em \"Sincronizar dados de combate\" — se algum jogador continuar em falta, é porque ainda não sincronizou a conta dele. Em falta:",
+    en: "This challenge counts damage, healing and damage taken and combat data is still missing. Press \"Sync combat data\" — if a player stays pending, it's because they haven't synced their own account yet. Pending:",
+  },
   chal_kills: { pt: "Abates", en: "Kills" },
   chal_deaths: { pt: "Mortes", en: "Deaths" },
   chal_assists: { pt: "Assist.", en: "Assists" },
@@ -472,6 +490,9 @@ const DICTIONARY = {
   ingame_build_title: { pt: "Build", en: "Build" },
   ingame_build_hint: { pt: "por prateleira", en: "by shelf" },
   ingame_build_owned: { pt: "tens", en: "owned" },
+  ingame_build_top_pick: { pt: "1ª escolha", en: "top pick" },
+  ingame_prismatic_pick: { pt: "Prismático a escolher", en: "Prismatic to pick" },
+  ingame_prismatic_pick_unit: { pt: "pp", en: "pp" },
   ingame_build_empty: {
     pt: "Ainda não há itens com jogos suficientes para este campeão.",
     en: "No item has enough games for this champion yet.",
@@ -532,6 +553,12 @@ const DICTIONARY = {
     pt: "Mostra o campeão, o KDA e se já tens vitória por cima do League, sem precisares da janela da app. Funciona com o jogo em \"Sem margens\" ou \"Janela\" — em ecrã inteiro exclusivo o Windows não deixa nada aparecer por cima.",
     en: "Shows the champion, KDA and whether you already have a win on top of League, without needing the app window. Works with the game in \"Borderless\" or \"Windowed\" — in exclusive fullscreen, Windows lets nothing draw on top.",
   },
+  settings_overlay_duration_label: { pt: "Tempo no ecrã", en: "Time on screen" },
+  settings_overlay_duration_hint: {
+    pt: "A sobreposição aparece no início e no fim da partida e esconde-se sozinha ao fim deste tempo. Prime Alt+O no jogo para a mostrar ou esconder à ordem. \"Sempre\" deixa-a fixa toda a partida.",
+    en: "The overlay appears at the start and end of the match and hides itself after this time. Press Alt+O in-game to show or hide it on demand. \"Always\" keeps it pinned for the whole match.",
+  },
+  settings_overlay_duration_always: { pt: "Sempre", en: "Always" },
   settings_autolaunch_label: { pt: "Abrir com o Windows", en: "Launch on startup" },
   settings_autolaunch_hint: {
     pt: "Arranca em segundo plano ao ligar o PC, sem abrir a janela.",
