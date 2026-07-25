@@ -48,10 +48,10 @@ export default function UpdateNotifier() {
 
   const label =
     status === "available"
-      ? `Nova versão encontrada${data?.version ? ` (${data.version})` : ""}. A descarregar...`
+      ? `Nova versão encontrada${data?.version ? ` (${data.version})` : ""}. A descarregar em segundo plano — continua a jogar.`
       : status === "downloading"
       ? `A descarregar atualização... ${Math.round(data?.percent || 0)}%`
-      : `Atualização pronta${data?.version ? ` (${data.version})` : ""}. Reinicia para aplicar.`;
+      : `Atualização pronta${data?.version ? ` (${data.version})` : ""}. Aplica-se sozinha quando reiniciares — sem pressa.`;
 
   return (
     <>

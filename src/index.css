@@ -35,7 +35,12 @@
   --text-body: #e9eaee;
   --text-secondary: #9aa0ab;
   --text-secondary-rgb: 154, 160, 171;
-  --text-muted: #6d7280;
+  /* Antes #6d7280: dava contraste 3.79 sobre o painel e 2.86 sobre uma faceta
+     iluminada do fundo animado — abaixo de AA (e do AA-grande de 3.0 quando o
+     mosaico cintila). #7a808b sobe para 4.59 sobre o painel e 3.47 sobre a
+     faceta mais clara, sem deixar de ser claramente mais ténue que o
+     --text-secondary (6.9). Ver medição em index.css / conversa. */
+  --text-muted: #7a808b;
 
   --place-good: #2fe08a;
   --place-mid: #ff9a2e;
@@ -97,7 +102,10 @@
   --text-body: #14161c;
   --text-secondary: #565d6a;
   --text-secondary-rgb: 86, 93, 106;
-  --text-muted: #868c98;
+  /* Antes #868c98: só 3.38 de contraste sobre o painel branco — falha AA.
+     #707684 sobe para 4.55 (AA normal), mantendo-se mais ténue que o
+     --text-secondary (6.6). */
+  --text-muted: #707684;
 
   --place-good: #0f9d4e;
   --place-mid: #d94e0a;
@@ -193,6 +201,44 @@
   --radius-xl: 14px;
   --radius-2xl: 16px;
   --radius-pill: 999px;
+
+  /* ===== ESPAÇAMENTO (base 4px) =====
+     Escala partilhada para padding/gap/margin, na mesma lógica de --radius-*.
+     Existe para travar a inconsistência: hoje espaçamentos e tamanhos vivem
+     hardcoded inline em centenas de sítios, e acertar o mesmo número à mão em
+     cada um é o que faz a UI parecer "quase alinhada". Valores fora desta
+     escala continuam a ser legítimos para afinações finas de um elemento
+     específico — a escala é o caminho por omissão, não uma imposição. Usável
+     tanto em CSS como em estilos inline do React: style={{ gap: "var(--space-3)" }}. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* ===== TIPOGRAFIA =====
+     Escala de tamanhos e pesos. O corpo continua fluido (ver a regra de :root
+     mais abaixo, com clamp); estes tokens são para os degraus discretos —
+     legendas, rótulos, títulos de secção, títulos de página. --fs-md alinha
+     com o mínimo do corpo fluido (15px) para o texto normal bater certo.
+     Pesos: a app usava sobretudo 500 nos títulos e a hierarquia assentava só
+     em tamanho+cor; --fw-semibold dá um degrau de peso sem aumentar tamanhos. */
+  --fs-2xs: 11px;
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-md: 15px;
+  --fs-lg: 18px;
+  --fs-xl: 22px;
+  --fs-2xl: 28px;
+
+  --fw-normal: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
 }
 
 :root {
@@ -263,26 +309,33 @@ body {
 h1,
 h2 {
   font-family: var(--heading);
-  font-weight: 500;
+  font-weight: var(--fw-semibold);
   color: var(--text-h);
 }
 
+/* Escala sóbria, não editorial: esta é uma ferramenta de dados, não uma
+   landing page. O h1 chegava a 64px (clamp(36px, 3.4vw+16px, 64px)) e a
+   dominar o ecrã, quando na prática nem é usado pelas vistas — os títulos de
+   página são <h2> com estilo inline próprio (ver styles.title em cada view).
+   Mantém-se pequeno e fluido para o raro markdown com h1 (ex: notas de patch)
+   não rebentar o layout. Um título de página de stats raramente precisa de
+   passar dos ~32px. */
 h1 {
-  font-size: clamp(36px, 3.4vw + 16px, 64px);
-  margin: 32px 0;
+  font-size: clamp(24px, 1.4vw + 16px, 32px);
+  margin: var(--space-6) 0 var(--space-4);
 }
 
 h2 {
-  font-size: clamp(18px, 1vw + 10px, 28px);
-  margin: 0 0 8px;
+  font-size: var(--fs-xl);
+  margin: 0 0 var(--space-2);
 }
 
 /* CODE */
 code {
   font-family: var(--mono);
-  font-size: 15px;
-  padding: 4px 8px;
-  border-radius: 4px;
+  font-size: var(--fs-sm);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-xs);
   background: var(--code-bg);
   color: var(--text-h);
 }

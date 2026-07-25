@@ -43,7 +43,7 @@ export default function TabTour({ onSelectTab, onFinish, stepIndex, onStepChange
           </span>
           <h3 style={styles.title}>{step.title[lang] || step.title.pt}</h3>
           <button onClick={onFinish} style={styles.closeBtn} aria-label={t("tour_skip")}>
-            <X size={13} strokeWidth={2.5} />
+            <X size={13} strokeWidth={2.25} />
           </button>
         </div>
 

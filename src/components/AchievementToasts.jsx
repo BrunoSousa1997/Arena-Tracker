@@ -99,7 +99,7 @@ function ToastItem({ toast, onDismiss, onInviteResponse }) {
             style={styles.dismissBtn}
             aria-label={t("chal_invite_dismiss")}
           >
-            <X size={12} strokeWidth={2.5} />
+            <X size={12} strokeWidth={2.25} />
           </button>
         )}
       </div>
@@ -112,7 +112,7 @@ function ToastItem({ toast, onDismiss, onInviteResponse }) {
             onClick={() => respond(true)}
             style={{ ...styles.actionBtn, ...styles.acceptBtn, opacity: busy ? 0.6 : 1 }}
           >
-            <Check size={12} strokeWidth={2.5} />
+            <Check size={12} strokeWidth={2.25} />
             {t("chal_accept")}
           </button>
           <button

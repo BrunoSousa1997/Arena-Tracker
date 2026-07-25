@@ -66,7 +66,7 @@ export default function Welcome({ onAddAccount, onOpenGuide, onDismiss }) {
               {t("welcome_later_btn")}
             </button>
             <button onClick={onAddAccount} style={styles.primaryBtn}>
-              <UserPlus size={13} strokeWidth={2.5} />
+              <UserPlus size={13} strokeWidth={2.25} />
               {t("welcome_add_btn")}
             </button>
           </div>

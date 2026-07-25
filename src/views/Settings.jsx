@@ -163,7 +163,7 @@ export default function Settings({
   // acesso ao i18n do renderer) — enviamo-las sempre que o idioma muda, para o
   // menu não ficar preso na língua que estava quando a app arrancou.
   useEffect(() => {
-    window.electron?.setTrayLabels?.({ open: t("tray_open"), quit: t("tray_quit") });
+    window.electron?.setTrayLabels?.({ open: t("tray_open"), quit: t("tray_quit"), update: t("tray_update") });
   }, [lang]);
 
   const applyBackgroundMode = async (value) => {

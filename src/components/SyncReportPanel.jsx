@@ -101,7 +101,7 @@ export default function SyncReportPanel({ report, account }) {
           {t("sync_report_when")}: {fmtDateTime(report.at, lang)}
         </div>
         <button onClick={copy} style={styles.copyBtn}>
-          {copied === "ok" ? <Check size={12} strokeWidth={2.5} /> : <Copy size={12} strokeWidth={2.25} />}
+          {copied === "ok" ? <Check size={12} strokeWidth={2.25} /> : <Copy size={12} strokeWidth={2.25} />}
           {copied === "ok"
             ? t("sync_report_copied")
             : copied === "fail"

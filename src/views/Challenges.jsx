@@ -23,6 +23,7 @@ import {
   Info,
   MonitorCheck,
   Flag,
+  Clock,
 } from "lucide-react";
 import { useLanguage } from "../lib/i18n";
 import Loading from "../components/Loading";
@@ -30,6 +31,7 @@ import ConfirmDialog from "../components/ConfirmDialog";
 import {
   createRoom,
   joinRoom,
+  setPlayerTeam,
   getRoom,
   getRoomByCode,
   getRoomPlayers,
@@ -56,6 +58,45 @@ import { normalizeChampionId } from "../lib/champions";
 const PLAYER_OPTIONS = [2, 3, 4, 6, 8];
 const MIN_GAMES = 1;
 const MAX_GAMES = 10;
+
+// Opções de limite de tempo do desafio, em horas (null = sem limite). Passado
+// o prazo, o desafio fecha sozinho com o que cada um já jogou — ver deadline
+// no ScoreBoard. Existe para ninguém ficar preso à espera de quem não joga
+// sem ter de recorrer à desistência.
+const TIME_LIMIT_OPTIONS = [null, 1, 3, 6, 12, 24, 48, 168];
+
+// Etiqueta curta e neutra de idioma para um limite em horas ("6h", "2d") —
+// só o "sem limite" precisa de tradução. Usada na criação, no lobby e no
+// placar, por isso vive ao nível do módulo.
+function formatTimeLimit(hours, t) {
+  if (!hours) return t("chal_time_no_limit");
+  if (hours < 24) return `${hours}h`;
+  return `${hours / 24}d`;
+}
+
+// Tempo restante até ao prazo, em "Xh Ym" / "Ym" — neutro de idioma. Devolve
+// null se já passou (o chamador mostra "tempo esgotado").
+function formatTimeLeft(msLeft) {
+  if (msLeft <= 0) return null;
+  const totalMin = Math.floor(msLeft / 60000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+// Nome da equipa: "Equipa A/B/C..." (letra neutra de idioma a partir do
+// índice 1-based). Usado no lobby e no placar em modo equipas.
+function teamLabel(team, t) {
+  return `${t("chal_team")} ${String.fromCharCode(64 + team)}`;
+}
+
+// Opções de nº de jogadores válidas para um modo. Em modo equipas só entram
+// múltiplos do tamanho de equipa com pelo menos 2 equipas (senão não há
+// contra quem competir). Individual (teamSize null) usa a lista toda.
+function playerOptionsForTeam(teamSize) {
+  if (!teamSize) return PLAYER_OPTIONS;
+  return PLAYER_OPTIONS.filter((n) => n % teamSize === 0 && n / teamSize >= 2);
+}
 
 // Cor de identidade por jogador no placar ao vivo (ver ScoreBoard) — só
 // entra em jogo enquanto o desafio decorre, antes de haver medalhas.
@@ -202,7 +243,7 @@ function ScoringRulesInfo() {
         {t("chal_scoring_how")}
         <ChevronDown
           size={13}
-          strokeWidth={2.5}
+          strokeWidth={2.25}
           style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}
         />
       </button>
@@ -527,7 +568,7 @@ function ChallengeHistory({ activeAccount, onBack }) {
 
         {rooms === null && (
           <div style={styles.scoreboardLoading}>
-            <Loader2 size={16} strokeWidth={2.5} style={styles.spinIcon} /> {t("loading_generic")}
+            <Loader2 size={16} strokeWidth={2.25} style={styles.spinIcon} /> {t("loading_generic")}
           </div>
         )}
 
@@ -578,7 +619,7 @@ function HistoryEntry({ room, activeAccount, t, delay = 0 }) {
         </div>
         {won && (
           <span style={styles.leaderBanner}>
-            <Crown size={13} strokeWidth={2.5} /> {t("chal_challenge_winner")}
+            <Crown size={13} strokeWidth={2.25} /> {t("chal_challenge_winner")}
           </span>
         )}
       </div>
@@ -598,7 +639,7 @@ function HistoryEntry({ room, activeAccount, t, delay = 0 }) {
               </div>
               {r.forfeited && (
                 <span style={styles.forfeitTag}>
-                  <Flag size={10} strokeWidth={2.5} /> {t("chal_forfeited")}
+                  <Flag size={10} strokeWidth={2.25} /> {t("chal_forfeited")}
                 </span>
               )}
               <div style={styles.combatGamePts}>{r.total} pts</div>
@@ -623,7 +664,7 @@ function Stepper({ value, onChange, min, max }) {
         disabled={value <= min}
         style={{ ...styles.stepperBtn, ...(value <= min ? styles.stepperBtnDisabled : null) }}
       >
-        <Minus size={15} strokeWidth={2.5} />
+        <Minus size={15} strokeWidth={2.25} />
       </button>
       <div style={styles.stepperValue}>{value}</div>
       <button
@@ -632,7 +673,7 @@ function Stepper({ value, onChange, min, max }) {
         disabled={value >= max}
         style={{ ...styles.stepperBtn, ...(value >= max ? styles.stepperBtnDisabled : null) }}
       >
-        <Plus size={15} strokeWidth={2.5} />
+        <Plus size={15} strokeWidth={2.25} />
       </button>
     </div>
   );
@@ -658,6 +699,10 @@ function CreateForm({ hostUsername, identity, onCancel, onCreated }) {
   const [maxPlayers, setMaxPlayers] = useState(2);
   const [targetGames, setTargetGames] = useState(5);
   const [rules, setRules] = useState("basic");
+  // null = sem limite (comportamento de sempre). Ver TIME_LIMIT_OPTIONS.
+  const [timeLimitHours, setTimeLimitHours] = useState(null);
+  // null = individual; 2 = equipas de 2; 3 = equipas de 3.
+  const [teamSize, setTeamSize] = useState(null);
   // Afinações das regras "específicas" — partem sempre das por omissão (ver
   // DEFAULT_RULES) e só são guardadas se "custom" estiver escolhido.
   const [rulesConfig, setRulesConfig] = useState({ ...DEFAULT_RULES });
@@ -666,12 +711,20 @@ function CreateForm({ hostUsername, identity, onCancel, onCreated }) {
 
   const toggleRule = (key) => setRulesConfig((prev) => ({ ...prev, [key]: !prev[key] }));
 
+  // Trocar de modo pode invalidar o nº de jogadores escolhido (ex: 2 jogadores
+  // não dá para equipas de 2) — nesse caso salta para a primeira opção válida.
+  const setMode = (ts) => {
+    setTeamSize(ts);
+    const opts = playerOptionsForTeam(ts);
+    setMaxPlayers((cur) => (opts.includes(cur) ? cur : opts[0]));
+  };
+
   const submit = async () => {
     if (!name.trim()) return;
     setBusy(true);
     setError("");
 
-    const res = await createRoom({ name, hostUsername, maxPlayers, targetGames, rules, rulesConfig, identity });
+    const res = await createRoom({ name, hostUsername, maxPlayers, targetGames, rules, rulesConfig, timeLimitHours, teamSize, identity });
     setBusy(false);
     if (!res.success) return setError(res.error);
     onCreated(res.room);
@@ -690,11 +743,31 @@ function CreateForm({ hostUsername, identity, onCancel, onCreated }) {
         autoFocus
       />
 
+      <div style={{ marginTop: 14 }}>
+        <label style={styles.label}>{t("chal_mode")}</label>
+        <div style={styles.segRow}>
+          {[
+            { ts: null, label: t("chal_mode_individual") },
+            { ts: 2, label: t("chal_mode_teams_2") },
+            { ts: 3, label: t("chal_mode_teams_3") },
+          ].map((opt) => (
+            <button
+              key={opt.ts ?? "solo"}
+              onClick={() => setMode(opt.ts)}
+              style={{ ...styles.seg, flex: 1, ...(teamSize === opt.ts ? styles.segActive : null) }}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        {teamSize && <div style={styles.fieldHint}>{t("chal_mode_teams_hint")}</div>}
+      </div>
+
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4" style={{ marginTop: 14 }}>
         <div>
           <label style={styles.label}>{t("chal_players")}</label>
           <div style={styles.segRow}>
-            {PLAYER_OPTIONS.map((n) => (
+            {playerOptionsForTeam(teamSize).map((n) => (
               <button
                 key={n}
                 onClick={() => setMaxPlayers(n)}
@@ -759,6 +832,22 @@ function CreateForm({ hostUsername, identity, onCancel, onCreated }) {
         )}
       </div>
 
+      <div style={{ marginTop: 14 }}>
+        <label style={styles.label}>{t("chal_time_limit")}</label>
+        <div style={{ ...styles.segRow, flexWrap: "wrap" }}>
+          {TIME_LIMIT_OPTIONS.map((h) => (
+            <button
+              key={h ?? "none"}
+              onClick={() => setTimeLimitHours(h)}
+              style={{ ...styles.seg, ...(timeLimitHours === h ? styles.segActive : null) }}
+            >
+              {formatTimeLimit(h, t)}
+            </button>
+          ))}
+        </div>
+        <div style={styles.fieldHint}>{t("chal_time_limit_hint")}</div>
+      </div>
+
       {error && <div style={styles.error}>{error}</div>}
 
       <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
@@ -783,6 +872,34 @@ function Lobby({ room, players, activeAccount, onLeave, onClose, champions, DRAG
 
   const emptySlots = Math.max(0, room.max_players - players.length);
 
+  // ===== MODO EQUIPAS =====
+  const teamSize = room.team_size || 0;
+  const isTeams = teamSize > 0;
+  const numTeams = isTeams ? Math.max(1, Math.floor(room.max_players / teamSize)) : 0;
+  const teamCounts = {};
+  for (const p of players) if (p.team) teamCounts[p.team] = (teamCounts[p.team] || 0) + 1;
+  const myTeam = players.find((p) => p.username === activeAccount)?.team || null;
+  // Só arranca quando a sala está cheia E (em equipas) todas as equipas estão
+  // completas — evita arrancar com alguém sem equipa (ex: linha antiga sem
+  // team). Em individual, basta estar cheia (comportamento de sempre).
+  const teamsBalanced =
+    !isTeams ||
+    (players.length === room.max_players &&
+      Array.from({ length: numTeams }, (_, i) => (teamCounts[i + 1] || 0) === teamSize).every(Boolean));
+  const readyToStart = full && teamsBalanced;
+  // Em equipas, agrupa visualmente os jogadores pela equipa.
+  const orderedPlayers = isTeams
+    ? [...players].sort((a, b) => (a.team || 0) - (b.team || 0))
+    : players;
+
+  const switchTeam = async (target) => {
+    if (!isTeams || target === myTeam) return;
+    if ((teamCounts[target] || 0) >= teamSize) return; // equipa cheia
+    await setPlayerTeam(room.id, activeAccount, target);
+    // O Realtime (subscribeToRoom filtra challenge_room_players) faz o
+    // Challenges.jsx reler os jogadores e atualizar — sem update otimista aqui.
+  };
+
   const handleStart = useCallback(async () => {
     setBusy(true);
     const startedAt = new Date().toISOString();
@@ -805,14 +922,14 @@ function Lobby({ room, players, activeAccount, onLeave, onClose, champions, DRAG
   const autoStartedRef = useRef(false);
   useEffect(() => {
     if (room.status !== "lobby") return;
-    if (!full) {
+    if (!readyToStart) {
       autoStartedRef.current = false;
       return;
     }
     if (!isHost || autoStartedRef.current || busy) return;
     autoStartedRef.current = true;
     handleStart();
-  }, [isHost, full, room.status, busy, handleStart]);
+  }, [isHost, readyToStart, room.status, busy, handleStart]);
 
   // Se o desafio já começou (ou já acabou — a sala fica com status
   // "finished" em vez de ser apagada, ver finishRoom), mostra o painel de
@@ -848,36 +965,74 @@ function Lobby({ room, players, activeAccount, onLeave, onClose, champions, DRAG
               <b>{room.target_games}</b> {t("chal_games").toLowerCase()}
             </span>
             <span>{room.rules === "basic" ? t("chal_rules_basic") : t("chal_rules_custom")}</span>
+            {room.time_limit_hours && (
+              <span>
+                <Clock size={12} strokeWidth={2.25} style={{ verticalAlign: "-2px" }} />{" "}
+                {formatTimeLimit(room.time_limit_hours, t)}
+              </span>
+            )}
           </div>
         </div>
 
-        {/* Grid de players — adapta ao número: 2 = lado-a-lado com VS, 3+ = grid */}
+        {/* Grid de players — adapta ao número: 2 = lado-a-lado com VS, 3+ = grid.
+            Em modo equipas os jogadores vêm agrupados por equipa (orderedPlayers)
+            e cada card mostra a sua equipa. */}
         {players.length > 0 && (
           <div style={getGridStyle(players.length + emptySlots)}>
-            {players.map((p, idx) => (
+            {orderedPlayers.map((p, idx) => (
               <PlayerCard
                 key={p.username}
                 player={p}
                 isHost={p.username === room.host_username}
                 hostText={t("chal_host")}
                 delay={Math.min(idx, 8) * 30}
+                teamName={isTeams && p.team ? teamLabel(p.team, t) : null}
+                teamColor={isTeams && p.team ? PLAYER_COLORS[(p.team - 1) % PLAYER_COLORS.length] : null}
               />
             ))}
             {/* Slots vazios */}
             {Array.from({ length: emptySlots }).map((_, i) => (
               <PlayerCard key={`empty-${i}`} player={null} />
             ))}
-            {/* Divider "VS" só para 2 players */}
-            {players.length + emptySlots === 2 && (
+            {/* Divider "VS" só para 2 players (não em modo equipas) */}
+            {!isTeams && players.length + emptySlots === 2 && (
               <div style={styles.vsDivider}>VS</div>
             )}
           </div>
         )}
 
+        {/* Seletor de equipa (modo equipas): cada um escolhe/troca a sua, entre
+            as que têm vaga. Ao entrar já se fica numa equipa equilibrada. */}
+        {isTeams && (
+          <div style={{ marginTop: 10 }}>
+            <div style={styles.label}>{t("chal_pick_team")}</div>
+            <div style={{ ...styles.segRow, flexWrap: "wrap" }}>
+              {Array.from({ length: numTeams }, (_, i) => i + 1).map((tm) => {
+                const cnt = teamCounts[tm] || 0;
+                const mine = myTeam === tm;
+                return (
+                  <button
+                    key={tm}
+                    onClick={() => switchTeam(tm)}
+                    disabled={mine || cnt >= teamSize}
+                    style={{
+                      ...styles.seg,
+                      ...(mine ? styles.segActive : null),
+                      borderLeft: `3px solid ${PLAYER_COLORS[(tm - 1) % PLAYER_COLORS.length]}`,
+                    }}
+                  >
+                    {teamLabel(tm, t)} ({cnt}/{teamSize})
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         <div style={styles.statusLine}>
-          {full ? (
+          {readyToStart ? (
             <span style={styles.statusStarting}>
-              <Loader2 size={13} strokeWidth={2.5} style={styles.spinIcon} /> {t("chal_starting")}
+              <Loader2 size={13} strokeWidth={2.25} style={styles.spinIcon} /> {t("chal_starting")}
             </span>
           ) : (
             <>
@@ -923,7 +1078,7 @@ function Lobby({ room, players, activeAccount, onLeave, onClose, champions, DRAG
 }
 
 // ================= CARD DE PLAYER =================
-function PlayerCard({ player, isHost, hostText, delay = 0 }) {
+function PlayerCard({ player, isHost, hostText, delay = 0, teamName = null, teamColor = null }) {
   const name = player
     ? player.riot_game_name && player.riot_tag_line
       ? `${player.riot_game_name}#${player.riot_tag_line}`
@@ -933,18 +1088,28 @@ function PlayerCard({ player, isHost, hostText, delay = 0 }) {
   return (
     <div
       className="riseIn"
-      style={{ ...(player ? styles.playerCard : styles.playerCardEmpty), animationDelay: `${delay}ms` }}
+      style={{
+        ...(player ? styles.playerCard : styles.playerCardEmpty),
+        animationDelay: `${delay}ms`,
+        // Em modo equipas, uma barra da cor da equipa à esquerda do card.
+        ...(teamColor ? { borderLeft: `3px solid ${teamColor}` } : null),
+      }}
     >
       {player && (
         <>
           <div style={styles.playerAvatar}>
-            <Users size={24} strokeWidth={2} color="var(--accent-text)" />
+            <Users size={24} strokeWidth={2.25} color="var(--accent-text)" />
           </div>
           <div style={styles.playerInfo}>
             <div style={styles.playerCardName}>{name}</div>
+            {teamName && (
+              <div style={{ ...styles.playerCardBadge, color: teamColor || "var(--text-secondary)" }}>
+                <Users size={10} strokeWidth={2.25} /> {teamName}
+              </div>
+            )}
             {isHost && (
               <div style={styles.playerCardBadge}>
-                <Crown size={10} strokeWidth={2.5} /> {hostText}
+                <Crown size={10} strokeWidth={2.25} /> {hostText}
               </div>
             )}
           </div>
@@ -1021,6 +1186,26 @@ function ScoreBoard({ room, players, activeAccount, onLeave, champions = [], DRA
   const sinceISO = room?.started_at || new Date().toISOString();
   const usernames = players.map((p) => p.username);
   const usernamesKey = usernames.join(",");
+
+  // Limite de tempo (opcional): passado o prazo, o desafio fecha sozinho com o
+  // que cada um já jogou — ver deadlineReached em challengeFinished. Sem
+  // limite (NULL) = comportamento de sempre. Só o cliente do anfitrião é que
+  // persiste o fim (como no fim por jogos), por isso o prazo dispara quando o
+  // anfitrião tem a app aberta — a mesma condição do fecho automático normal.
+  const deadlineMs =
+    room?.time_limit_hours && room?.started_at
+      ? new Date(room.started_at).getTime() + room.time_limit_hours * 3600 * 1000
+      : null;
+  // "now" avança só enquanto o desafio decorre e há prazo — ao passar, faz
+  // recalcular challengeFinished e o efeito de fim persiste sozinho. 30s de
+  // granularidade chega para um prazo de horas.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (room.status !== "running" || !deadlineMs) return;
+    const id = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(id);
+  }, [room.status, deadlineMs]);
+  const deadlineReached = deadlineMs != null && now >= deadlineMs;
 
   const fetchAll = useCallback(async () => {
     const rows = await getRoomChallengeGames(usernames, sinceISO);
@@ -1193,6 +1378,36 @@ function ScoreBoard({ room, players, activeAccount, onLeave, champions = [], DRA
     colorByUsername[p.username] = PLAYER_COLORS[i % PLAYER_COLORS.length];
   });
 
+  // ===== MODO EQUIPAS: classificação por equipa =====
+  // A pontuação de uma equipa é a soma dos membros. Uma equipa cujos membros
+  // desistiram todos vai para o fim (como um jogador que desiste). A cor da
+  // equipa é a do seu índice (1 -> primeira cor, etc.), estável.
+  const isTeams = !!room.team_size;
+  const teamStandings = (() => {
+    if (!isTeams) return [];
+    const byTeam = {};
+    for (const p of players) {
+      const tm = p.team || 0;
+      if (!tm) continue;
+      const bucket = (byTeam[tm] ||= { team: tm, total: 0, games: 0, members: [], allForfeited: true });
+      const s = scored[p.username] || { total: 0, games: [] };
+      bucket.total += s.total || 0;
+      bucket.games += s.games?.length || 0;
+      bucket.members.push(p);
+      if (!p.forfeited) bucket.allForfeited = false;
+    }
+    return Object.values(byTeam).sort((a, b) => {
+      if (a.allForfeited !== b.allForfeited) return a.allForfeited ? 1 : -1;
+      return b.total - a.total;
+    });
+  })();
+  // Equipa vencedora: maior total, que não desistiu por completo e jogou
+  // alguma coisa (mesma regra do vencedor individual). null até alguém pontuar.
+  const winningTeam = isTeams
+    ? teamStandings.find((tm) => !tm.allForfeited && tm.games > 0) || null
+    : null;
+  const teamColor = (tm) => PLAYER_COLORS[(tm - 1) % PLAYER_COLORS.length];
+
   // "Posição dourada" (medalhas, brilho, banner de vencedor) só faz sentido
   // depois de o desafio acabar de vez — enquanto decorre, ninguém "já
   // ganhou", por isso os jogadores distinguem-se só pela cor.
@@ -1231,16 +1446,23 @@ function ScoreBoard({ room, players, activeAccount, onLeave, champions = [], DRA
   // Um desafio já persistido como "finished" na base de dados fica finished,
   // aconteça o que acontecer aos dados (a fotografia em "results" é que manda
   // a partir daí) — o bloqueio por dados de combate é só para o fim AO VIVO.
+  // "deadlineReached" é uma saída dura, como a desistência: fecha o desafio
+  // com o que houver e NÃO espera pelos dados de combate — o objetivo do
+  // prazo é precisamente não deixar ninguém preso à espera.
   const challengeFinished =
     room.status === "finished" ||
     (sortedPlayers.length > 0 &&
-      (endedByForfeit || (everyoneFinishedGames && !combatDataPending)));
+      (endedByForfeit || deadlineReached || (everyoneFinishedGames && !combatDataPending)));
 
   // Todos os jogos feitos, mas o desafio está à espera dos dados de combate de
   // alguém — é este o estado que pede o botão "Sincronizar dados de combate" e
   // mostra o aviso, em vez de fechar o desafio com pontuações incompletas.
   const waitingForCombatData =
-    room.status !== "finished" && everyoneFinishedGames && !endedByForfeit && combatDataPending;
+    room.status !== "finished" &&
+    everyoneFinishedGames &&
+    !endedByForfeit &&
+    !deadlineReached &&
+    combatDataPending;
 
   // O vencedor é sempre alguém que NÃO desistiu (sortedPlayers já os põe no
   // fim) — se desistiram todos, o desafio acaba sem vencedor.
@@ -1265,10 +1487,18 @@ function ScoreBoard({ room, players, activeAccount, onLeave, champions = [], DRA
       games_played: scored[p.username]?.games?.length || 0,
       forfeited: !!p.forfeited,
       rank: idx + 1,
+      // Modo equipas: guarda a equipa e marca os membros da equipa vencedora
+      // com won:true — é assim que cada um recebe a vitória na conquista
+      // (getChallengeWinCount conta pelos won em "results"), já que aí
+      // winner_username fica null. Em individual não se põe won (a conquista
+      // conta por winner_username), para não haver dupla contagem.
+      ...(isTeams
+        ? { team: p.team ?? null, won: !!(winningTeam && !p.forfeited && p.team === winningTeam.team) }
+        : {}),
     }));
 
     return finishRoom(room.id, {
-      winnerUsername: winner?.username || null,
+      winnerUsername: isTeams ? null : winner?.username || null,
       results,
       // Regras com que estes totais foram calculados — sem isto, o histórico
       // não é interpretável depois de as regras mudarem (aconteceu: o
@@ -1280,7 +1510,7 @@ function ScoreBoard({ room, players, activeAccount, onLeave, champions = [], DRA
       hostUsername: activeAccount,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sortedPlayers, scored, winner, room.id, activeRules, activeAccount]);
+  }, [sortedPlayers, scored, winner, isTeams, winningTeam, room.id, activeRules, activeAccount]);
 
   // Assim que TODOS os jogadores atingem o nº de jogos alvo, o anfitrião
   // persiste o fim do desafio. A ref evita escrever duas vezes se este
@@ -1311,11 +1541,18 @@ function ScoreBoard({ room, players, activeAccount, onLeave, champions = [], DRA
   // escreve o finishRoom acima), porque quem ganhou pode não ser o anfitrião.
   const notifiedWinRef = useRef(false);
   useEffect(() => {
-    if (room.status !== "finished" || room.winner_username !== activeAccount) return;
+    if (room.status !== "finished") return;
+    // Individual: winner_username aponta para a pessoa. Equipas: winner_username
+    // é null e cada membro da equipa vencedora tem won:true em "results".
+    const wonSolo = room.winner_username === activeAccount;
+    const wonTeam =
+      Array.isArray(room.results) &&
+      room.results.some((r) => r.username === activeAccount && r.won);
+    if (!wonSolo && !wonTeam) return;
     if (notifiedWinRef.current) return;
     notifiedWinRef.current = true;
     onChallengeWon?.();
-  }, [room.status, room.winner_username, activeAccount, onChallengeWon]);
+  }, [room.status, room.winner_username, room.results, activeAccount, onChallengeWon]);
 
   return (
     <>
@@ -1338,30 +1575,73 @@ function ScoreBoard({ room, players, activeAccount, onLeave, champions = [], DRA
           </div>
           <div style={styles.metaPills}>
             <span style={styles.metaPill}>
-              <Users size={12} strokeWidth={2.5} />
+              <Users size={12} strokeWidth={2.25} />
               <b>{players.length}</b>/{room.max_players}
             </span>
             <span style={styles.metaPill}>
-              <Target size={12} strokeWidth={2.5} />
+              <Target size={12} strokeWidth={2.25} />
               <b>{room.target_games}</b> {t("chal_games").toLowerCase()}
             </span>
             <span style={styles.metaPill}>
               {room.rules === "basic" ? t("chal_rules_basic") : t("chal_rules_custom")}
             </span>
+            {room.time_limit_hours && !challengeFinished && (
+              <span style={styles.metaPill}>
+                <Clock size={12} strokeWidth={2.25} />
+                {deadlineReached
+                  ? t("chal_time_up")
+                  : `${t("chal_time_left")} ${formatTimeLeft(deadlineMs - now)}`}
+              </span>
+            )}
           </div>
         </div>
 
-        {loaded && challengeFinished && leader && (
+        {loaded && challengeFinished && (isTeams ? winningTeam : leader) && (
           <div style={styles.leaderBanner}>
-            <Crown size={15} strokeWidth={2.5} />
+            <Crown size={15} strokeWidth={2.25} />
             <span>
               <b>
-                {leader.riot_game_name && leader.riot_tag_line
+                {isTeams
+                  ? teamLabel(winningTeam.team, t)
+                  : leader.riot_game_name && leader.riot_tag_line
                   ? `${leader.riot_game_name}#${leader.riot_tag_line}`
                   : leader.username}
               </b>{" "}
               {t("chal_challenge_winner")}
             </span>
+          </div>
+        )}
+
+        {/* Classificação por equipa (modo equipas): soma dos membros, a
+            vencedora em destaque quando o desafio fecha. */}
+        {loaded && isTeams && teamStandings.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)", margin: "var(--space-3) 0" }}>
+            <div style={{ fontSize: "var(--fs-sm)", fontWeight: "var(--fw-semibold)", color: "var(--text-secondary)" }}>
+              {t("chal_teams_heading")}
+            </div>
+            {teamStandings.map((tm) => {
+              const isWinner = challengeFinished && winningTeam && tm.team === winningTeam.team;
+              return (
+                <div
+                  key={tm.team}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: "var(--space-2) var(--space-3)",
+                    borderRadius: "var(--radius-md)",
+                    borderLeft: `3px solid ${teamColor(tm.team)}`,
+                    background: isWinner ? "rgba(245,196,81,0.12)" : "rgba(var(--panel-deep-rgb),0.6)",
+                  }}
+                >
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--space-2)", fontWeight: "var(--fw-medium)" }}>
+                    {isWinner && <Crown size={12} strokeWidth={2.25} />}
+                    {teamLabel(tm.team, t)}
+                  </span>
+                  <b>{Math.round(tm.total)}</b>
+                </div>
+              );
+            })}
           </div>
         )}
 
@@ -1371,7 +1651,7 @@ function ScoreBoard({ room, players, activeAccount, onLeave, champions = [], DRA
             combate" no seu próprio dispositivo. */}
         {loaded && waitingForCombatData && (
           <div style={styles.combatSyncBanner}>
-            <HeartPulse size={15} strokeWidth={2.5} style={{ flexShrink: 0 }} />
+            <HeartPulse size={15} strokeWidth={2.25} style={{ flexShrink: 0 }} />
             <span>
               {t("chal_combat_sync_needed")}
               {combatPendingPlayers.length > 0 && (
@@ -1394,7 +1674,7 @@ function ScoreBoard({ room, players, activeAccount, onLeave, champions = [], DRA
 
         {!loaded ? (
           <div style={styles.scoreboardLoading}>
-            <Loader2 size={16} strokeWidth={2.5} style={styles.spinIcon} /> {t("loading_generic")}
+            <Loader2 size={16} strokeWidth={2.25} style={styles.spinIcon} /> {t("loading_generic")}
           </div>
         ) : (
           <div style={styles.combatGridWrap}>
@@ -1439,7 +1719,7 @@ function ScoreBoard({ room, players, activeAccount, onLeave, champions = [], DRA
               onClick={onLeave}
               style={{ ...styles.primaryBtn, display: "inline-flex", alignItems: "center", gap: 6 }}
             >
-              <ArrowLeft size={14} strokeWidth={2.5} /> {t("chal_back_to_menu")}
+              <ArrowLeft size={14} strokeWidth={2.25} /> {t("chal_back_to_menu")}
             </button>
           ) : (
             <>
@@ -1468,7 +1748,7 @@ function ScoreBoard({ room, players, activeAccount, onLeave, champions = [], DRA
               >
                 {recovering ? (
                   <>
-                    <Loader2 size={13} strokeWidth={2.5} style={styles.spinIcon} /> {t("chal_syncing")}
+                    <Loader2 size={13} strokeWidth={2.25} style={styles.spinIcon} /> {t("chal_syncing")}
                   </>
                 ) : (
                   <>
@@ -1700,12 +1980,12 @@ function PlayerCombatCard({
             <div style={styles.playerName}>{name}</div>
             {isHost && (
               <span style={styles.hostTag}>
-                <Crown size={10} strokeWidth={2.5} /> {t("chal_host")}
+                <Crown size={10} strokeWidth={2.25} /> {t("chal_host")}
               </span>
             )}
             {player.forfeited && (
               <span style={styles.forfeitTag}>
-                <Flag size={10} strokeWidth={2.5} /> {t("chal_forfeited")}
+                <Flag size={10} strokeWidth={2.25} /> {t("chal_forfeited")}
               </span>
             )}
           </div>
@@ -1800,7 +2080,7 @@ function PlayerCombatCard({
                 <div style={styles.combatGamePts}>+{Math.round(g.score.total)}</div>
                 <ChevronDown
                   size={14}
-                  strokeWidth={2.5}
+                  strokeWidth={2.25}
                   style={{ transform: isOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}
                 />
               </button>
@@ -1881,7 +2161,7 @@ function RankBadge({ rank }) {
   if (medal) {
     return (
       <div style={{ ...styles.rankMedal, background: medal.bg, color: medal.color }}>
-        <Trophy size={14} strokeWidth={2.5} />
+        <Trophy size={14} strokeWidth={2.25} />
       </div>
     );
   }
@@ -1958,7 +2238,7 @@ function InvitePanel({ room, activeAccount, players }) {
         <button onClick={copy} style={styles.ghostBtn}>
           {copied ? (
             <>
-              <Check size={13} strokeWidth={2.5} /> {t("chal_copied")}
+              <Check size={13} strokeWidth={2.25} /> {t("chal_copied")}
             </>
           ) : (
             <>

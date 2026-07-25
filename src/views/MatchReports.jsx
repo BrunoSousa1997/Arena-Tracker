@@ -984,7 +984,7 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
                       {o.icon && <img src={o.icon} style={styles.buildFilterChipIcon} />}
                       <span>{o.name}</span>
                       <button onClick={() => toggleAugmentFilter(o)} style={styles.buildFilterClear}>
-                        <X size={11} strokeWidth={2.5} />
+                        <X size={11} strokeWidth={2.25} />
                       </button>
                     </div>
                   ))}
@@ -1034,7 +1034,7 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
                       {DRAGON && <img src={`${DRAGON}/img/item/${o.id}.png`} style={styles.buildFilterChipIcon} />}
                       <span>{o.name}</span>
                       <button onClick={() => toggleItemFilter(o)} style={styles.buildFilterClear}>
-                        <X size={11} strokeWidth={2.5} />
+                        <X size={11} strokeWidth={2.25} />
                       </button>
                     </div>
                   ))}

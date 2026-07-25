@@ -39,28 +39,37 @@ function generateRoomCode() {
 // O código é aleatório, por isso pode (raramente) colidir com um já
 // existente; a coluna é UNIQUE, logo a base de dados rejeita — tentamos
 // outra vez em vez de rebentar na cara do utilizador.
-export async function createRoom({ name, hostUsername, maxPlayers, targetGames, rules, rulesConfig, identity }) {
+export async function createRoom({ name, hostUsername, maxPlayers, targetGames, rules, rulesConfig, timeLimitHours, teamSize, identity }) {
   const MAX_ATTEMPTS = 5;
 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     const code = generateRoomCode();
+    const row = {
+      code,
+      name: name.trim(),
+      host_username: hostUsername,
+      max_players: maxPlayers,
+      target_games: targetGames,
+      rules: rules || "basic",
+      // Só faz sentido guardar afinações quando as regras SÃO as específicas —
+      // em "basic" valem sempre as por omissão (ver activeRules em
+      // Challenges.jsx).
+      rules_config: rules === "custom" ? rulesConfig || null : null,
+      status: "lobby",
+    };
+    // Só se envia a coluna quando há mesmo um limite escolhido: assim o caminho
+    // por omissão ("sem limite") não referencia a coluna e continua a funcionar
+    // mesmo que a migração time_limit_hours ainda não tenha corrido na base de
+    // dados (ver supabase/schema.sql). Escolher um limite antes da migração é
+    // que dará erro — é o sinal de que falta correr o alter table.
+    if (timeLimitHours) row.time_limit_hours = timeLimitHours;
+    // Mesma precaução da coluna acima: só se envia quando é modo equipas, para
+    // o modo individual continuar a funcionar antes de a migração correr.
+    if (teamSize) row.team_size = teamSize;
+
     const { data, error } = await supabase
       .from("challenge_rooms")
-      .insert([
-        {
-          code,
-          name: name.trim(),
-          host_username: hostUsername,
-          max_players: maxPlayers,
-          target_games: targetGames,
-          rules: rules || "basic",
-          // Só faz sentido guardar afinações quando as regras SÃO as
-          // específicas — em "basic" valem sempre as por omissão (ver
-          // activeRules em Challenges.jsx).
-          rules_config: rules === "custom" ? rulesConfig || null : null,
-          status: "lobby",
-        },
-      ])
+      .insert([row])
       .select()
       .single();
 
@@ -80,13 +89,57 @@ export async function createRoom({ name, hostUsername, maxPlayers, targetGames, 
   return { success: false, error: "room-code-collision" };
 }
 
+// Escolhe a equipa com vaga menos preenchida (1-based), para equilibrar ao
+// entrar. Devolve null se não houver vaga (não deve acontecer: a sala só
+// enche até max_players, que é múltiplo do tamanho de equipa).
+function pickOpenTeam(existingPlayers, teamSize, maxPlayers) {
+  const numTeams = Math.max(1, Math.floor((maxPlayers || teamSize) / teamSize));
+  const counts = new Array(numTeams).fill(0);
+  for (const p of existingPlayers) {
+    if (p.team >= 1 && p.team <= numTeams) counts[p.team - 1]++;
+  }
+  let best = null;
+  let bestCount = Infinity;
+  for (let i = 0; i < numTeams; i++) {
+    if (counts[i] < teamSize && counts[i] < bestCount) {
+      bestCount = counts[i];
+      best = i + 1;
+    }
+  }
+  return best;
+}
+
 export async function joinRoom(roomId, username, identity = {}) {
+  // Modo equipas: coloca o jogador na equipa com vaga (a menos preenchida),
+  // para equilibrar. Pode trocar depois no lobby (ver setPlayerTeam). Em
+  // individual, team fica null. "select('*')" e não "select('team_size')"
+  // de propósito: assim, se a migração team_size ainda não tiver corrido, o
+  // campo vem undefined e o modo individual continua a funcionar em vez de
+  // rebentar por coluna inexistente.
+  let team = null;
+  const { data: room } = await supabase
+    .from("challenge_rooms")
+    .select("*")
+    .eq("id", roomId)
+    .maybeSingle();
+
+  if (room?.team_size) {
+    const { data: existing } = await supabase
+      .from("challenge_room_players")
+      .select("team")
+      .eq("room_id", roomId);
+    team = pickOpenTeam(existing || [], room.team_size, room.max_players);
+  }
+
   const { error } = await supabase.from("challenge_room_players").insert([
     {
       room_id: roomId,
       username,
       riot_game_name: identity.riotGameName || null,
       riot_tag_line: identity.riotTagLine || null,
+      // Só se envia a coluna quando há mesmo equipa (modo equipas + migração
+      // aplicada) — protege o modo individual pré-migração.
+      ...(team != null ? { team } : {}),
     },
   ]);
 
@@ -97,6 +150,23 @@ export async function joinRoom(roomId, username, identity = {}) {
     return { success: false, error: error.message || String(error) };
   }
 
+  return { success: true };
+}
+
+// Troca a equipa de um jogador no lobby (modo equipas). A validação de vaga
+// (a equipa de destino não pode estar cheia) é feita no cliente antes de
+// chamar — política aberta na tabela, é um app entre amigos.
+export async function setPlayerTeam(roomId, username, team) {
+  const { error } = await supabase
+    .from("challenge_room_players")
+    .update({ team })
+    .eq("room_id", roomId)
+    .eq("username", username);
+
+  if (error) {
+    console.error("setPlayerTeam error:", error);
+    return { success: false, error: error.message || String(error) };
+  }
   return { success: true };
 }
 
@@ -188,17 +258,35 @@ export async function getChallengeHistory(username, limit = 30) {
 export async function getChallengeWinCount(username) {
   if (!username) return 0;
 
-  const { count, error } = await supabase
+  // Vitórias individuais: winner_username aponta para a pessoa.
+  const solo = await supabase
     .from("challenge_rooms")
     .select("id", { count: "exact", head: true })
     .eq("status", "finished")
     .eq("winner_username", username);
 
-  if (error) {
-    console.error("getChallengeWinCount error:", error);
+  if (solo.error) {
+    console.error("getChallengeWinCount (solo) error:", solo.error);
     return 0;
   }
-  return count || 0;
+
+  // Vitórias em equipa: aí winner_username fica null; cada membro da equipa
+  // vencedora tem { username, won: true } dentro de "results" (ver
+  // persistFinish em Challenges.jsx). Os dois conjuntos não se sobrepõem
+  // (individual não põe won em results, equipa não põe winner_username), por
+  // isso somam-se sem duplicar.
+  const team = await supabase
+    .from("challenge_rooms")
+    .select("id", { count: "exact", head: true })
+    .eq("status", "finished")
+    .contains("results", [{ username, won: true }]);
+
+  if (team.error) {
+    console.error("getChallengeWinCount (team) error:", team.error);
+    return solo.count || 0;
+  }
+
+  return (solo.count || 0) + (team.count || 0);
 }
 
 export async function leaveRoom(roomId, username) {
@@ -409,6 +497,32 @@ export async function startChallengeGame(roomId, username, champion = null) {
     return null;
   }
   return data;
+}
+
+// Quantos jogos deste jogador NESTA sala já estão concluídos (finished ou
+// enriched) — os que contam para o target_games. A captura ao vivo (ver
+// useLiveGame.js) usa isto para deixar de ligar novas partidas ao desafio
+// assim que o jogador cumpre os seus jogos: sem esta trava, cada partida
+// seguinte continuava a criar linha em challenge_games e a mostrar o banner do
+// desafio mesmo já terminado para essa pessoa — o placar só as ignorava com o
+// slice(0, targetGames), mas a partida seguia como se ainda contasse.
+//
+// Conta só finished/enriched (não "live"): "live" pode ser a própria partida a
+// decorrer ou uma linha abandonada, e é preferível, na dúvida, deixar contar
+// mais um jogo do que travar por erro um jogo legítimo.
+export async function countCompletedChallengeGames(roomId, username) {
+  const { count, error } = await supabase
+    .from("challenge_games")
+    .select("id", { count: "exact", head: true })
+    .eq("room_id", roomId)
+    .eq("username", username)
+    .in("status", ["finished", "enriched"]);
+
+  if (error) {
+    console.error("countCompletedChallengeGames error:", error);
+    return 0;
+  }
+  return count || 0;
 }
 
 // KDA + streaks atuais — chamado a cada poll (3s) enquanto a partida decorre.

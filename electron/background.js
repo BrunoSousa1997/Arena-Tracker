@@ -29,10 +29,21 @@ const HIDDEN_FLAG = "--hidden";
 
 let tray = null;
 // Distingue "fechar a janela" (que em modo segundo plano só esconde) de
-// "sair mesmo" (menu do tabuleiro, ou app.quit() de outro sítio qualquer).
-// Sem isto o handler de "close" escondia a janela também durante o encerramento
-// e a app nunca chegava a sair.
+// "sair mesmo". É baixado por qualquer encerramento REAL da app: o menu do
+// tabuleiro / Definições (via quitApp), OU o "before-quit" que registamos em
+// registerBackgroundHandlers — este último apanha os fechos que não passam
+// por quitApp, com destaque para o quitAndInstall do auto-update (ver
+// electron/updater.js). Sem essa rede, aplicar uma atualização em modo
+// segundo plano ficava preso: o quitAndInstall pedia app.quit(), o handler de
+// "close" via quitting=false e escondia a janela em vez de deixar sair, e a
+// atualização nunca chegava a instalar.
 let quitting = false;
+
+// Atualização já descarregada à espera de ser aplicada — { version, install }.
+// Em modo segundo plano o utilizador quase não abre a janela (onde vive o
+// banner "Reiniciar agora"), por isso a bandeja passa a mostrar um item para
+// aplicar. É sempre o utilizador a carregar; nunca reiniciamos por baixo dele.
+let pendingUpdate = null;
 
 function isBackgroundMode() {
   return store.get("backgroundMode", false);
@@ -85,23 +96,54 @@ function showWindow() {
   win.focus();
 }
 
+// (Re)constrói o menu e o tooltip da bandeja a partir das etiquetas e do
+// estado atual (pendingUpdate). Separado de buildTray porque tanto uma troca
+// de idioma como o aparecimento de uma atualização precisam de o refazer sem
+// recriar o Tray. No-op se ainda não houver bandeja (modo segundo plano
+// desligado) — nesse caso o banner na janela é que trata da atualização.
+function applyTrayMenu(labels) {
+  if (!tray) return;
+
+  const items = [{ label: labels.open, click: showWindow }];
+
+  if (pendingUpdate) {
+    const label =
+      (labels.update || "Restart to update") +
+      (pendingUpdate.version ? ` (${pendingUpdate.version})` : "");
+    items.push({ type: "separator" }, { label, click: () => pendingUpdate.install() });
+  }
+
+  items.push({ type: "separator" }, { label: labels.quit, click: quitApp });
+
+  tray.setContextMenu(Menu.buildFromTemplate(items));
+  tray.setToolTip(
+    pendingUpdate ? `Arena Tracker — ${labels.update || "update ready"}` : "Arena Tracker"
+  );
+}
+
 // O menu do tabuleiro é a ÚNICA forma de sair quando o modo em segundo plano
 // está ligado (o X da janela passou a esconder) — por isso tem sempre de lá
 // estar, e tem de ser um "sair" a sério, não outro "fechar".
 function buildTray(labels) {
-  if (tray) return tray;
+  if (tray) {
+    applyTrayMenu(labels);
+    return tray;
+  }
 
   tray = new Tray(trayIcon());
-  tray.setToolTip("Arena Tracker");
-  tray.setContextMenu(
-    Menu.buildFromTemplate([
-      { label: labels.open, click: showWindow },
-      { type: "separator" },
-      { label: labels.quit, click: quitApp },
-    ])
-  );
   tray.on("click", showWindow);
+  applyTrayMenu(labels);
   return tray;
+}
+
+// Chamado pelo updater (ver electron/updater.js) quando uma atualização
+// termina de descarregar. Guarda-a e refaz o menu da bandeja para incluir o
+// item de aplicar — a forma de um utilizador em segundo plano atualizar sem
+// ter de abrir a janela. Harmless com o modo desligado (applyTrayMenu é no-op
+// sem bandeja); se o modo for ligado depois, buildTray volta a incluir o item.
+function setPendingUpdate(version, install) {
+  pendingUpdate = { version, install };
+  applyTrayMenu(currentLabels());
 }
 
 function destroyTray() {
@@ -126,6 +168,7 @@ function currentLabels() {
   return {
     open: store.get("trayLabels.open", "Open Arena Tracker"),
     quit: store.get("trayLabels.quit", "Quit"),
+    update: store.get("trayLabels.update", "Restart to update"),
   };
 }
 
@@ -152,6 +195,16 @@ function shouldQuitOnAllWindowsClosed() {
 }
 
 function registerBackgroundHandlers() {
+  // Rede de segurança para o "quitting": qualquer encerramento REAL da app
+  // (incluindo o quitAndInstall do auto-update, que não passa por quitApp)
+  // baixa a flag antes de as janelas receberem "close", para o handler de
+  // close em modo segundo plano deixar a app sair em vez de a esconder. Em
+  // modo segundo plano fechar a JANELA não dispara "before-quit" (é um close
+  // de janela, não um app.quit), por isso isto não interfere com o esconder.
+  app.on("before-quit", () => {
+    quitting = true;
+  });
+
   // Fechar a app a partir da interface (Definições → Sair da aplicação).
   // Existe sobretudo por causa do modo em segundo plano: com ele ligado, o X
   // da janela deixa de fechar seja o que for, e sem isto a única forma de
@@ -198,13 +251,16 @@ function registerBackgroundHandlers() {
 
   ipcMain.handle("background:setTrayLabels", (_event, labels) => {
     if (!labels?.open || !labels?.quit) return;
-    store.set("trayLabels", { open: labels.open, quit: labels.quit });
-    // Reconstrói para o idioma novo aparecer já no menu, sem esperar por um
-    // reinício da app.
-    if (tray) {
-      destroyTray();
-      syncTray(labels);
-    }
+    store.set("trayLabels", {
+      open: labels.open,
+      quit: labels.quit,
+      // A etiqueta de atualização pode não vir (versões antigas da interface);
+      // mantém-se a que lá estava em vez de a apagar.
+      update: labels.update || currentLabels().update,
+    });
+    // Refaz o menu para o idioma novo aparecer já, sem recriar o Tray nem
+    // esperar por um reinício da app.
+    applyTrayMenu(currentLabels());
   });
 }
 
@@ -212,4 +268,5 @@ module.exports = {
   initBackgroundMode,
   registerBackgroundHandlers,
   shouldQuitOnAllWindowsClosed,
+  setPendingUpdate,
 };

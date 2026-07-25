@@ -774,7 +774,7 @@ export default function App() {
               }}
               style={styles.liveBannerClose}
             >
-              <X size={12} strokeWidth={2.5} />
+              <X size={12} strokeWidth={2.25} />
             </button>
           </motion.div>
         )}
@@ -1751,8 +1751,6 @@ const styles = {
     display: "inline-flex",
     alignItems: "center",
   },
-
-  title: { color: "var(--accent-text)", fontSize: 34 },
 
   // Cartão único do cabeçalho — marca/conta/sync, tabs, filtro e resumo
   // vivem todos aqui dentro (ver App.jsx), em vez de 3-4 caixas soltas cada

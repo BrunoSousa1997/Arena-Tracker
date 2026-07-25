@@ -45,7 +45,7 @@ export default function TitleBar() {
 
             <div style={styles.controls}>
                 <button onClick={() => window.electron.minimize()} style={styles.btn}>
-                    <Minus size={11} strokeWidth={2.5} />
+                    <Minus size={11} strokeWidth={2.25} />
                 </button>
 
                 <button onClick={() => window.electron.maximize()} style={styles.btn}>
@@ -53,7 +53,7 @@ export default function TitleBar() {
                 </button>
 
                 <button onClick={() => window.electron.close()} style={styles.close}>
-                    <X size={11} strokeWidth={2.5} />
+                    <X size={11} strokeWidth={2.25} />
                 </button>
             </div>
         </div>

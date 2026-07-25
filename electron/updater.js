@@ -18,6 +18,16 @@ function sendUpdaterStatus(status, data) {
   }
 }
 
+// Aplica a atualização já descarregada. (true, true) = instalar em silêncio
+// (sem a janela do instalador NSIS a piscar) e relançar a app logo a seguir.
+// O reinício é inevitável no desktop — substituir o .exe/.asar exige o
+// processo fechar — mas assim fica o mais indolor possível: um relançamento
+// rápido em vez de o utilizador ter de reabrir à mão. Partilhada pelo botão
+// "Reiniciar agora" (banner) e pelo item da bandeja (ver electron/background.js).
+function installUpdate() {
+  autoUpdater.quitAndInstall(true, true);
+}
+
 autoUpdater.on("checking-for-update", () => {
   sendUpdaterStatus("checking");
 });
@@ -44,6 +54,11 @@ autoUpdater.on("update-downloaded", (info) => {
     : null;
 
   sendUpdaterStatus("downloaded", { version: info?.version, releaseNotes: notes });
+
+  // Bandeja: dá a quem corre em segundo plano (e quase não abre a janela onde
+  // vive o banner) um sítio para aplicar sem reabrir. Require tardio para não
+  // criar dependência circular na carga dos módulos.
+  require("./background").setPendingUpdate(info?.version, installUpdate);
 });
 
 autoUpdater.on("error", (err) => {
@@ -57,7 +72,7 @@ ipcMain.handle("updater:check", () => {
 });
 
 ipcMain.handle("updater:install", () => {
-  autoUpdater.quitAndInstall();
+  installUpdate();
 });
 
 ipcMain.handle("app:getVersion", () => app.getVersion());

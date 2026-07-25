@@ -248,6 +248,25 @@ alter table public.challenge_rooms add column if not exists results jsonb;
 -- sem isto não há como saber se dois desafios do histórico são sequer
 -- comparáveis entre si.
 alter table public.challenge_rooms add column if not exists scoring_rules jsonb;
+-- Limite de tempo opcional (em horas) a partir do arranque do desafio
+-- (started_at). Quando o prazo passa, o desafio fecha sozinho com o que cada
+-- um já jogou — é o que impede as pessoas de ficarem presas à espera de quem
+-- não joga, sem terem de recorrer à desistência (ver deadline/challengeFinished
+-- no ScoreBoard em src/views/Challenges.jsx). NULL = sem limite (comportamento
+-- de sempre). Migração obrigatória antes de publicar o cliente que a usa.
+alter table public.challenge_rooms add column if not exists time_limit_hours int;
+-- Modo equipas: nº de jogadores por equipa (2 = duos, 3 = trios). NULL =
+-- desafio individual (comportamento de sempre). Em modo equipas a pontuação
+-- de cada equipa é a soma dos seus membros e a equipa no topo ganha — todos
+-- os membros recebem a vitória (ver ScoreBoard/persistFinish em
+-- src/views/Challenges.jsx). max_players é sempre múltiplo disto, com pelo
+-- menos 2 equipas. Migração obrigatória antes de publicar o cliente que usa.
+alter table public.challenge_rooms add column if not exists team_size int;
+-- A equipa de cada jogador dentro do desafio (1, 2, ...). NULL = individual.
+-- Atribuída ao entrar (na equipa com vaga, para equilibrar) e o jogador pode
+-- trocar no lobby para outra equipa com espaço (ver setPlayerTeam em
+-- src/db/rooms.js).
+alter table public.challenge_room_players add column if not exists team int;
 
 create table if not exists public.challenge_room_players (
   id bigint generated always as identity primary key,

@@ -6,6 +6,7 @@ import {
   hasSyncedMatch,
   getMyActiveRoom,
   startChallengeGame,
+  countCompletedChallengeGames,
   updateChallengeGameProgress,
   finishChallengeGame,
   closeUnfinishedChallengeGame,
@@ -13,7 +14,7 @@ import {
   findSyncedMatchDetails,
 } from "../db/api";
 import { normalizeChampionId } from "../lib/champions";
-import { getRoast } from "../lib/roasts";
+import { getRoast, detectRoastSituation } from "../lib/roasts";
 
 // Agenda do auto-sync após o fim de uma partida (ver scheduleAutoSync). A
 // Live Client Data só dá Win/Lose, nunca o lugar exato — mas só 1º e 2º
@@ -461,6 +462,11 @@ export function useLiveGame({
         (m) => m.win && normalizeChampionId(m.champion, champions) === championId
       ).length;
 
+      // Situação especial desta partida (maré de derrotas, estreia, madrugada,
+      // etc.) — decidida a partir do histórico que já temos em memória. Manda
+      // sobre o nível por vitórias quando existe (ver getRoast em roasts.js).
+      const situation = detectRoastSituation(championId, { matches, champions });
+
       // Partida nova: o banner volta a aparecer mesmo que tenha sido
       // escondido na partida anterior.
       setLiveBannerHidden(false);
@@ -468,7 +474,7 @@ export function useLiveGame({
       setLiveChampionAlert({
         championId,
         hasWin: winCount > 0,
-        roast: getRoast(championId, winCount, lang),
+        roast: getRoast(championId, winCount, lang, situation),
         kda: { kills: 0, deaths: 0, assists: 0 },
         items: [],
         streaks: { kill: [], assist: [], death: [] },
@@ -481,14 +487,24 @@ export function useLiveGame({
       if (activeAccount) {
         const room = await getMyActiveRoom(activeAccount);
         if (room?.status === "running") {
-          liveChallengeRoomId.current = room.id;
-          const game = await startChallengeGame(room.id, activeAccount, championId);
-          if (game) liveChallengeGameId.current = game.id;
-          // Guardado também no alerta (e não só no ref) porque a tab Em Jogo
-          // precisa das regras da sala para pontuar com o mesmo handicap com
-          // que esta partida vai ser contada no fim — pontuar com as regras
-          // por omissão dava um número que não bate certo com o placar.
-          setLiveChampionAlert((prev) => (prev ? { ...prev, challengeRoom: room } : prev));
+          // Só liga esta partida ao desafio se o jogador ainda não cumpriu os
+          // seus jogos (target_games). Sem esta trava, a captura ao vivo
+          // continuava a criar linhas em challenge_games e a mostrar o banner
+          // do desafio mesmo depois de a pessoa ter acabado — o placar
+          // ignorava-as (slice(0, targetGames)), mas a partida seguia como se
+          // ainda contasse. Ver countCompletedChallengeGames em db/rooms.js.
+          const target = room.target_games || 0;
+          const done = target ? await countCompletedChallengeGames(room.id, activeAccount) : 0;
+          if (!target || done < target) {
+            liveChallengeRoomId.current = room.id;
+            const game = await startChallengeGame(room.id, activeAccount, championId);
+            if (game) liveChallengeGameId.current = game.id;
+            // Guardado também no alerta (e não só no ref) porque a tab Em Jogo
+            // precisa das regras da sala para pontuar com o mesmo handicap com
+            // que esta partida vai ser contada no fim — pontuar com as regras
+            // por omissão dava um número que não bate certo com o placar.
+            setLiveChampionAlert((prev) => (prev ? { ...prev, challengeRoom: room } : prev));
+          }
         }
       }
     });

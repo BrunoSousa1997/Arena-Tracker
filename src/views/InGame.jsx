@@ -603,7 +603,7 @@ function ItemLine({ row, name, DRAGON, owned, ownedLabel, topPick, topPickLabel 
         {name || `#${row.itemId}`}
         {topPick && !owned && (
           <span style={styles.topPickTag}>
-            <Star size={9} strokeWidth={2.5} fill="currentColor" /> {topPickLabel}
+            <Star size={9} strokeWidth={2.25} fill="currentColor" /> {topPickLabel}
           </span>
         )}
         {owned && <span style={styles.ownedTag}>{ownedLabel}</span>}

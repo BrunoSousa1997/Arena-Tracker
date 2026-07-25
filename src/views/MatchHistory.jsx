@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, ChevronUp, ChevronDown } from "lucide-react";
+import { Search, ChevronUp, ChevronDown, Swords, SearchX } from "lucide-react";
 import { placementColor, placementBg, placementBorder } from "../lib/placement";
 import { augmentRarityStyle } from "../lib/augments";
 import { useLanguage } from "../lib/i18n";
 import Tooltip from "../components/Tooltip";
+import EmptyState from "../components/EmptyState";
 
 function timeAgo(iso, lang) {
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -345,7 +346,7 @@ export default function MatchHistory({
   const hasMore = visibleCount < filteredMatches.length;
 
   if (!matches.length) {
-    return <div style={styles.empty}>{t("history_empty")}</div>;
+    return <EmptyState icon={Swords} title={t("history_empty")} />;
   }
 
   return (
@@ -421,7 +422,7 @@ export default function MatchHistory({
       {/* LISTA — sem altura/scroll próprios: a área da tab (em App.jsx) é
           quem tem o overflow vertical, para as linhas nunca ficarem cortadas */}
       {filteredMatches.length === 0 ? (
-        <div style={styles.empty}>{t("no_filtered_results")}</div>
+        <EmptyState icon={SearchX} title={t("no_filtered_results")} compact />
       ) : (
       <div style={styles.matchList}>
         <AnimatePresence>
@@ -833,16 +834,6 @@ const styles = {
     flexDirection: "column",
     gap: 12,
     marginTop: 12,
-  },
-
-  empty: {
-    marginTop: 20,
-    padding: 20,
-    textAlign: "center",
-    color: "var(--text-secondary)",
-    background: "rgba(var(--panel-deep-rgb),0.85)",
-    border: "1px solid rgba(var(--border-rgb),0.5)",
-    borderRadius: "var(--radius-xl)",
   },
 
   // Largura fixa (não "flex:1" como antes) — numa fileira única com os
