@@ -9,56 +9,76 @@
 @import "tailwindcss/utilities.css";
 
 /* ================= TEMA (claro/escuro) =================
-   Paleta neutra (slate) + um único acento vívido (índigo), pensada para
-   contraste AA e para não pintar tudo com a mesma cor: o índigo aparece só
-   em ações/estados ativos, o resto da UI é neutro. Cores de resultado
-   (vitória/derrota/lugar) vivem à parte, também com variante por tema —
-   ver mais abaixo e placement.js. Trocado via atributo data-theme na tag
-   <html> (ver App.jsx).
+   Paleta de marca: verde-tinta e verde-floresta como superfícies, areia
+   (ouro) como único acento vívido, e petróleo/névoa como terceira cor de
+   informação. Pensada para contraste AA e para não pintar tudo com a mesma
+   cor: a areia aparece só em ações/estados ativos, o verde é o chão da UI.
+   Cores de resultado (vitória/derrota/lugar) vivem à parte, também com
+   variante por tema — ver mais abaixo e placement.js. Trocado via atributo
+   data-theme na tag <html> (ver App.jsx).
 
-   --info (ciano) é a terceira cor e só serve para o que é informação ou
-   estado do sistema (novidades, atualizações, sync) — coisas que não são
-   nem uma ação a pedir clique (isso é o acento) nem um resultado de jogo.
-   Nunca usar em contexto de lugar/classificação: aí vive o --place-good, e
-   a apenas 37° de matiz de distância os dois confundem-se. É essa regra que
-   justifica a cor existir; sem ela, era só mais um roxo perdido — foi o que
-   aconteceu ao antigo --accent-solid-2, declarado e nunca usado. */
+   As cinco cores da paleta, e o papel de cada uma:
+     #04302b  tinta      superfícies do tema escuro
+     #01503c  floresta   superfícies/realces verdes
+     #b28e60  areia      ACENTO — ações, tab ativa, botão principal, logo
+     #45707c  petróleo   --info no tema claro
+     #a3c7ce  névoa      --info no tema escuro
+
+   Porquê a areia como acento e não um dos verdes: no tema escuro o fundo
+   JÁ é verde, e um acento verde sobre fundo verde não se destaca. A areia
+   é a única cor quente da paleta, por isso é a que salta nos dois temas —
+   no escuro por ser clara sobre verde profundo, no claro por ser escura
+   (variante #8a6636) sobre branco. Manter a mesma matiz nos dois temas é
+   deliberado: o acento é identidade, não deve mudar de cor com o tema.
+
+   --info (petróleo/névoa) é a terceira cor e só serve para o que é
+   informação ou estado do sistema (novidades, atualizações, sync) — coisas
+   que não são nem uma ação a pedir clique (isso é o acento) nem um
+   resultado de jogo. Nunca usar em contexto de lugar/classificação: aí vive
+   o --place-good. É essa regra que justifica a cor existir; sem ela, era só
+   mais um azul perdido — foi o que aconteceu ao antigo --accent-solid-2,
+   declarado e nunca usado.
+
+   As cores de --place-* (vitória/derrota/lugar) NÃO mudaram com a paleta,
+   de propósito: verde=bom / laranja=médio / vermelho=mau é convenção que se
+   lê sem pensar, e amarrá-la à paleta da marca trocava legibilidade por
+   harmonia. O --place-good continua a destacar-se porque é um verde muito
+   mais claro e saturado do que as superfícies. */
 :root,
 :root[data-theme="dark"] {
-  --bg-deep: #0a0b10;
-  --bg-mid: #131620;
-  --panel-rgb: 22, 25, 33;
-  --panel-deep-rgb: 15, 16, 21;
+  --bg-deep: #02120f;
+  --bg-mid: #062019;
+  --panel-rgb: 8, 42, 36;
+  --panel-deep-rgb: 4, 28, 24;
   --soft-rgb: 255, 255, 255;
 
-  --accent-text: #a5b4fc;
-  --text-body: #e9eaee;
-  --text-secondary: #9aa0ab;
-  --text-secondary-rgb: 154, 160, 171;
-  /* Antes #6d7280: dava contraste 3.79 sobre o painel e 2.86 sobre uma faceta
-     iluminada do fundo animado — abaixo de AA (e do AA-grande de 3.0 quando o
-     mosaico cintila). #7a808b sobe para 4.59 sobre o painel e 3.47 sobre a
-     faceta mais clara, sem deixar de ser claramente mais ténue que o
-     --text-secondary (6.9). Ver medição em index.css / conversa. */
-  --text-muted: #7a808b;
+  --accent-text: #d9b989;
+  --text-body: #e6ece9;
+  --text-secondary: #a3b5af;
+  --text-secondary-rgb: 163, 181, 175;
+  /* Medido sobre o painel (#082a24): --text-secondary dá 7.2 e --text-muted
+     5.0 — ambos acima de AA, e o muted continua claramente mais ténue que o
+     secondary. Mesma regra que valia na paleta anterior; só os hexes é que
+     acompanharam o fundo, de azul-preto para verde-tinta. */
+  --text-muted: #849892;
 
   --place-good: #2fe08a;
   --place-mid: #ff9a2e;
   --place-low: #ff5c5c;
   --place-unknown: #6d7280;
 
-  --info: #22d3ee;
-  --info-bg: rgba(34, 211, 238, 0.14);
-  --info-border: rgba(34, 211, 238, 0.45);
+  --info: #8fc3cd;
+  --info-bg: rgba(143, 195, 205, 0.14);
+  --info-border: rgba(143, 195, 205, 0.45);
 
-  --text: #9ca3af;
-  --text-h: #f3f4f6;
-  --bg: #16171d;
-  --border: #2e303a;
-  --code-bg: #1f2028;
-  --accent: #818cf8;
-  --accent-bg: rgba(129, 140, 248, 0.16);
-  --accent-border: rgba(129, 140, 248, 0.55);
+  --text: #a3b5af;
+  --text-h: #eef3f0;
+  --bg: #09261f;
+  --border: #1c463c;
+  --code-bg: #06211b;
+  --accent: #c9a06a;
+  --accent-bg: rgba(201, 160, 106, 0.16);
+  --accent-border: rgba(201, 160, 106, 0.55);
 
   /* No escuro os painéis podem ser bem translúcidos: o fundo por baixo é
      quase preto, por isso mesmo a 0.74 o cartão continua a ler-se como uma
@@ -71,62 +91,65 @@
      animado desta app (manchas a passear, depois ondas), e o token não
      devia ter de mudar de nome outra vez só porque a ideia visual muda.
      Só as duas cores vivas que a paleta admite fora dos resultados de
-     partida — índigo do acento e ciano do --info (ver nota no topo deste
+     partida — areia do acento e névoa do --info (ver nota no topo deste
      bloco) — em vez de inventar uma terceira cor só para isto. O alfa aqui
      é só a base: cada faceta do mosaico multiplica isto pela sua própria
      opacidade (ver Facets.jsx), por isso pode ficar mais forte do que
      pareceria para uma mancha sólida.
-     --decor-purple é o easter egg: rgb(147,74,246) era o --accent-rgb da
-     v2.0.2 (ver git tag), antes de a app mudar para índigo — 0,1% de
-     hipótese por sessão de UMA faceta do mosaico sair com esta cor (ver
-     PURPLE_CHANCE em Facets.jsx). É deliberadamente a única terceira cor
-     viva na app: a exceção que confirma a regra do parágrafo acima, não um
-     precedente para lhe chamarem "só mais um roxo perdido". */
-  --decor-indigo: rgba(99, 102, 241, 0.62);
-  --decor-cyan: rgba(34, 211, 238, 0.55);
-  --decor-purple: rgba(147, 74, 246, 0.6);
+     Nota sobre a névoa: no escuro usa-se o tom claro (#a3c7ce) e não o
+     petróleo (#45707c) que é o --info do tema claro — sobre verde profundo
+     o petróleo é escuro demais para a faceta chegar a ver-se.
+     Houve aqui um terceiro token, --decor-purple: rgb(147,74,246), o
+     --accent-rgb da v2.0.2 (ver git tag), sorteado com 0,1% de hipótese por
+     sessão como easter egg. Saiu com a mudança de paleta — um roxo vivo no
+     meio de verde e ouro lia-se como bug, não como piscar de olho. Se algum
+     dia voltar, que volte numa cor da paleta. */
+  --decor-sand: rgba(178, 142, 96, 0.62);
+  --decor-mist: rgba(163, 199, 206, 0.5);
 }
 
 :root[data-theme="light"] {
   /* Hierarquia de 3 níveis para os containers ficarem claramente visíveis:
-     a página é um cinza neutro claro, os campos recuados (inputs/dropdowns)
-     ficam num cinza intermédio, e os painéis (cards) ficam em branco para
-     se destacarem por cima de tudo. */
-  --bg-deep: #e7e9ee;
-  --bg-mid: #f7f8fa;
+     a página é um cinza-verde claro, os campos recuados (inputs/dropdowns)
+     ficam num tom intermédio, e os painéis (cards) ficam em branco para se
+     destacarem por cima de tudo. O tinte verde do fundo é o que liga o tema
+     claro à paleta sem ter de pintar nada de verde forte. */
+  --bg-deep: #dfe8e6;
+  --bg-mid: #f2f7f6;
   --panel-rgb: 255, 255, 255;
-  --panel-deep-rgb: 243, 244, 247;
+  --panel-deep-rgb: 240, 246, 245;
   --soft-rgb: 0, 0, 0;
 
-  --accent-text: #4338ca;
-  --text-body: #14161c;
-  --text-secondary: #565d6a;
-  --text-secondary-rgb: 86, 93, 106;
-  /* Antes #868c98: só 3.38 de contraste sobre o painel branco — falha AA.
-     #707684 sobe para 4.55 (AA normal), mantendo-se mais ténue que o
-     --text-secondary (6.6). */
-  --text-muted: #707684;
+  --accent-text: #7a5a2e;
+  --text-body: #0c1a17;
+  --text-secondary: #4d5f5a;
+  --text-secondary-rgb: 77, 95, 90;
+  /* Medido sobre o painel branco: --text-secondary dá 6.8 e --text-muted
+     4.7 — os mesmos degraus da paleta anterior, com os neutros passados de
+     cinza-azul (slate) para cinza-verde, a condizer com a paleta. */
+  --text-muted: #667873;
 
   --place-good: #0f9d4e;
   --place-mid: #d94e0a;
   --place-low: #d21f1f;
   --place-unknown: #6b7280;
 
-  --info: #0e7490;
-  --info-bg: rgba(14, 116, 144, 0.1);
-  --info-border: rgba(14, 116, 144, 0.45);
+  --info: #3a6472;
+  --info-bg: rgba(58, 100, 114, 0.1);
+  --info-border: rgba(58, 100, 114, 0.45);
 
-  /* Neutros frios (slate) a condizer com o subtom azulado do acento — antes
-     estes três estavam cada um a uma temperatura diferente (creme quente no
-     code-bg, cinza com tinta roxa no text, cinza-azul no text-secondary). */
-  --text: #475569;
-  --text-h: #08060d;
+  /* Neutros frios com tinta verde, a condizer com o subtom da paleta —
+     antes de estarem alinhados, os três estavam cada um a uma temperatura
+     diferente (creme quente no code-bg, cinza com tinta roxa no text,
+     cinza-azul no text-secondary). */
+  --text: #41544f;
+  --text-h: #06120f;
   --bg: #fff;
-  --border: #e2e8f0;
-  --code-bg: #f1f5f9;
-  --accent: #4f46e5;
-  --accent-bg: rgba(79, 70, 229, 0.12);
-  --accent-border: rgba(79, 70, 229, 0.55);
+  --border: #dbe6e3;
+  --code-bg: #eef4f2;
+  --accent: #8a6636;
+  --accent-bg: rgba(138, 102, 54, 0.12);
+  --accent-border: rgba(138, 102, 54, 0.55);
 
   /* Muito menos translúcido do que no escuro, de propósito. Aqui o painel é
      branco sobre uma página cinza-clara, e é só esse contraste que sustenta
@@ -136,42 +159,50 @@
      cima". */
   --panel-bg: linear-gradient(180deg, rgba(var(--panel-rgb), 0.88), rgba(var(--panel-deep-rgb), 0.93));
 
-  /* Mesmas duas matizes do tema escuro (índigo/ciano), mas em tom mais
+  /* Mesmas duas matizes do tema escuro (areia/névoa), mas em tom mais
      escuro — não só mais fracas. Sobre preto, uma cor pastel a meio-tom já
      ilumina bem o suficiente para se destacar (é essencialmente a única luz
      na cena); sobre um cinza claro que já está perto do branco, essa mesma
      cor a meio-tom mal desloca a luminosidade do fundo, por mais alfa que se
      lhe dê — o efeito não é "mais forte", é invisível. Por isso aqui usa-se
-     a variante escura de cada matiz (--accent-solid-deep para o índigo,
-     --info para o ciano — já existem como tokens do tema, não são cores
-     novas) com alfa moderado: é o contraste de luminosidade contra o fundo
-     claro que faz a faceta aparecer, não a intensidade da cor em si.
-     --decor-purple mantém o hex do easter egg (ver bloco escuro acima:
-     --accent-rgb da v2.0.2) — só o alfa sobe, para a mesma lógica se
-     aplicar quando calha sair. */
-  --decor-indigo: rgba(67, 56, 202, 0.42);
-  --decor-cyan: rgba(14, 116, 144, 0.4);
-  --decor-purple: rgba(147, 74, 246, 0.38);
+     a variante escura de cada matiz (--accent para a areia, --info para o
+     petróleo — já existem como tokens do tema, não são cores novas) com
+     alfa moderado: é o contraste de luminosidade contra o fundo claro que
+     faz a faceta aparecer, não a intensidade da cor em si. */
+  --decor-sand: rgba(138, 102, 54, 0.42);
+  --decor-mist: rgba(58, 100, 114, 0.4);
 }
 
-/* --accent-rgb: índigo vívido, só para o que deve mesmo destacar-se (tab
+/* --accent-rgb: areia (ouro), só para o que deve mesmo destacar-se (tab
    ativa, botão principal, barra de progresso) — usar em poucos sítios de
    propósito, nunca como moldura genérica. --border-rgb é neutro e serve de
    linha subtil para todos os containers/painéis, para não pintar tudo da
    mesma cor e perder hierarquia visual.
 
    Os tons do acento são os do logo (ver assets/logo.ico): as barras do ícone
-   são exatamente indigo 400/500/600/700, por isso o botão principal é feito
-   das mesmas cores que o ícone na barra de tarefas. Se um dia o logo mudar,
-   estes valores mudam com ele — é essa a âncora, não o gosto do momento. */
+   são exatamente estes quatro tons de areia, por isso o botão principal é
+   feito das mesmas cores que o ícone na barra de tarefas. Se um dia o logo
+   mudar, estes valores mudam com ele — é essa a âncora, não o gosto do
+   momento.
+
+   --accent-solid-text é TINTA ESCURA e não branco, ao contrário do que era
+   com o índigo: sobre areia, texto branco fica em 3.0 de contraste (falha
+   AA) e a tinta escura fica em 5.6. É pela mesma razão que a rampa do
+   gradiente é estreita (#c19a5f a #a58150): no extremo escuro a tinta já só
+   tem 4.7, e esticá-la mais para o ouro escuro fazia-a cair abaixo de AA. */
 :root {
-  --accent-rgb: 99, 102, 241;
-  --accent-solid: #4f46e5;
-  --accent-solid-light: #6366f1;
-  --accent-solid-deep: #4338ca;
-  --accent-solid-text: #ffffff;
+  --accent-rgb: 178, 142, 96;
+  --accent-solid: #b28e60;
+  --accent-solid-light: #c19a5f;
+  --accent-solid-deep: #a58150;
+  --accent-solid-text: #06211b;
   --accent-gradient: linear-gradient(135deg, var(--accent-solid-light), var(--accent-solid-deep));
-  --border-rgb: 148, 154, 166;
+  /* Halo do botão principal. Existe como token porque estava escrito à mão,
+     em rgba literal do índigo, em quatro componentes diferentes (App,
+     AccountManager, Challenges, Compare) — que é exatamente o tipo de sítio
+     que uma mudança de paleta esquece. */
+  --accent-glow: rgba(178, 142, 96, 0.45);
+  --border-rgb: 140, 158, 152;
 
   /* ===== SUPERFÍCIES =====
      Duas famílias, e a diferença entre elas é intencional:

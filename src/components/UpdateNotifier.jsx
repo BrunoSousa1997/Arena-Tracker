@@ -92,9 +92,10 @@ export default function UpdateNotifier() {
 }
 
 const styles = {
-  // A moldura e o texto de estado do banner são --info (ciano): isto está a
-  // relatar o que a app anda a fazer, não a pedir um clique. Os botões abaixo
-  // é que são ações, e esses ficam no acento — ver a regra no index.css.
+  // A moldura e o texto de estado do banner são --info (petróleo/névoa):
+  // isto está a relatar o que a app anda a fazer, não a pedir um clique. Os
+  // botões abaixo é que são ações, e esses ficam no acento — ver a regra no
+  // index.css.
   banner: {
     position: "fixed",
     top: 38,

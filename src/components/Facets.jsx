@@ -60,21 +60,11 @@ function buildTriangles(points) {
   return triangles;
 }
 
-// Cor de cada faceta: metade índigo, metade ciano — as duas únicas cores
+// Cor de cada faceta: metade areia, metade névoa — as duas únicas cores
 // vivas que a paleta admite fora dos resultados de partida (ver o
-// comentário no topo do bloco de tema em index.css). O roxo (easter egg,
-// ver --decor-purple em index.css: era o --accent-rgb da v2.0.2) não entra
-// aqui — é um sorteio à parte, feito uma vez para o mosaico TODO, não por
-// faceta: com ~140 triângulos, um sorteio de 0,1% por faceta dava roxo em
-// quase todas as sessões, o que deixava de ser um easter egg raro.
-const PURPLE_CHANCE = 0.001;
-
+// comentário no topo do bloco de tema em index.css).
 function pickFacetColors(count) {
-  const colors = Array.from({ length: count }, () => (Math.random() < 0.5 ? "indigo" : "cyan"));
-  if (Math.random() < PURPLE_CHANCE) {
-    colors[Math.floor(Math.random() * count)] = "purple";
-  }
-  return colors;
+  return Array.from({ length: count }, () => (Math.random() < 0.5 ? "sand" : "mist"));
 }
 
 // Opacidade base de cada faceta, aleatória dentro de uma banda — é o que dá

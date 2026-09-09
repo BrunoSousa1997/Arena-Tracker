@@ -929,7 +929,7 @@ const styles = {
     cursor: "pointer",
     fontSize: 13,
     fontWeight: 600,
-    boxShadow: "0 4px 14px rgba(79,70,229,0.35)",
+    boxShadow: "0 4px 14px var(--accent-glow)",
   },
 
   ghostBtn: {

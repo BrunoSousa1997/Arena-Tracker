@@ -1701,7 +1701,7 @@ const styles = {
     inset: 0,
     borderRadius: "var(--radius-md)",
     background: "var(--accent-gradient)",
-    boxShadow: "0 3px 12px rgba(79,70,229,0.45)",
+    boxShadow: "0 3px 12px var(--accent-glow)",
     zIndex: 0,
   },
 
@@ -1736,7 +1736,7 @@ const styles = {
     inset: 0,
     borderRadius: "var(--radius-lg)",
     background: "var(--accent-gradient)",
-    boxShadow: "0 3px 12px rgba(79,70,229,0.45)",
+    boxShadow: "0 3px 12px var(--accent-glow)",
     zIndex: 0,
   },
 

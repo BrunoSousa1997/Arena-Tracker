@@ -31,7 +31,7 @@ import Calendar from "../assets/achievements/calendar.svg?react";
 // Emblemas das conquistas — desenhados de raiz e guardados como ficheiros
 // .svg em src/assets/achievements/ (um por emblema, editáveis em qualquer
 // ferramenta de vetores). O estilo segue o resto da app (ar heráldico/
-// fantasia, ver a Cinzel da marca e os dourados/indigo do tema): cada
+// fantasia, ver a Cinzel da marca e a areia/ouro do acento do tema): cada
 // símbolo tem um corpo preenchido translúcido por baixo e um contorno por
 // cima, o que lhes dá peso de emblema em vez de traço solto.
 //
