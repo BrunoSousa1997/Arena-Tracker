@@ -12,6 +12,8 @@ import { computeAugmentStats, AUGMENT_SORTS } from "../lib/augmentStats";
 import { computeItemStats, recommendCore, coreProgress, DEFAULT_MIN_GAMES } from "../lib/itemStats";
 import { ITEM_TIER_ORDER, ITEM_TIER } from "../lib/itemTiers";
 import { groupWithBaseline } from "../lib/statGroups";
+import { normalizedPlacement } from "../lib/sessionCurve";
+import { placementColor } from "../lib/placement";
 import { scoreLiveGame, resolveRoomRules } from "../lib/challengeScoring";
 import { normalizeItems } from "../lib/items";
 import Tooltip from "../components/Tooltip";
@@ -41,6 +43,19 @@ import Tooltip from "../components/Tooltip";
 // dizer alguma coisa, e a interface diz isso em vez de as mostrar como se
 // fossem sólidas. Não bloqueia nada: mostra na mesma, com o aviso ao lado.
 const LOW_SAMPLE_GAMES = 20;
+
+// Mínimo de encontros para o lugar médio contra um campeão querer dizer
+// alguma coisa. Abaixo disto o campeão aparece à mesma na lista (saber que
+// nunca o enfrentaste também é informação), mas sem número a fingir-se de
+// facto.
+const MIN_MATCHUP_GAMES = 3;
+
+// O lugar médio contra um campeão vem em decimal (ex: 3.4); a paleta de
+// lugares trabalha com posições inteiras. Arredonda-se para escolher a cor,
+// mantendo o número exato no texto.
+function placementColorFor(avg) {
+  return placementColor(Math.round(avg || 0));
+}
 
 // Quantas linhas por prateleira. A Arena oferece TRÊS augments de cada vez,
 // por isso cinco é o número que cobre a oferta e sobra um pouco para o caso
@@ -115,6 +130,86 @@ export default function InGame({
   const allPlayers = population === "all";
 
   const champion = champions.find((c) => c.id === championId);
+
+  // ================= O LOBBY DESTA PARTIDA =================
+  // O teu histórico contra cada campeão que está nesta partida: quantas vezes
+  // já o enfrentaste e em que lugar costumas ficar quando ele está do outro
+  // lado. É a pergunta mais acionável a meio de uma ronda ("de quem é que me
+  // devo preocupar") e a resposta já estava toda guardada — só faltava a
+  // lista de quem está em jogo, que agora vem da Live Client Data (ver
+  // liveLobby em electron/liveGame.js).
+  //
+  // Um adversário é qualquer participante que NÃO partilhou o teu lugar
+  // final: numa Arena, quem fica no mesmo lugar que tu é, por definição, da
+  // tua equipa (é o mesmo critério usado em lib/achievementStats.js).
+  const matchupHistory = useMemo(() => {
+    const acc = new Map();
+
+    (matches || []).forEach((m) => {
+      if (!Array.isArray(m.participants)) return;
+
+      // O lugar convertido para a escala de hoje — sem isto, os 7ºs e 8ºs
+      // lugares do formato antigo (8 equipas) inflavam a média contra
+      // campeões que só se enfrentaram nessa altura.
+      const myPlace = normalizedPlacement(m);
+      if (myPlace == null) return;
+
+      // Um campeão conta uma vez por partida, mesmo que (por dados
+      // estranhos) apareça repetido na lista de participantes.
+      const opponents = new Set();
+      m.participants.forEach((p) => {
+        if (p.isSelf || !p.champion) return;
+        if (p.placement != null && p.placement === m.placement) return; // colega
+        opponents.add(normalizeChampionId(p.champion, champions));
+      });
+
+      opponents.forEach((id) => {
+        const row = acc.get(id) || { games: 0, placementSum: 0, top3: 0 };
+        row.games += 1;
+        row.placementSum += myPlace;
+        if (m.placement <= 3) row.top3 += 1;
+        acc.set(id, row);
+      });
+    });
+
+    return acc;
+  }, [matches, champions]);
+
+  // A lista pronta a desenhar: os campeões em jogo agora, do mais problemático
+  // para o menos. "Problemático" = o teu lugar médio quando ele está na
+  // partida ser pior; quem nunca enfrentaste (ou poucas vezes) vai para o fim,
+  // porque não há nada a dizer sobre ele.
+  const lobbyRows = useMemo(() => {
+    const lobby = liveChampionAlert?.lobby;
+    if (!Array.isArray(lobby) || !lobby.length) return [];
+
+    return lobby
+      .filter((p) => !p.isSelf && p.champion)
+      .map((p) => {
+        const id = normalizeChampionId(p.champion, champions);
+        const row = matchupHistory.get(id);
+        const games = row?.games || 0;
+
+        return {
+          id,
+          name: champions.find((c) => c.id === id)?.name || id,
+          isDead: !!p.isDead,
+          games,
+          avgPlacement: games ? row.placementSum / games : null,
+          top3Rate: games ? Math.round((row.top3 / games) * 100) : null,
+          thin: games > 0 && games < MIN_MATCHUP_GAMES,
+        };
+      })
+      .sort((a, b) => {
+        // Sem amostra que chegue não há ordenação possível pelo que interessa
+        // — esses ficam todos no fim, por ordem alfabética.
+        const aSolid = a.games >= MIN_MATCHUP_GAMES;
+        const bSolid = b.games >= MIN_MATCHUP_GAMES;
+        if (aSolid !== bSolid) return aSolid ? -1 : 1;
+        if (aSolid && bSolid) return b.avgPlacement - a.avgPlacement;
+        return a.name.localeCompare(b.name);
+      });
+  }, [liveChampionAlert?.lobby, matchupHistory, champions]);
 
   // Quantas partidas (não escolhas) sustentam o que se está a ver. É este o
   // número que decide se se mostra o aviso de amostra pequena, e é mostrado
@@ -397,6 +492,64 @@ export default function InGame({
           {/* Não é um detalhe de rodapé: sem isto o número acima parece final
               e depois sobe sozinho ao sincronizar, o que se lê como um bug. */}
           <div style={styles.panelNote}>{t("ingame_score_partial_note")}</div>
+        </div>
+      )}
+
+      {/* ================= QUEM ESTÁ NESTA PARTIDA ================= */}
+      {/* Só com partida a decorrer: fora dela não há lobby nenhum de que
+          falar, e um painel vazio à espera seria pior do que não existir. */}
+      {isLive && lobbyRows.length > 0 && (
+        <div style={styles.panel}>
+          <div style={styles.panelHead}>
+            <span style={styles.panelTitle}>{t("ingame_lobby_title")}</span>
+            <span style={styles.panelHint}>{t("ingame_lobby_hint")}</span>
+          </div>
+
+          <div style={styles.lobbyGrid}>
+            {lobbyRows.map((p) => (
+              <div
+                key={p.id}
+                style={{
+                  ...styles.lobbyCard,
+                  // Já eliminado: fica a metade da opacidade em vez de
+                  // desaparecer — saber quem já caiu é metade da leitura da
+                  // ronda, e removê-lo faria a lista saltar de sítio.
+                  opacity: p.isDead ? 0.45 : 1,
+                }}
+              >
+                {DRAGON && (
+                  <img
+                    src={`${DRAGON}/img/champion/${p.id}.png`}
+                    alt=""
+                    style={styles.lobbyIcon}
+                  />
+                )}
+
+                <div style={styles.lobbyText}>
+                  <span style={styles.lobbyName}>{p.name}</span>
+
+                  {p.games >= MIN_MATCHUP_GAMES ? (
+                    <span
+                      style={{
+                        ...styles.lobbyStat,
+                        color: placementColorFor(p.avgPlacement),
+                      }}
+                    >
+                      {p.avgPlacement.toFixed(1)}º · {p.games} {t("ingame_lobby_faced")}
+                    </span>
+                  ) : (
+                    <span style={styles.lobbyStatMuted}>
+                      {p.games > 0
+                        ? `${p.games} ${t("ingame_lobby_faced")}`
+                        : t("ingame_lobby_never")}
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div style={styles.panelNote}>{t("ingame_lobby_note")}</div>
         </div>
       )}
 
@@ -752,6 +905,45 @@ const styles = {
     color: "var(--text-muted)",
     borderTop: "1px solid rgba(var(--border-rgb),0.18)",
   },
+
+  // ================= LOBBY DA PARTIDA =================
+  // Grelha que se adapta sozinha à largura: numa Arena de 3 são 17 cartões, e
+  // um número fixo de colunas ou os deixava minúsculos em ecrã largo ou
+  // cortados em ecrã estreito.
+  lobbyGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))",
+    gap: 6,
+    padding: 10,
+  },
+
+  lobbyCard: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "6px 8px",
+    borderRadius: "var(--radius-lg)",
+    background: "rgba(var(--panel-deep-rgb),0.7)",
+    border: "1px solid rgba(var(--border-rgb),0.35)",
+    minWidth: 0,
+  },
+
+  lobbyIcon: { width: 26, height: 26, borderRadius: 7, flexShrink: 0 },
+
+  lobbyText: { display: "flex", flexDirection: "column", gap: 1, minWidth: 0 },
+
+  lobbyName: {
+    fontSize: 11.5,
+    fontWeight: 700,
+    color: "var(--text-body)",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+
+  lobbyStat: { fontSize: 10.5, fontWeight: 700 },
+
+  lobbyStatMuted: { fontSize: 10.5, color: "var(--text-muted)" },
 
   shelfHead: {
     display: "flex",

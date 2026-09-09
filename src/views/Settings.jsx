@@ -63,12 +63,21 @@ export default function Settings({
   canRepairAll = false,
   onRepairAll,
   onStartTour,
+  // Só para a exportação (ver handleExport) — a alternativa era ir buscá-los
+  // outra vez à base de dados aqui dentro, o que seria uma segunda leitura do
+  // que a App já tem em memória, e com o risco de divergir do que está no ecrã.
+  matches = [],
+  wins = [],
 }) {
   const { t } = useLanguage();
   const [tab, setTab] = useState(initialTab);
   const [showPatchHistory, setShowPatchHistory] = useState(false);
   const [showQuitConfirm, setShowQuitConfirm] = useState(false);
   const [showHowItWorks, setShowHowItWorks] = useState(false);
+  // null | { ok: true, filePath } | { ok: false } — o resultado da última
+  // exportação, para a linha poder responder ali mesmo em vez de a ação
+  // parecer não ter feito nada.
+  const [exportResult, setExportResult] = useState(null);
 
   // ================= RESOLUÇÃO / ECRÃ INTEIRO =================
   // "maxSize" é a área útil do ecrã onde a janela está agora (não sempre o
@@ -174,6 +183,57 @@ export default function Settings({
   const applyAutoLaunch = async (value) => {
     const next = await window.electron?.setAutoLaunch?.(value);
     if (next) setBackground(next);
+  };
+
+  // ================= EXPORTAR =================
+  // Grava o que a app tem da conta ativa num JSON à escolha (ver
+  // electron/exportData.js para o porquê de a escrita ser no processo
+  // principal). As partidas vão inteiras, tal como estão na base de dados, e
+  // não uma seleção de colunas: metade do valor disto é servir de cópia de
+  // segurança do que não se recupera da Riot (sequências ao vivo, HP máximo),
+  // e uma exportação que decide por ti o que interessa não serve para isso.
+  const handleExport = async () => {
+    if (!window.electron?.exportData) return;
+
+    const account = accounts.find((a) => a.username === activeAccount);
+    // Promise.resolve() à volta porque o "?." devolve undefined quando o
+    // método não existe (build mais antiga do preload) — e um .catch() direto
+    // sobre undefined rebentava aqui em vez de degradar sem versão.
+    const appVersion = await Promise.resolve(window.electron.getVersion?.()).catch(
+      () => null
+    );
+
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      appVersion: appVersion || null,
+      // Versão do FORMATO, não da app — se um dia isto for reimportado, é
+      // este número que diz ao importador o que esperar.
+      format: 1,
+      account: account
+        ? {
+            username: account.username,
+            riotAccount: account.riotAccount,
+            riotTag: account.riotTag,
+            region: account.region,
+          }
+        : { username: activeAccount },
+      // Campeões com vitória (a Coleção). É derivável das partidas, mas nem
+      // sempre: vitórias antigas registadas antes de a app guardar histórico
+      // completo só existem aqui.
+      wins,
+      matchCount: matches.length,
+      matches,
+    };
+
+    const result = await window.electron.exportData({
+      label: account?.riotAccount || activeAccount,
+      payload,
+    });
+
+    // Cancelar o dialog não deixa mensagem nenhuma — não aconteceu nada e não
+    // há nada a dizer.
+    if (result?.canceled) return;
+    setExportResult(result?.saved ? { ok: true, filePath: result.filePath } : { ok: false });
   };
 
   return (
@@ -454,6 +514,41 @@ export default function Settings({
         {tab === "sync" && (
           <div style={styles.syncTab}>
             <SyncReportPanel report={syncReport} account={activeAccount} />
+
+            {/* Exportar vive nesta aba (e não na Geral) porque é sobre os
+                DADOS, tal como a manutenção logo a seguir — quem vem à procura
+                de "onde é que estão as minhas partidas" olha para aqui. */}
+            <div style={styles.maintenance}>
+              <div style={styles.maintenanceHead}>
+                <div style={styles.rowLabel}>{t("settings_export_title")}</div>
+                <div style={styles.rowHint}>{t("settings_export_hint")}</div>
+              </div>
+
+              <div style={styles.maintenanceBtns}>
+                <button
+                  onClick={handleExport}
+                  disabled={!matches.length}
+                  style={styles.linkBtn}
+                >
+                  {t("settings_export_btn")} ({matches.length})
+                </button>
+
+                {exportResult?.ok && (
+                  <button
+                    onClick={() => window.electron?.revealExport?.(exportResult.filePath)}
+                    style={styles.linkBtn}
+                  >
+                    {t("settings_export_reveal")}
+                  </button>
+                )}
+              </div>
+
+              {exportResult && (
+                <div style={styles.rowHint}>
+                  {exportResult.ok ? t("settings_export_done") : t("settings_export_failed")}
+                </div>
+              )}
+            </div>
 
             <div style={styles.maintenance}>
               <div style={styles.maintenanceHead}>

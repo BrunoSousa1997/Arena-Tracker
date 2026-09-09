@@ -23,6 +23,19 @@ let liveGameMaxPlayers = 0;
 // isso o máximo entre polls já É o pico real da partida, sem precisar de
 // nenhuma correção como a de "liveGameMaxPlayers" acima.
 let liveGameMaxHp = 0;
+// ================= O LOBBY DA PARTIDA A DECORRER =================
+// Quem mais está nesta partida: campeão de cada jogador, para a tab Em Jogo
+// poder cruzar isso com o histórico ("já enfrentaste este campeão N vezes,
+// lugar médio X"). Vinha na resposta da Live Client Data desde sempre — em
+// "allPlayers", o mesmo array de onde já se tirava o próprio jogador — e era
+// deitado fora a cada poll.
+//
+// É um Map (riotId -> jogador) acumulado ao longo da partida, e não a lista
+// do poll mais recente, pela mesma razão que existe "liveGameMaxPlayers":
+// perto do fim, a API deixa de listar jogadores já eliminados. Com a lista
+// crua, os adversários iam desaparecendo do ecrã à medida que morriam, que é
+// precisamente quando ainda interessa ver quem falta.
+let liveLobby = new Map();
 // ================= SEQUÊNCIAS "SEM MORRER" (para os desafios) =================
 // A Live Client Data dá-nos os contadores a EVOLUIR (de 3 em 3s), não só o
 // total final — por isso, ao contrário do histórico importado da Riot API
@@ -154,6 +167,7 @@ function endLiveSession() {
   liveChampionAnnounced = false;
   liveGameMaxPlayers = 0;
   liveGameMaxHp = 0;
+  liveLobby = new Map();
   liveResultSent = false;
   liveKillStreak = 0;
   liveKillStreaks = [];
@@ -191,6 +205,7 @@ async function pollLiveGame() {
       liveChampionAnnounced = false;
       liveGameMaxPlayers = 0;
       liveGameMaxHp = 0;
+      liveLobby = new Map();
       liveResultSent = false;
       // Semeia os contadores com o que o jogador JÁ tem neste primeiro poll,
       // em vez de 0 — se a app abrir a meio de uma partida, as kills que já
@@ -211,6 +226,27 @@ async function pollLiveGame() {
       // Atualiza o máximo de jogadores visto até agora nesta partida — ver
       // comentário junto à declaração de "liveGameMaxPlayers" mais acima.
       liveGameMaxPlayers = Math.max(liveGameMaxPlayers, players.length);
+
+      // Acumula o lobby (ver liveLobby). Reescreve-se a entrada a cada poll
+      // em vez de só a criar na primeira vez: o campeão nunca muda, mas o
+      // "isDead" muda, e é o que permite mostrar quem já foi eliminado.
+      players.forEach((p) => {
+        const id = p.riotId || p.summonerName;
+        if (!id || !p.championName) return;
+
+        liveLobby.set(id, {
+          riotId: id,
+          champion: p.championName,
+          // A Live Client Data reporta "team" para todos os modos, mas na
+          // Arena não distingue as equipas de verdade (são 6, e o campo só
+          // conhece dois lados). Guarda-se à mesma — se um dia a Riot passar
+          // a devolver a subequipa, o agrupamento no ecrã passa a funcionar
+          // sozinho; até lá a interface trata a lista como plana (ver InGame).
+          team: p.team ?? null,
+          isSelf: id === activeRiotId,
+          isDead: !!p.isDead,
+        });
+      });
 
       // "HP máximo" (vida total, não a vida atual) só vem em detalhe no
       // activePlayer.championStats — allPlayers não traz isto para nenhum
@@ -303,6 +339,11 @@ async function pollLiveGame() {
           killStreaks: liveGameState.killStreaks,
           assistStreaks: liveGameState.assistStreaks,
           deathStreaks: liveGameState.deathStreaks,
+          // Vai a cada poll (e não uma vez só, com o campeão) porque o
+          // "isDead" de cada um muda ao longo da partida — e porque o lobby
+          // só está completo quando toda a gente já apareceu, o que não é
+          // garantido no primeiro poll se a app abrir a meio.
+          lobby: [...liveLobby.values()],
         });
       }
     }

@@ -569,13 +569,17 @@ export function useLiveGame({
     if (!window.electron?.onLiveStats) return;
 
     const unsubscribe = window.electron.onLiveStats(
-      ({ kills, deaths, assists, items, killStreaks, assistStreaks, deathStreaks } = {}) => {
+      ({ kills, deaths, assists, items, killStreaks, assistStreaks, deathStreaks, lobby } = {}) => {
         setLiveChampionAlert((prev) =>
           prev
             ? {
                 ...prev,
                 kda: { kills: kills ?? 0, deaths: deaths ?? 0, assists: assists ?? 0 },
                 items: items || [],
+                // Quem mais está nesta partida (ver liveLobby em
+                // electron/liveGame.js) — a tab Em Jogo cruza estes campeões
+                // com o histórico. Só passa por aqui; nada disto é gravado.
+                lobby: lobby || [],
                 // As sequências já vinham neste evento mas só seguiam para a
                 // Supabase (ver updateChallengeGameProgress abaixo), o que
                 // deixava o próprio jogador a ser o único a NÃO poder ver o

@@ -404,6 +404,23 @@ const DICTIONARY = {
     en: "All good — nothing to fix on this account.",
   },
 
+  // ================= EXPORTAR =================
+  settings_export_title: { pt: "Exportar dados", en: "Export data" },
+  settings_export_hint: {
+    pt: "Guarda as partidas desta conta num ficheiro JSON. Vale a pena: o que foi medido ao vivo (sequências sem morrer, HP máximo) e o histórico de desafios não se recuperam da Riot se a base de dados se perder.",
+    en: "Saves this account's matches to a JSON file. Worth doing: what was measured live (no-death streaks, max HP) and the challenge history cannot be recovered from Riot if the database is lost.",
+  },
+  settings_export_btn: { pt: "Exportar partidas", en: "Export matches" },
+  settings_export_reveal: { pt: "Abrir a pasta", en: "Open folder" },
+  settings_export_done: {
+    pt: "Exportado. O ficheiro está onde o guardaste.",
+    en: "Exported. The file is where you saved it.",
+  },
+  settings_export_failed: {
+    pt: "Não foi possível guardar o ficheiro. Tenta outra pasta.",
+    en: "Could not save the file. Try another folder.",
+  },
+
   settings_quit_label: { pt: "Sair da aplicação", en: "Quit the app" },
   settings_quit_hint: {
     pt: "Fecha a Arena Tracker por completo, incluindo o modo em segundo plano. Deixa de detetar partidas e de sincronizar até voltares a abri-la.",
@@ -498,6 +515,19 @@ const DICTIONARY = {
   tier_boots: { pt: "Botas", en: "Boots" },
 
   ingame_shelf_avg: { pt: "média", en: "avg" },
+
+  // ================= LOBBY DA PARTIDA (Em Jogo) =================
+  ingame_lobby_title: { pt: "Nesta partida", en: "In this match" },
+  ingame_lobby_hint: {
+    pt: "o teu lugar médio quando os enfrentaste",
+    en: "your average placement when you faced them",
+  },
+  ingame_lobby_faced: { pt: "encontros", en: "faced" },
+  ingame_lobby_never: { pt: "nunca enfrentado", en: "never faced" },
+  ingame_lobby_note: {
+    pt: "Ordenado do mais problemático para o menos, pelo lugar em que costumas ficar quando este campeão está na partida. Não é a força do campeão em geral — é a tua contra ele.",
+    en: "Sorted from most to least trouble, by where you tend to place when this champion is in the match. Not the champion's overall strength — yours against it.",
+  },
 
   ingame_augments_title: { pt: "Augments", en: "Augments" },
   ingame_augments_hint: { pt: "por raridade", en: "by rarity" },
@@ -653,6 +683,35 @@ const DICTIONARY = {
   session_avg_placement: { pt: "Lugar médio", en: "Avg placement" },
   session_best: { pt: "Melhor", en: "Best" },
   overview_duo_synergy: { pt: "Jogadores premade", en: "Premade players" },
+
+  // ================= CURVA DA SENTADA =================
+  overview_session_curve: { pt: "Curva da sentada", en: "Session curve" },
+  session_curve_hint: {
+    pt: "Lugar médio conforme a posição da partida dentro da sentada: a 1ª partida de todas as sessões, a 2ª de todas, e por aí. Lugares de partidas antigas (8 equipas) são convertidos para a escala de hoje.",
+    en: "Average placement by the match's position within the sitting: the 1st match of every session, the 2nd of every session, and so on. Placements from older matches (8 teams) are converted to today's scale.",
+  },
+  session_curve_thin: { pt: "poucos jogos", en: "thin sample" },
+  session_curve_places: { pt: " lugares", en: " places" },
+  session_curve_declines: {
+    pt: "Ao fim de umas quantas partidas seguidas, o teu lugar médio piora",
+    en: "After a few matches in a row, your average placement gets worse by",
+  },
+  session_curve_improves: {
+    pt: "Aqueces a jogar: ao longo da sentada o teu lugar médio melhora",
+    en: "You warm up: across the sitting your average placement improves by",
+  },
+  session_curve_flat: {
+    pt: "O teu lugar médio aguenta-se do princípio ao fim da sentada.",
+    en: "Your average placement holds up from the start to the end of the sitting.",
+  },
+  session_curve_insufficient: {
+    pt: "Ainda não há partidas que cheguem para dizer se a sentada te afeta.",
+    en: "Not enough matches yet to tell whether the sitting affects you.",
+  },
+  session_curve_caveat: {
+    pt: "Isto é uma correlação, não uma causa: as sentadas só ficam longas por alguma razão (estar a correr bem, ou estar a tentar recuperar), e é isso que enche os últimos baldes.",
+    en: "This is a correlation, not a cause: sittings only run long for a reason (things going well, or chasing a loss), and that is what fills the last buckets.",
+  },
   overview_highlights: { pt: "Destaques", en: "Highlights" },
   overview_total_games: { pt: "Partidas jogadas", en: "Games played" },
   overview_top3_rate: { pt: "Taxa de Top 3", en: "Top 3 rate" },

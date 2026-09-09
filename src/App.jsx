@@ -1399,6 +1399,8 @@ export default function App() {
           onRepairWins={repairWins}
           canRepairAll={matches.some((m) => m.riot_match_id)}
           onRepairAll={() => setShowRepairAllConfirm(true)}
+          matches={matches}
+          wins={wins}
           onStartTour={() => {
             setShowSettings(false);
             setTourStep(0);

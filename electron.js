@@ -10,6 +10,7 @@ const {
   shouldQuitOnAllWindowsClosed,
 } = require("./electron/background");
 const { registerOverlayHandlers } = require("./electron/overlay");
+const { registerExportHandlers } = require("./electron/exportData");
 
 // Ponto de entrada — cada módulo em ./electron trata só da sua área
 // (janela, auto-update, deteção ao vivo, cliente da Riot API) e regista os
@@ -38,6 +39,7 @@ app.whenReady().then(() => {
   console.log("APP READY");
   registerBackgroundHandlers();
   registerOverlayHandlers();
+  registerExportHandlers();
   createWindow();
   startLiveGameWatcher();
   checkForUpdatesOnStartup();

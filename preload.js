@@ -49,6 +49,11 @@ contextBridge.exposeInMainWorld("electron", {
     return () => ipcRenderer.removeListener("updater:status", listener);
   },
 
+  // Exportar dados (ver electron/exportData.js) — o dialog de "guardar como"
+  // e a escrita ficam do lado do processo principal.
+  exportData: (payload) => ipcRenderer.invoke("export:save", payload),
+  revealExport: (filePath) => ipcRenderer.invoke("export:reveal", filePath),
+
   onMatchResult: (callback) => {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on("livegame:matchResult", listener);

@@ -4,6 +4,7 @@ import { placementColor, placementText } from "../lib/placement";
 import { useLanguage } from "../lib/i18n";
 import Tooltip from "../components/Tooltip";
 import { computeCareerSummary, computeSpotlightGroups } from "../lib/overviewSpotlights";
+import { splitSessions, sessionCurve } from "../lib/sessionCurve";
 
 // Fundo translúcido por trás dos números com resultado no resumo de topo —
 // mesma ideia do StatsBar (ver chipStyle lá), para o "0%"/streaks também
@@ -38,39 +39,11 @@ function dayKey(date) {
   return `${y}-${m}-${d}`;
 }
 
-// Gap máximo entre o fim de uma partida e o início da seguinte para as
-// contar como a mesma "sessão" (sentada a jogar) — a Arena não dá o horário
-// de início, só o de fim, por isso isto é sempre uma aproximação baseada
-// nos "created_at" de partidas seguidas.
-const SESSION_GAP_MINUTES = 90;
-
 // Agrupa partidas (já ordenadas da mais recente para a mais antiga, ver
-// db/api.js) em sessões: sempre que o intervalo até à partida anterior no
-// grupo ultrapassa SESSION_GAP_MINUTES, começa uma sessão nova.
+// db/api.js) em sessões — a regra do intervalo vive em lib/sessionCurve.js,
+// que é o outro consumidor dela (ver a curva da sentada mais abaixo).
 function buildSessions(matches) {
-  const withDate = matches.filter((m) => m.created_at);
-  if (!withDate.length) return [];
-
-  const sessions = [];
-  let current = null;
-
-  withDate.forEach((m) => {
-    const time = new Date(m.created_at).getTime();
-    if (current) {
-      const lastTime = new Date(current.matches[current.matches.length - 1].created_at).getTime();
-      const gapMs = lastTime - time;
-      if (gapMs > SESSION_GAP_MINUTES * 60000) {
-        sessions.push(current);
-        current = null;
-      }
-    }
-    if (!current) current = { matches: [] };
-    current.matches.push(m);
-  });
-  if (current) sessions.push(current);
-
-  return sessions.map((s) => {
-    const ms = s.matches;
+  return splitSessions(matches).map((ms) => {
     const newest = new Date(ms[0].created_at);
     const oldest = new Date(ms[ms.length - 1].created_at);
 
@@ -112,6 +85,13 @@ function buildSessions(matches) {
       durationMin: Math.max(1, Math.round((newest - oldest) / 60000)),
     };
   });
+}
+
+// Etiqueta de cada balde da curva: a posição da partida dentro da sentada.
+// O último balde é uma cauda ("da 6ª em diante"), não uma posição exata.
+function curveLabel(bucket, lang) {
+  if (lang === "en") return bucket.isTail ? `#${bucket.index}+` : `#${bucket.index}`;
+  return bucket.isTail ? `${bucket.index}ª+` : `${bucket.index}ª`;
 }
 
 // Sessões de uma partida só passaram a aparecer na lista (ver "sessions"),
@@ -237,6 +217,11 @@ export default function Overview({ matches, wins, champions, DRAGON, onOpenChamp
   // entradas curtas" e "a lista mente sobre quando jogaste", a primeira é bem
   // menos má.
   const sessions = useMemo(() => buildSessions(matches).slice(0, 6), [matches]);
+
+  // A curva da sentada (ver lib/sessionCurve.js): a mesma divisão em sessões
+  // lida ao contrário — não sessão a sessão, mas a 1ª partida de todas contra
+  // a 2ª de todas, e assim por diante.
+  const curve = useMemo(() => sessionCurve(matches), [matches]);
 
   const heatmapWeeks = useMemo(() => {
     const dayMap = {};
@@ -619,6 +604,80 @@ export default function Overview({ matches, wins, champions, DRAGON, onOpenChamp
         </div>
       )}
 
+      {/* CURVA DA SENTADA — a leitura ATRAVÉS das sessões, ao contrário do
+          painel de cima que as lê uma a uma: junta a 1ª partida de todas as
+          sentadas, a 2ª de todas, e por aí. Responde a "a partir de quando é
+          que começo a jogar pior", que é a única pergunta aqui que se resolve
+          a deixar de jogar. */}
+      {curve.sessions > 0 && (
+        <div className="riseIn" style={styles.section}>
+          <h2 style={styles.sectionTitle}>📉 {t("overview_session_curve")}</h2>
+          <div style={styles.rowHint}>{t("session_curve_hint")}</div>
+
+          <div style={styles.curveList}>
+            {curve.buckets.map((b) => {
+              // Barra = qualidade, não lugar: mais comprida é melhor. Com a
+              // barra a crescer com o NÚMERO do lugar, a leitura visual ficava
+              // ao contrário do que o número diz.
+              const pct =
+                b.avgPlacement == null
+                  ? 0
+                  : Math.max(6, Math.min(100, ((6 - b.avgPlacement) / 5) * 100));
+              const color = placementColor(Math.round(b.avgPlacement || 0));
+
+              return (
+                <div key={b.index} style={styles.curveRow}>
+                  <span style={styles.curveLabel}>{curveLabel(b, lang)}</span>
+
+                  <div style={styles.curveTrack}>
+                    <div
+                      style={{
+                        ...styles.curveBar,
+                        width: `${pct}%`,
+                        background: `color-mix(in srgb, ${color} 65%, transparent)`,
+                      }}
+                    />
+                  </div>
+
+                  <span style={{ ...styles.curveValue, color }}>
+                    {b.avgPlacement == null ? "—" : `${b.avgPlacement.toFixed(1)}º`}
+                  </span>
+
+                  <span style={styles.curveGames}>
+                    {b.games} {gamesWord(b.games, lang)}
+                    {b.thin && ` · ${t("session_curve_thin")}`}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+
+          <div style={styles.curveVerdict}>
+            {curve.verdict.type === "declines" && (
+              <span style={{ color: "var(--place-low)" }}>
+                {t("session_curve_declines")}{" "}
+                {Math.abs(curve.verdict.delta).toFixed(1)}
+                {t("session_curve_places")}
+              </span>
+            )}
+            {curve.verdict.type === "improves" && (
+              <span style={{ color: "var(--place-good)" }}>
+                {t("session_curve_improves")}{" "}
+                {Math.abs(curve.verdict.delta).toFixed(1)}
+                {t("session_curve_places")}
+              </span>
+            )}
+            {curve.verdict.type === "flat" && <span>{t("session_curve_flat")}</span>}
+            {curve.verdict.type === "insufficient" && (
+              <span>{t("session_curve_insufficient")}</span>
+            )}
+          </div>
+
+          {/* Sem isto, o painel afirmava uma causa que não mediu. */}
+          <div style={styles.rowHint}>{t("session_curve_caveat")}</div>
+        </div>
+      )}
+
       {/* SPOTLIGHTS — cada cartão é um atalho: clicar abre logo o campeão
           nas Estatísticas, já expandido, em vez de obrigar a ir procurá-lo.
           Agrupados em 3 blocos (melhores médias / pontos a melhorar /
@@ -960,6 +1019,76 @@ const styles = {
     fontWeight: 800,
     minWidth: 52,
     textAlign: "right",
+  },
+
+  // ================= CURVA DA SENTADA =================
+  rowHint: {
+    fontSize: 11,
+    color: "var(--text-secondary)",
+    lineHeight: 1.45,
+    marginBottom: 10,
+  },
+
+  curveList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+    marginBottom: 10,
+  },
+
+  curveRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    padding: "6px 10px",
+    borderRadius: "var(--radius-lg)",
+    background: "rgba(var(--panel-deep-rgb),0.7)",
+    border: "1px solid rgba(var(--border-rgb),0.4)",
+  },
+
+  curveLabel: {
+    fontSize: 12,
+    fontWeight: 700,
+    color: "var(--text-body)",
+    // Largura fixa para as barras arrancarem todas alinhadas — sem isto, o
+    // "6ª+" empurrava a sua barra para a direita e a curva lia-se torta.
+    minWidth: 34,
+  },
+
+  // A barra vive dentro de um carril com fundo próprio: sem ele, um valor
+  // mau (barra curta) era indistinguível de "não há dados".
+  curveTrack: {
+    flex: 1,
+    minWidth: 0,
+    height: 8,
+    borderRadius: 999,
+    background: "rgba(var(--border-rgb),0.3)",
+    overflow: "hidden",
+  },
+
+  curveBar: {
+    height: "100%",
+    borderRadius: 999,
+  },
+
+  curveValue: {
+    fontSize: 12.5,
+    fontWeight: 800,
+    minWidth: 42,
+    textAlign: "right",
+  },
+
+  curveGames: {
+    fontSize: 11,
+    color: "var(--text-secondary)",
+    minWidth: 92,
+    textAlign: "right",
+  },
+
+  curveVerdict: {
+    fontSize: 12.5,
+    fontWeight: 700,
+    marginBottom: 6,
   },
 
   // Envolve o gráfico + legenda, centrados horizontalmente no cartão.
