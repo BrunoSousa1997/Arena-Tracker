@@ -8,7 +8,7 @@ import { Minus, Square, Copy, X } from "lucide-react";
 // flutuante por cima do conteúdo. Era a barra com os três botões de janela
 // que fazia o ecrã inteiro parecer só uma janela esticada até às bordas, e um
 // botão de "sair" a pairar no canto tem o mesmo efeito, além de tapar o que
-// está por baixo. Para sair: F11, Escape (ver os globalShortcut em
+// está por baixo. Para sair: F11, Escape (ver o "before-input-event" em
 // electron/window.js) ou Definições → Modo de ecrã → Janela.
 export default function TitleBar() {
     if (!window.electron) return null;

@@ -177,15 +177,26 @@ function createWindow() {
     w.center();
   });
 
-  // fullscreen shortcuts
-  globalShortcut.register("F11", () => {
-    const w = getWindow();
-    applyFullScreen(w, !w.isFullScreen());
-  });
+  // Atalhos de ecrã inteiro (F11 / Escape).
+  //
+  // NÃO podem ser globalShortcut. No Windows isso é um RegisterHotKey ao
+  // nível do sistema: a tecla passa a ser entregue só a esta app e mais
+  // nenhuma a vê — com a app aberta em segundo plano, o Escape deixava de
+  // funcionar em jogos, e o F11 em qualquer outro programa. "before-input-
+  // event" faz o mesmo trabalho mas só enquanto ESTA janela tem o foco, que
+  // é a única altura em que sair de ecrã inteiro faz sentido.
+  //
+  // Sem preventDefault de propósito: as teclas continuam a chegar à
+  // interface, onde o Escape também fecha modais (ver Settings/MatchHistory/
+  // MatchReports).
+  win.webContents.on("before-input-event", (_event, input) => {
+    if (input.type !== "keyDown" || input.control || input.alt || input.meta) return;
 
-  globalShortcut.register("Escape", () => {
-    const w = getWindow();
-    if (w.isFullScreen()) applyFullScreen(w, false);
+    if (input.key === "F11") {
+      applyFullScreen(win, !win.isFullScreen());
+    } else if (input.key === "Escape" && win.isFullScreen()) {
+      applyFullScreen(win, false);
+    }
   });
 
   // Atalho global (funciona mesmo com o League em foco, ex: na seleção de
@@ -199,6 +210,12 @@ function createWindow() {
     w.show();
     w.focus();
     w.webContents.send("quickcheck:open");
+  });
+
+  // Um atalho global é um registo no SISTEMA, não na app: se ficar para trás,
+  // a combinação deixa de chegar a quem quer que seja até ao próximo reboot.
+  app.on("will-quit", () => {
+    globalShortcut.unregisterAll();
   });
 
   return win;
