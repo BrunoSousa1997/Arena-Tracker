@@ -72,7 +72,7 @@ function pickFacetColors(count) {
 // de calcular a "normal" de um triângulo a sério como um motor 3D faria.
 // O shimmer (ver @keyframes facetShimmer em index.css) oscila à volta
 // desta base, não a substitui.
-function buildFacetStyle(color, i) {
+function buildFacetStyle(color) {
   const base = 0.1 + Math.random() * 0.16;
   const duration = 5 + Math.random() * 6;
   const delay = Math.random() * 6;
@@ -92,7 +92,7 @@ function buildMesh() {
   const colors = pickFacetColors(triangles.length);
   return triangles.map((tri, i) => ({
     points: tri.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" "),
-    style: buildFacetStyle(colors[i], i),
+    style: buildFacetStyle(colors[i]),
   }));
 }
 

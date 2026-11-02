@@ -393,7 +393,7 @@ async function pollLiveGame() {
         });
       }
     }
-  } catch (err) {
+  } catch {
     liveGameFailures += 1;
 
     // API deixou de responder (fim de jogo, alt-F4, etc.) -> volta ao estado

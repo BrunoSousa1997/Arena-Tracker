@@ -1192,6 +1192,21 @@ const DICTIONARY = {
     en: "Couldn't fetch the history right now. Try again later.",
   },
   patch_history_empty: { pt: "Ainda sem releases publicadas.", en: "No releases published yet." },
+
+  // ================= ERRO INESPERADO (ver components/ErrorBoundary.jsx) =================
+  error_title: { pt: "Algo correu mal", en: "Something went wrong" },
+  error_message: {
+    pt: "A app apanhou um erro inesperado e não conseguiu continuar a desenhar este ecrã.",
+    en: "The app hit an unexpected error and couldn't finish drawing this screen.",
+  },
+  error_data_safe: {
+    pt: "Não se perdeu nada: as partidas ficam guardadas na base de dados, não nesta janela. Recarregar costuma resolver.",
+    en: "Nothing was lost: your matches live in the database, not in this window. Reloading usually fixes it.",
+  },
+  error_reload: { pt: "Recarregar a app", en: "Reload the app" },
+  error_copy: { pt: "Copiar detalhes", en: "Copy details" },
+  error_copied: { pt: "Copiado", en: "Copied" },
+  error_details: { pt: "Detalhes técnicos", en: "Technical details" },
 };
 
 export function translate(lang, key) {

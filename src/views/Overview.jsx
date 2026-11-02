@@ -18,15 +18,6 @@ function heroChipStyle(color) {
   };
 }
 
-// Duração em segundos -> "m:ss", para os destaques de vitória mais rápida e
-// partida mais longa (mesma lógica usada no Histórico, ver MatchHistory.jsx).
-function formatDuration(seconds) {
-  if (!seconds) return null;
-  const m = Math.floor(seconds / 60);
-  const s = Math.round(seconds % 60);
-  return `${m}:${String(s).padStart(2, "0")}`;
-}
-
 const HEATMAP_WEEKS = 18;
 
 function dayKey(date) {
@@ -707,13 +698,13 @@ export default function Overview({ matches, wins, champions, DRAGON, onOpenChamp
                     // sem fim — a partir daí o atraso já não se distingue e só
                     // fazia o último cartão demorar meio segundo a chegar.
                     style={{ ...styles.spotlightCard, animationDelay: `${Math.min(i, 8) * 30}ms` }}
-                    onClick={() => openStats(sp.champion, sp.sortKey)}
+                    onClick={() => onOpenChampionStats(sp.champion, sp.sortKey)}
                     role="button"
                     tabIndex={0}
                     onKeyDown={(e) => {
                       if (e.key !== "Enter" && e.key !== " ") return;
                       e.preventDefault();
-                      openStats(sp.champion, sp.sortKey);
+                      onOpenChampionStats(sp.champion, sp.sortKey);
                     }}
                   >
                     <div style={styles.spotlightHeader}>

@@ -30,6 +30,9 @@ export default function SyncReportPanel({ report, account }) {
   // API moderna não está disponível, e é o suficiente para copiar texto.
   const copy = async () => {
     const text = formatSyncReport(report, account);
+    // O valor inicial nunca chega a ser lido (todos os caminhos abaixo lhe
+    // atribuem), mas fica como rede para quem venha a acrescentar outro.
+    // eslint-disable-next-line no-useless-assignment
     let ok = false;
 
     try {

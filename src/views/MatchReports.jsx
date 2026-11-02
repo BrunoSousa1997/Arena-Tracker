@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { X, Info, Puzzle, Search, ChevronUp, ChevronDown } from "lucide-react";
 import { placementColor, placementText, placementBg, placementBorder, isLastPlace } from "../lib/placement";
@@ -17,10 +17,6 @@ const ALL_PLACEMENTS = [1, 2, 3, 4, 5, 6, 7, 8];
 
 function kdaLabel(k, d, a) {
   return `${k.toFixed(1)} / ${d.toFixed(1)} / ${a.toFixed(1)}`;
-}
-
-function avgOf(sum, count) {
-  return count ? sum / count : null;
 }
 
 // Acessor + formatação do valor exato de cada critério de ordenação — usado

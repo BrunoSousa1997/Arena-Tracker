@@ -34,6 +34,8 @@ function defaultFileName(label) {
   // que o Windows recusa num nome de ficheiro, e nesse caso o dialog abria
   // com um nome inválido que o utilizador tinha de corrigir à mão.
   const safeLabel = String(label || "conta")
+    // Os caracteres de controlo no fim da classe são intencionais (ver acima).
+    // eslint-disable-next-line no-control-regex
     .replace(/[<>:"/\\|?*\x00-\x1f]/g, "")
     .trim()
     .slice(0, 40) || "conta";

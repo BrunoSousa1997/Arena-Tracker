@@ -1,0 +1,49 @@
+name: CI
+
+# Os 139 testes e a lint já existiam no projeto mas nada os corria sozinho —
+# dependiam de alguém se lembrar de os chamar à mão antes de publicar. Isto
+# fecha essa lacuna: cada push e cada PR passam pelos três passos abaixo.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+
+    # A app só corre em Windows, mas nada do que se verifica aqui depende
+    # disso: a lint, os testes (Vitest, lógica pura) e o build do Vite são
+    # todos independentes do sistema. O Ubuntu arranca bem mais depressa, e o
+    # instalador Windows continua a ser gerado à mão no release (ver README).
+    env:
+      # Sem isto o "npm ci" descarregava ~100 MB do binário do Electron a cada
+      # execução. Nenhum passo deste workflow abre uma janela, por isso o
+      # binário não é preciso para nada.
+      ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Testes
+        run: npm test
+
+      - name: Build
+        # Valores de fachada de propósito: o Vite só precisa das variáveis
+        # para as embutir no bundle, e este passo serve para apanhar imports
+        # partidos e erros de sintaxe, não para falar com a Supabase. As
+        # credenciais verdadeiras ficam no .env local de quem publica.
+        env:
+          VITE_SUPABASE_URL: https://exemplo.supabase.co
+          VITE_SUPABASE_ANON_KEY: chave-de-fachada-para-o-build-do-ci
+        run: npm run build

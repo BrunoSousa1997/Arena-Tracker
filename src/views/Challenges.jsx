@@ -1509,7 +1509,6 @@ function ScoreBoard({ room, players, activeAccount, onLeave, champions = [], DRA
       // rpc_finish_room) — este caminho já só corre para o anfitrião.
       hostUsername: activeAccount,
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sortedPlayers, scored, winner, isTeams, winningTeam, room.id, activeRules, activeAccount]);
 
   // Assim que TODOS os jogadores atingem o nº de jogos alvo, o anfitrião

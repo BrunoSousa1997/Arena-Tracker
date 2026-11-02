@@ -32,7 +32,7 @@ function currentRankOf(cat) {
   return rankForTierIndex(unlockedCount - 1, cat.tiers.length);
 }
 
-export default function Achievements({ matches, champions, wins, DRAGON, challengeWins = 0 }) {
+export default function Achievements({ matches, champions, wins, challengeWins = 0 }) {
   const { t } = useLanguage();
 
   const stats = useMemo(

@@ -11,12 +11,12 @@ import { Minus, Square, Copy, X } from "lucide-react";
 // está por baixo. Para sair: F11, Escape (ver o "before-input-event" em
 // electron/window.js) ou Definições → Modo de ecrã → Janela.
 export default function TitleBar() {
-    if (!window.electron) return null;
-
     const [isMaximized, setIsMaximized] = useState(false);
     const [isFullScreen, setIsFullScreen] = useState(false);
 
     useEffect(() => {
+        if (!window.electron) return;
+
         async function check() {
             const value = await window.electron.isMaximized();
             setIsMaximized(value);
@@ -33,9 +33,17 @@ export default function TitleBar() {
     // nas Definições, F11, Escape, ou o próprio SO) — ver os eventos
     // enter-full-screen/leave-full-screen em electron/window.js.
     useEffect(() => {
+        if (!window.electron) return;
+
         window.electron.isFullScreen?.().then(setIsFullScreen);
         return window.electron.onFullScreenChanged?.(setIsFullScreen);
     }, []);
+
+    // Fora do Electron (abrir o Vite direto no browser) nao ha janela sem
+    // moldura para controlar. Este guard estava ANTES dos hooks acima, o que
+    // os tornava condicionais e quebrava a regra da ordem fixa; aqui faz o
+    // mesmo efeito com a ordem estavel.
+    if (!window.electron) return null;
 
     if (isFullScreen) return null;
 

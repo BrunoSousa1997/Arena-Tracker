@@ -38,7 +38,7 @@ import ConfirmDialog from "./components/ConfirmDialog";
 import NotificationBell from "./components/NotificationBell";
 import AchievementToasts from "./components/AchievementToasts";
 import { normalizeChampionId } from "./lib/champions";
-import { useLanguage, LANGUAGES } from "./lib/i18n";
+import { useLanguage } from "./lib/i18n";
 import { useStaticData } from "./hooks/useStaticData";
 import { useTheme } from "./hooks/useTheme";
 import { useAccounts } from "./hooks/useAccounts";
@@ -253,7 +253,6 @@ export default function App() {
 
   const {
     liveChampionAlert,
-    setLiveChampionAlert,
     liveBannerHidden,
     setLiveBannerHidden,
     liveSessionActive,
@@ -606,7 +605,6 @@ export default function App() {
     );
   }
 
-  const account = accounts.find((a) => a.username === activeAccount);
   const lastSyncLabel = latestMatchTimestamp
     ? new Date(latestMatchTimestamp).toLocaleString(lang === "en" ? "en-GB" : "pt-PT", {
         day: "2-digit",
