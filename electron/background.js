@@ -233,9 +233,9 @@ function registerBackgroundHandlers() {
   ipcMain.handle("background:setAutoLaunch", (_event, value) => {
     app.setLoginItemSettings({
       openAtLogin: !!value,
-      // "openAsHidden" é só macOS; no Windows quem trata disto é o argumento
-      // (ver startedHidden).
-      openAsHidden: !!value,
+      // Sem "openAsHidden": era só macOS e o Electron 44 removeu-o de vez.
+      // No Windows quem trata disto é o argumento (ver startedHidden), que
+      // é o mecanismo que esta app sempre usou de facto.
       args: [HIDDEN_FLAG],
     });
 
