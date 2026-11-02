@@ -106,6 +106,14 @@
      dia voltar, que volte numa cor da paleta. */
   --decor-sand: rgba(178, 142, 96, 0.62);
   --decor-mist: rgba(163, 199, 206, 0.5);
+
+  /* Força da textura de campeão nos cartões de destaque (ver .at-highlight-bg).
+     Tem de ser por tema: sobre o painel escuro, o ícone desfocado a 0.10
+     funde-se e lê-se como profundidade; sobre o painel branco do tema claro,
+     a mesma opacidade dá uma mancha cinzenta no canto que parece sujidade no
+     ecrã, não fundo. */
+  --highlight-texture: 0.1;
+  --highlight-texture-hover: 0.2;
 }
 
 :root[data-theme="light"] {
@@ -171,6 +179,10 @@
      faz a faceta aparecer, não a intensidade da cor em si. */
   --decor-sand: rgba(138, 102, 54, 0.42);
   --decor-mist: rgba(58, 100, 114, 0.4);
+
+  /* Bem mais fraca do que no escuro — ver a nota no bloco do tema escuro. */
+  --highlight-texture: 0.05;
+  --highlight-texture-hover: 0.11;
 }
 
 /* --accent-rgb: areia (ouro), só para o que deve mesmo destacar-se (tab
@@ -561,6 +573,23 @@ code {
       opacity: 0.45;
     }
   }
+
+  /* Nos cartões de destaque pára o que se desloca sozinho — o varrimento de
+     luz, o levantamento e a ampliação da textura. O que diz ESTADO fica: a
+     moldura continua a acender na cor do destaque e a seta continua a
+     aparecer, que é o que responde ao rato. */
+  .at-highlight::after,
+  .at-highlight:hover::after {
+    display: none;
+  }
+
+  .at-highlight:hover {
+    transform: none;
+  }
+
+  .at-highlight:hover .at-highlight-bg {
+    transform: none;
+  }
 }
 
 /* ================= INTERAÇÃO GLOBAL (hover/focus) =================
@@ -687,6 +716,114 @@ select:hover {
 
 .at-day:hover {
   outline-color: rgba(var(--accent-rgb), 0.7);
+}
+
+/* ================= CARTÕES DE DESTAQUE =================
+   Os cartões da grelha de Destaques da Visão Geral. A forma (cantos
+   cortados), o fundo e a moldura vêm dos estilos inline do Overview.jsx; o
+   que vive aqui é tudo o que lá não cabe — pseudo-elementos e estados.
+
+   Cada cartão traz a sua cor inline numa variável, "--hl-color" (a cor do
+   próprio destaque: verde para um recorde bom, vermelho para um mau). É o
+   truque que resolve o problema de sempre nesta app: um estilo inline ganha
+   a um :hover de folha de estilo, mas uma VARIÁVEL inline é lida por ela.
+   Assim os vinte e cinco cartões acendem cada um na sua cor com uma regra
+   só, em vez de vinte e cinco. */
+
+/* A aresta de cor no topo — a leitura imediata de "este recorde é bom/mau",
+   antes sequer de se ler o número. */
+.at-highlight-edge {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--hl-color, var(--accent-solid));
+  opacity: 0.7;
+  transition: opacity 0.15s ease;
+}
+
+.at-highlight:hover .at-highlight-edge {
+  opacity: 1;
+}
+
+/* O ícone do campeão como textura: ampliado, desfocado e encostado ao canto.
+   Fica muito ténue de propósito — é fundo, não ilustração, e a esta
+   opacidade não compete com o número nem estraga o contraste do texto por
+   cima. "pointer-events: none" para não roubar o clique ao cartão. */
+.at-highlight-bg {
+  position: absolute;
+  top: -30%;
+  right: -18%;
+  width: 92px;
+  height: 92px;
+  opacity: var(--highlight-texture);
+  filter: blur(7px);
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.25s ease;
+}
+
+.at-highlight:hover .at-highlight-bg {
+  opacity: var(--highlight-texture-hover);
+  transform: scale(1.12);
+}
+
+/* O brilho do hover é uma sombra INTERIOR porque o cartão tem clip-path, e
+   um recorte corta também as sombras exteriores: um glow por fora nunca
+   chegaria a ver-se. Por dentro, acompanha os cantos cortados. */
+.at-highlight {
+  box-shadow: inset 0 0 0 1px rgba(var(--border-rgb), 0.5);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.at-highlight:hover {
+  transform: translateY(-2px);
+  box-shadow: inset 0 0 0 1px var(--hl-color, var(--accent-solid)),
+    inset 0 -22px 26px -22px var(--hl-color, var(--accent-solid));
+}
+
+/* Varrimento de luz na diagonal ao passar o rato. É o toque que mais sabe a
+   interface de jogo e o mais barato de todos: um gradiente a atravessar o
+   cartão uma vez. */
+.at-highlight::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -60%;
+  width: 45%;
+  background: linear-gradient(
+    100deg,
+    transparent,
+    rgba(255, 255, 255, 0.13),
+    transparent
+  );
+  pointer-events: none;
+  transform: skewX(-18deg);
+  transition: left 0.45s ease;
+}
+
+.at-highlight:hover::after {
+  left: 125%;
+}
+
+/* A seta de "abre nas Estatísticas" só aparece com o rato em cima: dizê-lo
+   em permanência era o que enchia a grelha de ruído (ver o histórico desta
+   secção), e escondê-lo por completo deixava o cartão sem dizer para onde
+   leva. */
+.at-highlight-go {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--hl-color, var(--accent-text));
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.at-highlight:hover .at-highlight-go,
+.at-highlight:focus-visible .at-highlight-go {
+  opacity: 1;
+  transform: none;
 }
 
 /* Fileiras clicáveis que não são <button> (a linha do Histórico/Estatísticas

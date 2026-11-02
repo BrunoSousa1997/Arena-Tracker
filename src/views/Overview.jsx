@@ -6,7 +6,7 @@ import { useLanguage } from "../lib/i18n";
 import Tooltip from "../components/Tooltip";
 import { computeCareerSummary, computeSpotlightGroups } from "../lib/overviewSpotlights";
 import { splitSessions } from "../lib/sessionCurve";
-import { useCountUpInt } from "../lib/useCountUp";
+import { useCountUpInt, useCountUpNode } from "../lib/useCountUp";
 import {
   computeAchievementStats,
   buildAchievementCategories,
@@ -127,6 +127,130 @@ function buildSessions(matches) {
       durationMin: Math.max(1, Math.round((newest - oldest) / 60000)),
     };
   });
+}
+
+// Cartão de destaque. É componente próprio e não JSX inline na grelha porque
+// cada um precisa do seu próprio contador — e um hook não se chama dentro de
+// um .map().
+//
+// Só conta valores que sejam mesmo um número. A grelha mistura inteiros ("4"),
+// decimais ("6.7"), lugares ("2.0º"), tempos ("15:12") e texto ("Triple
+// Kill"): tentar animar tudo dava um contador a subir por cima de um relógio,
+// que se lê como erro. O resto aparece feito, como sempre.
+function SpotlightCard({ sp, index, DRAGON, champName, onOpen, lang }) {
+  const raw = String(sp.value);
+  const plain = /^-?\d+(\.\d+)?$/.test(raw.trim());
+
+  // Inteiros com separador de milhares ("17 369") também contam. Parecem
+  // texto a um teste ingénuo, e são precisamente os números em que ver a
+  // subida sabe melhor. A regra para aceitar um é estrita de propósito: só
+  // vale se a app conseguir REPRODUZIR a string original a partir do número
+  // (mesma chamada, toLocaleString sem argumentos, que é como o valor foi
+  // feito — ver overviewSpotlights.js). Se não bater certo ao caráter, não se
+  // anima, e assim nunca se corre o risco de a contagem mudar o formato do
+  // que está escrito.
+  const digits = raw.replace(/[^\d-]/g, "");
+  const asInt = digits === "" ? NaN : Number(digits);
+  const grouped = !plain && Number.isFinite(asInt) && asInt.toLocaleString() === raw;
+
+  const numeric = plain || grouped;
+  const decimals = plain && raw.includes(".") ? raw.split(".")[1].length : 0;
+
+  // Conta escrevendo direto no nó (ver useCountUpNode): são 28 cartões, e por
+  // estado do React isso eram 28 re-renders por frame.
+  const valueRef = useCountUpNode(plain ? parseFloat(raw) : asInt, {
+    decimals,
+    enabled: numeric,
+    format: grouped ? (v) => Math.round(v).toLocaleString() : undefined,
+  });
+
+  const open = () => onOpen(sp.champion, sp.sortKey);
+
+  return (
+    <div
+      className="at-highlight riseIn"
+      // A cor do destaque entra como variável CSS em vez de estilo direto: o
+      // realce do hover vive no index.css (um estilo inline nunca ganharia a
+      // um :hover de folha de estilo) e lá dentro lê esta variável. É assim
+      // que cada cartão acende na SUA cor sem precisar de 25 regras.
+      style={{
+        ...styles.spotlightCard,
+        "--hl-color": sp.color,
+        // Escalonamento: cada cartão entra 30ms depois do anterior, o que lê
+        // como a grelha a preencher-se em vez de aparecer toda de um golpe.
+        // O teto nos 8 é para a cauda não crescer sem fim.
+        animationDelay: `${Math.min(index, 8) * 30}ms`,
+      }}
+      onClick={open}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key !== "Enter" && e.key !== " ") return;
+        e.preventDefault();
+        open();
+      }}
+    >
+      {/* O ícone do campeão, ampliado e desfocado, como textura de fundo.
+          Não custa pedido nenhum extra — é a mesma imagem que o rodapé já
+          carrega — e dá a cada cartão um fundo próprio em vez de vinte e
+          cinco retângulos iguais. */}
+      {DRAGON && sp.champion && (
+        <img
+          className="at-highlight-bg"
+          src={`${DRAGON}/img/champion/${sp.champion}.png`}
+          alt=""
+          aria-hidden="true"
+        />
+      )}
+
+      <span className="at-highlight-edge" />
+
+      <div style={styles.spotlightLabel}>
+        {sp.label}
+        {sp.sampleCount != null && (
+          <span style={styles.spotlightSampleCount}>
+            {" "}
+            · {sp.sampleCount}
+            {lang === "en" ? "g" : "j"}
+          </span>
+        )}
+      </div>
+
+      {/* O valor ocupa a largura toda do cartão em vez de disputar a linha
+          com o nome do campeão — era isso que cortava valores longos
+          ("Triple Kill", números grandes de dano/ouro) em cartões estreitos. */}
+      <div ref={valueRef} style={{ ...styles.spotlightValue, color: sp.color }} title={raw}>
+        {raw}
+      </div>
+
+      <div style={styles.spotlightFoot}>
+        {sp.champion ? (
+          <Tooltip label={champName(sp.champion)}>
+            <div style={styles.spotlightChampWrap}>
+              {DRAGON && (
+                <img
+                  src={`${DRAGON}/img/champion/${sp.champion}.png`}
+                  style={styles.spotlightIcon}
+                  alt=""
+                />
+              )}
+              <span style={styles.spotlightChampName}>{champName(sp.champion)}</span>
+            </div>
+          </Tooltip>
+        ) : (
+          // Alguns destaques são recordes globais sem campeão associado (ex:
+          // partida mais longa) — a linha vazia mantém a altura do cartão
+          // igual à dos vizinhos, para a grelha não ficar aos degraus.
+          <div style={styles.spotlightChampWrap} />
+        )}
+        {/* Só aparece com o rato em cima: diz para onde o cartão leva sem
+            estar escrito vinte e cinco vezes na página ao mesmo tempo. */}
+        <span className="at-highlight-go" aria-hidden="true">
+          <ChevronRight size={14} strokeWidth={2.75} />
+        </span>
+      </div>
+    </div>
+  );
 }
 
 // Sessões de uma partida só passaram a aparecer na lista (ver "sessions"),
@@ -956,71 +1080,15 @@ export default function Overview({
                   real e o cartão órfão aparece em bem menos larguras. */}
               <div style={styles.spotlightGrid}>
                 {group.items.map((sp, i) => (
-                  <div
+                  <SpotlightCard
                     key={sp.label}
-                    className="clickableCard riseIn"
-                    // Escalonamento: cada cartão entra 30ms depois do anterior,
-                    // o que lê como a grelha a preencher-se em vez de aparecer
-                    // toda de um golpe. O teto nos 8 é para a cauda não crescer
-                    // sem fim — a partir daí o atraso já não se distingue e só
-                    // fazia o último cartão demorar meio segundo a chegar.
-                    style={{ ...styles.spotlightCard, animationDelay: `${Math.min(i, 8) * 30}ms` }}
-                    onClick={() => onOpenChampionStats(sp.champion, sp.sortKey)}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => {
-                      if (e.key !== "Enter" && e.key !== " ") return;
-                      e.preventDefault();
-                      onOpenChampionStats(sp.champion, sp.sortKey);
-                    }}
-                  >
-                    {/* Rótulo, valor, campeão — por esta ordem, que é a da
-                        importância. Antes o rótulo vinha numa faixa com fundo
-                        de areia e o valor aparecia por baixo do campeão: com
-                        mais de vinte cartões na página, eram mais de vinte
-                        faixas douradas em fila, e o que se via primeiro em
-                        cada cartão era a legenda em vez do número. A faixa
-                        saiu e o valor subiu. */}
-                    <div style={styles.spotlightLabel}>
-                      {sp.label}
-                      {sp.sampleCount != null && (
-                        <span style={styles.spotlightSampleCount}>
-                          {" "}
-                          · {sp.sampleCount}
-                          {lang === "en" ? "g" : "j"}
-                        </span>
-                      )}
-                    </div>
-
-                    {/* O valor ocupa a largura toda do cartão em vez de
-                        disputar a linha com o nome do campeão — era isso que
-                        cortava valores longos ("Triple Kill", números grandes
-                        de dano/ouro) em cartões estreitos. */}
-                    <div style={{ ...styles.spotlightValue, color: sp.color }} title={String(sp.value)}>
-                      {sp.value}
-                    </div>
-
-                    {sp.champion ? (
-                      <Tooltip label={champName(sp.champion)}>
-                        <div style={styles.spotlightChampWrap}>
-                          {DRAGON && (
-                            <img
-                              src={`${DRAGON}/img/champion/${sp.champion}.png`}
-                              style={styles.spotlightIcon}
-                              alt=""
-                            />
-                          )}
-                          <span style={styles.spotlightChampName}>{champName(sp.champion)}</span>
-                        </div>
-                      </Tooltip>
-                    ) : (
-                      // Alguns destaques são recordes globais sem campeão
-                      // associado (ex: partida mais longa) — a linha vazia
-                      // mantém a altura do cartão igual à dos vizinhos, para
-                      // a grelha não ficar aos degraus.
-                      <div style={styles.spotlightChampWrap} />
-                    )}
-                  </div>
+                    sp={sp}
+                    index={i}
+                    DRAGON={DRAGON}
+                    champName={champName}
+                    onOpen={onOpenChampionStats}
+                    lang={lang}
+                  />
                 ))}
               </div>
             </div>
@@ -1682,15 +1750,44 @@ const styles = {
   // por cartão a essa contagem custa GPU no scroll. A aurora por baixo já é um
   // gradiente suave, por isso o blur aqui quase não se notava; a translucidez,
   // essa, mantém-se e é o que deixa a cor passar.
+  // O painel de jogo: cantos cortados em vez de arredondados, e a moldura
+  // feita com uma sombra INTERIOR em vez de "border".
+  //
+  // É o clip-path que obriga a isso, e vale a pena saber porquê: o recorte
+  // corta tudo o que o elemento pinta, borda e sombra exterior incluídas.
+  // Uma "border" normal ficava com as pontas decepadas nos cantos cortados,
+  // e um brilho exterior no hover simplesmente não apareceria. Uma sombra
+  // interior é desenhada por dentro, por isso acompanha o recorte e fecha a
+  // moldura nos seis lados.
+  //
+  // O resto (textura de campeão, aresta de cor, brilho e varrimento de luz
+  // no hover) vive no index.css, em ".at-highlight" — são pseudo-elementos e
+  // estados :hover, que não existem em estilo inline.
   spotlightCard: {
+    position: "relative",
     display: "flex",
     flexDirection: "column",
     gap: 6,
-    padding: "10px 12px",
+    padding: "11px 13px",
     background: "var(--panel-bg)",
-    border: "1px solid rgba(var(--border-rgb),0.5)",
-    borderRadius: "var(--radius-xl)",
+    // A moldura (sombra interior) NÃO vive aqui: declarada inline, ganhava à
+    // regra de :hover do index.css e o brilho na cor do destaque nunca
+    // chegava a aparecer — confirmado a medir o estilo computado, porque a
+    // olho a diferença entre a moldura normal e a acesa passa despercebida.
+    // É a mesma armadilha do fundo dos botões do cabeçalho.
+    clipPath:
+      "polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px))",
     cursor: "pointer",
+    overflow: "hidden",
+  },
+
+  // Rodapé: campeão à esquerda, seta de "abre nas Estatísticas" à direita.
+  spotlightFoot: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 6,
+    minWidth: 0,
   },
 
   // Legenda discreta, sem faixa de fundo. Duas linhas no máximo: os rótulos
