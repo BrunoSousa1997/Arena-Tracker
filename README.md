@@ -81,8 +81,23 @@ Arranca o Vite e o Electron em paralelo, com hot reload.
 | --- | --- |
 | `npm run dev` | Vite + Electron em desenvolvimento |
 | `npm test` | Corre os testes (Vitest) |
+| `npm run lint` | Corre o ESLint |
 | `npm run build` | Compila a interface para `dist/` |
 | `npm run dist` | Gera o instalador Windows com o electron-builder |
+| `npm run verify:platform` | Confirma o que depende do Windows (ver abaixo) |
+
+### Atualizar o Electron
+
+Os testes e a lint não dizem nada sobre o que mais provavelmente parte numa
+atualização de Electron: a janela sem moldura, o ecrã inteiro, a sobreposição
+transparente e a bandeja. O `npm run verify:platform` põe o Electron a criar
+essas janelas de verdade e confirma o que ele devolve — corre-o depois de
+mexer na versão. Precisa de um `npm run build` antes, porque carrega o
+`dist/index.html`.
+
+Não substitui ver com os olhos: confirma que as APIs aceitam as opções e
+reportam o estado certo, não que a sobreposição compõe transparente por cima
+de um jogo nem que o ícone da bandeja se vê bem.
 
 ## Publicar uma versão
 

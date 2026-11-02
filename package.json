@@ -17,7 +17,8 @@
     "release": "npm run build && electron-builder --publish always",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "verify:platform": ".\\node_modules\\electron\\dist\\electron.exe scripts/verify-platform.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.0",

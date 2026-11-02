@@ -57,8 +57,10 @@ export default defineConfig([
   },
 
   // ================= PROCESSO PRINCIPAL (Electron, CommonJS) =================
+  // scripts/ entra aqui porque corre no mesmo ambiente: processo principal do
+  // Electron, CommonJS, globais de Node (ver scripts/verify-platform.js).
   {
-    files: ['electron.js', 'preload.js', 'electron/**/*.js'],
+    files: ['electron.js', 'preload.js', 'electron/**/*.js', 'scripts/**/*.js'],
     extends: [js.configs.recommended],
     languageOptions: {
       ecmaVersion: 'latest',
