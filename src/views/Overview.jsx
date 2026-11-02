@@ -1,10 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
+import { ChevronRight } from "lucide-react";
 import { placementColor, placementText } from "../lib/placement";
 import { useLanguage } from "../lib/i18n";
 import Tooltip from "../components/Tooltip";
 import { computeCareerSummary, computeSpotlightGroups } from "../lib/overviewSpotlights";
 import { splitSessions, sessionCurve } from "../lib/sessionCurve";
+import { useCountUpInt } from "../lib/useCountUp";
+import {
+  computeAchievementStats,
+  buildAchievementCategories,
+  buildBooleanAchievements,
+  summarizeBadges,
+  rankForTierIndex,
+  formatAchievementValue,
+} from "../lib/achievementStats";
 
 // Fundo translúcido por trás dos números com resultado no resumo de topo —
 // mesma ideia do StatsBar (ver chipStyle lá), para o "0%"/streaks também
@@ -19,6 +29,42 @@ function heroChipStyle(color) {
 }
 
 const HEATMAP_WEEKS = 18;
+
+// Quantas categorias "quase lá" mostrar no cartão de destaque. Três é o que
+// cabe numa linha sem apertar e, mais importante, é pouco: a graça de um
+// objetivo à vista é haver poucos. Uma lista de doze volta a ser a tab das
+// Conquistas, que é exatamente o que isto NÃO deve ser.
+const NEXT_UP_COUNT = 3;
+
+// As categorias mais perto de desbloquear o próximo nível, a partir do mesmo
+// modelo que a tab das Conquistas usa — não de uma escada paralela inventada
+// só para aqui. Era fácil fazer uma "barra de XP" com regras próprias, mas
+// ficavam dois sistemas de progressão a discordar um do outro, e o que
+// aparecesse aqui não teria nada a ver com os distintivos a sério.
+//
+// "Quase lá" é mesmo progresso relativo (valor/próximo nível) e não distância
+// absoluta: faltarem 2 vitórias para 10 é estar quase; faltarem 2 para 500
+// também, mas em 500 jogos isso não é notícia nenhuma.
+function buildNextUp(categories) {
+  return categories
+    .map((cat) => {
+      const nextTierIdx = cat.tiers.findIndex((tier) => cat.value < tier);
+      if (nextTierIdx === -1) return null; // escada completa, já não há o que perseguir
+      const nextTier = cat.tiers[nextTierIdx];
+      return {
+        id: cat.id,
+        title: cat.title,
+        value: cat.value,
+        unit: cat.unit,
+        nextTier,
+        progress: cat.value / nextTier,
+        rank: rankForTierIndex(nextTierIdx, cat.tiers.length),
+      };
+    })
+    .filter((cat) => cat && cat.progress > 0)
+    .sort((a, b) => b.progress - a.progress)
+    .slice(0, NEXT_UP_COUNT);
+}
 
 function dayKey(date) {
   // Chave local (não UTC) para não desalinhar o dia por causa do fuso —
@@ -64,6 +110,11 @@ function buildSessions(matches) {
     });
 
     return {
+      // A sentada guarda as próprias partidas: a fileira abre no sítio para
+      // as mostrar uma a uma (ver openSession na Visão Geral). Antes isto
+      // devolvia só os agregados, e quem quisesse saber QUE partidas fizeram
+      // uma média de 5.3º tinha de ir ao Histórico procurar pela hora.
+      matches: ms,
       games: ms.length,
       withPlacementCount: withPlacement.length,
       avgPlacement,
@@ -141,11 +192,37 @@ function buildHeatmapWeeks(dayMap, weeksCount) {
   return weeks;
 }
 
-export default function Overview({ matches, wins, champions, DRAGON, onOpenChampionStats }) {
+export default function Overview({
+  matches,
+  wins,
+  champions,
+  DRAGON,
+  onOpenChampionStats,
+  challengeWins = 0,
+  onOpenAchievements,
+}) {
   const { t, lang } = useLanguage();
   const champName = (id) => champions.find((c) => c.id === id)?.name || id;
 
   const recentForm = useMemo(() => matches.slice(0, 8), [matches]);
+
+  // Progressão das conquistas, resumida: quantos distintivos de quantos, e as
+  // três categorias mais perto do próximo nível. Vem do mesmo cálculo que a
+  // tab das Conquistas faz — aqui é só o resumo e o que vem a seguir, para o
+  // ecrã de entrada ter um objetivo à vista sem ser uma segunda lista de
+  // conquistas.
+  const progression = useMemo(() => {
+    const stats = computeAchievementStats(matches, champions, wins, challengeWins);
+    const categories = buildAchievementCategories(stats, t);
+    const booleans = buildBooleanAchievements(stats, t);
+    return {
+      ...summarizeBadges(categories, booleans),
+      nextUp: buildNextUp(categories),
+    };
+    // "t" muda com o idioma e só serve para os títulos; depender dele mantém
+    // os rótulos certos ao trocar de língua.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matches, champions, wins, challengeWins, lang]);
 
   // matches vem sempre ordenado do mais recente para o mais antigo (ver
   // db/api.js: .order("created_at", { ascending: false })), por isso o
@@ -247,6 +324,11 @@ export default function Overview({ matches, wins, champions, DRAGON, onOpenChamp
   // heatmapContainerRef) e encolhemos as células o suficiente para as 18
   // semanas caberem sempre inteiras, sem nunca precisar de scroll.
   const heatmapContainerRef = useRef(null);
+  // Qual sentada está aberta (índice), ou null. Uma de cada vez: abrir
+  // várias enchia a coluna e perdia-se a comparação entre noites, que é
+  // para o que a lista serve.
+  const [openSession, setOpenSession] = useState(null);
+
   const [heatmapWidth, setHeatmapWidth] = useState(0);
 
   useEffect(() => {
@@ -285,6 +367,12 @@ export default function Overview({ matches, wins, champions, DRAGON, onOpenChamp
       .filter((g) => g.items.length > 0);
   }, [matches, champions, t]);
 
+  // Os dois números grandes do cartão sobem até ao valor em vez de aparecerem
+  // feitos (ver lib/useCountUp.js) — com movimento reduzido ligado aparecem
+  // logo certos, sem contagem.
+  const coverageCount = useCountUpInt(career.coverage);
+  const badgesCount = useCountUpInt(progression.unlockedBadges);
+
   return (
     <div style={styles.wrap}>
       {/* HERO — progresso do roster + estatísticas rápidas de carreira,
@@ -293,7 +381,7 @@ export default function Overview({ matches, wins, champions, DRAGON, onOpenChamp
         <div style={styles.heroTop}>
           <div>
             <div style={styles.heroKicker}>{t("overview_roster_progress")}</div>
-            <div style={styles.heroBig}>{career.coverage}%</div>
+            <div style={styles.heroBig}>{coverageCount}%</div>
             <div style={styles.progressText}>
               {wins.length} / {champions.length}
             </div>
@@ -353,6 +441,79 @@ export default function Overview({ matches, wins, champions, DRAGON, onOpenChamp
           />
         </div>
 
+        {/* PROGRESSÃO — distintivos ganhos e o que está mais perto de cair.
+            O ecrã de entrada dizia só onde se está; isto diz para onde se
+            vai, que é o que faz voltar cá. Não repete a tab das Conquistas:
+            lá estão as 23 categorias com as escadas todas, aqui está o
+            total e as três que faltam menos. É o mesmo cálculo, por isso os
+            números nunca discordam (ver buildNextUp). */}
+        {progression.totalBadges > 0 && (
+          <div
+            className="at-progress"
+            style={styles.heroProgress}
+            onClick={onOpenAchievements}
+            role={onOpenAchievements ? "button" : undefined}
+            tabIndex={onOpenAchievements ? 0 : undefined}
+            onKeyDown={(e) => {
+              if (!onOpenAchievements || (e.key !== "Enter" && e.key !== " ")) return;
+              e.preventDefault();
+              onOpenAchievements();
+            }}
+          >
+            <div style={styles.heroProgressHead}>
+              <span style={styles.heroFormLabel}>{t("overview_badges")}</span>
+              <span style={styles.heroBadgeCount}>
+                {badgesCount}
+                <span style={styles.heroBadgeTotal}> / {progression.totalBadges}</span>
+              </span>
+            </div>
+
+            {progression.nextUp.length > 0 && (
+              <div style={styles.nextUpRow}>
+                {progression.nextUp.map((cat) => (
+                  <Tooltip
+                    key={cat.id}
+                    label={`${cat.title} — ${formatAchievementValue(cat.value, cat.unit)} / ${formatAchievementValue(cat.nextTier, cat.unit)} · ${t(cat.rank.labelKey)}`}
+                    style={styles.nextUpWrap}
+                  >
+                    <div style={styles.nextUpCard}>
+                      <div style={styles.nextUpTop}>
+                        <span style={styles.nextUpTitle}>{cat.title}</span>
+                        {/* Os dois números, e não só o alvo: sozinho, "50" ao
+                            lado de "Partidas com lutadores" lia-se como
+                            "tenho 50" em vez de "faltam para 50" — ou seja,
+                            exatamente ao contrário.
+                            Sem a cor do nível no texto, de propósito: as
+                            cores dos ranks são fixas (não mudam com o tema) e
+                            as claras — esmeralda, platina, diamante — sobre o
+                            painel branco do tema claro ficam em cerca de 2:1,
+                            ilegíveis num número de 11px. Quem carrega a cor é
+                            a barra aqui por baixo, onde é forma e não texto.
+                            Para saber QUE nível é, o tooltip diz o nome. */}
+                        <span style={styles.nextUpRank}>
+                          {formatAchievementValue(cat.value, cat.unit)}
+                          <span style={styles.nextUpTarget}>
+                            {" / "}
+                            {formatAchievementValue(cat.nextTier, cat.unit)}
+                          </span>
+                        </span>
+                      </div>
+                      <div style={styles.nextUpTrack}>
+                        <motion.div
+                          style={{ ...styles.nextUpFill, background: cat.rank.color }}
+                          initial={{ width: 0 }}
+                          animate={{ width: `${Math.min(100, Math.round(cat.progress * 100))}%` }}
+                          transition={{ duration: 0.6, ease: "easeOut" }}
+                        />
+                      </div>
+                    </div>
+                  </Tooltip>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* FORMA RECENTE — veio para dentro do cartão de destaque. Tinha uma
             secção inteira só para si: título, moldura, sombra e padding à
             volta de UMA fila de oito quadrados de 28px. Custava uma faixa
@@ -384,6 +545,7 @@ export default function Overview({ matches, wins, champions, DRAGON, onOpenChamp
               return (
                 <Tooltip key={i} label={title}>
                   <div
+                    className="at-pill"
                     style={{
                       ...styles.formPill,
                       background: `color-mix(in srgb, ${color} 15%, transparent)`,
@@ -426,9 +588,35 @@ export default function Overview({ matches, wins, champions, DRAGON, onOpenChamp
             >
               <h2 style={styles.sectionTitle}>⏱️ {t("overview_sessions")}</h2>
               <div style={styles.sessionList}>
-                {sessions.map((s, i) => (
-                  <div key={i} style={styles.sessionRow}>
+                {sessions.map((s, i) => {
+                  const isOpen = openSession === i;
+                  return (
+                  <div
+                    key={i}
+                    className="at-session"
+                    style={styles.sessionRow}
+                    onClick={() => setOpenSession(isOpen ? null : i)}
+                    role="button"
+                    tabIndex={0}
+                    aria-expanded={isOpen}
+                    onKeyDown={(e) => {
+                      if (e.key !== "Enter" && e.key !== " ") return;
+                      e.preventDefault();
+                      setOpenSession(isOpen ? null : i);
+                    }}
+                  >
                     <div style={styles.sessionHeader}>
+                      {/* A seta roda em vez de trocar de ícone: é o mesmo
+                          objeto a abrir, e a rotação diz isso melhor do que
+                          dois símbolos diferentes a piscar um no outro. */}
+                      <span
+                        style={{
+                          ...styles.sessionChevron,
+                          transform: isOpen ? "rotate(90deg)" : "none",
+                        }}
+                      >
+                        <ChevronRight size={13} strokeWidth={2.5} />
+                      </span>
                       <span style={styles.sessionDate}>
                         {s.start.toLocaleDateString(lang === "en" ? "en-US" : "pt-PT")}
                       </span>
@@ -479,8 +667,57 @@ export default function Overview({ matches, wins, champions, DRAGON, onOpenChamp
                         <span style={styles.sessionStreak}>🔥 {s.bestTop3Streak}</span>
                       )}
                     </div>
+
+                    {/* As partidas da sentada, por ordem de jogo (as mais
+                        antigas primeiro): assim lê-se como a noite correu,
+                        que é a pergunta que a média e a melhor posição não
+                        respondem. */}
+                    <AnimatePresence initial={false}>
+                      {isOpen && (
+                        <motion.div
+                          style={styles.sessionGames}
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: "auto", opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.22, ease: "easeOut" }}
+                        >
+                          <div style={styles.sessionGamesInner}>
+                            {[...s.matches].reverse().map((m, mi) => {
+                              const color = m.placement
+                                ? placementColor(m.placement)
+                                : m.win
+                                ? "var(--place-good)"
+                                : "var(--place-low)";
+                              return (
+                                <div key={mi} style={styles.sessionGame}>
+                                  <span style={{ ...styles.sessionGamePlace, color }}>
+                                    {m.placement
+                                      ? placementText(m.placement)
+                                      : m.win
+                                      ? lang === "en" ? "W" : "V"
+                                      : lang === "en" ? "L" : "D"}
+                                  </span>
+                                  {DRAGON && (
+                                    <img
+                                      src={`${DRAGON}/img/champion/${m.champion}.png`}
+                                      style={styles.sessionGameIcon}
+                                      alt=""
+                                    />
+                                  )}
+                                  <span style={styles.sessionGameName}>{champName(m.champion)}</span>
+                                  <span style={styles.sessionGameKda}>
+                                    {m.kills}/{m.deaths}/{m.assists}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -529,6 +766,7 @@ export default function Overview({ matches, wins, champions, DRAGON, onOpenChamp
                             }
                           >
                             <div
+                              className="at-day"
                               style={{
                                 width: heatmapCellSize,
                                 height: heatmapCellSize,
@@ -890,6 +1128,111 @@ const styles = {
     borderRadius: "var(--radius-sm)",
   },
 
+  // Bloco de progressão (distintivos + o que falta menos). Clicável: leva à
+  // tab das Conquistas, que é onde está a escada toda. O realce no hover vem
+  // de ".at-progress" no index.css — aqui o fundo é declarado inline, e um
+  // fundo inline mata qualquer regra de hover em CSS (foi o que aconteceu aos
+  // botões do cabeçalho), por isso lá usa-se "outline", que não é.
+  heroProgress: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+    marginTop: 12,
+    paddingTop: 12,
+    borderTop: "1px solid rgba(var(--border-rgb),0.3)",
+    cursor: "pointer",
+    outline: "1px solid transparent",
+    outlineOffset: 3,
+    borderRadius: "var(--radius-md)",
+    transition: "outline-color 0.15s ease",
+  },
+
+  heroProgressHead: {
+    display: "flex",
+    alignItems: "baseline",
+    gap: 10,
+  },
+
+  heroBadgeCount: {
+    fontSize: 15,
+    fontWeight: 800,
+    color: "var(--accent-text)",
+  },
+
+  heroBadgeTotal: {
+    fontSize: 12,
+    fontWeight: 600,
+    color: "var(--text-muted)",
+  },
+
+  // Três cartões lado a lado, cada um a encolher por igual. "flexWrap" para
+  // em janela estreita passarem para baixo em vez de espremerem os títulos,
+  // que em inglês e em português têm comprimentos bem diferentes.
+  nextUpRow: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+
+  nextUpWrap: {
+    flex: "1 1 160px",
+    minWidth: 0,
+    display: "flex",
+  },
+
+  nextUpCard: {
+    flex: 1,
+    minWidth: 0,
+    display: "flex",
+    flexDirection: "column",
+    gap: 5,
+    padding: "7px 10px",
+    borderRadius: "var(--radius-md)",
+    background: "rgba(var(--soft-rgb),0.05)",
+    border: "1px solid rgba(var(--border-rgb),0.3)",
+  },
+
+  nextUpTop: {
+    display: "flex",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+
+  nextUpTitle: {
+    fontSize: 11,
+    fontWeight: 600,
+    color: "var(--text-secondary)",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    minWidth: 0,
+  },
+
+  nextUpRank: {
+    fontSize: 11,
+    fontWeight: 800,
+    color: "var(--text-secondary)",
+    whiteSpace: "nowrap",
+    flexShrink: 0,
+  },
+
+  nextUpTarget: {
+    color: "var(--text-muted)",
+  },
+
+  nextUpTrack: {
+    height: 4,
+    borderRadius: "var(--radius-pill)",
+    background: "rgba(var(--soft-rgb),0.1)",
+    overflow: "hidden",
+  },
+
+  nextUpFill: {
+    height: "100%",
+    borderRadius: "var(--radius-pill)",
+  },
+
   // Fileira das últimas partidas, agora dentro do cartão de destaque. A
   // linha fina por cima separa-a da barra de progresso sem precisar de outro
   // cartão à volta.
@@ -940,14 +1283,90 @@ const styles = {
   // item com texto que pode precisar de 2 linhas, ver sessionTime) não
   // cabia, o resto das estatísticas ficava a sobrepor-se ao texto da data
   // em vez de descer — ver screenshot reportado em ecrãs/janelas estreitas.
+  // O fundo era rgba(var(--panel-deep-rgb),0.7), que no tema claro é
+  // 240,246,245 por cima de um cartão branco — as fileiras quase não se
+  // separavam umas das outras. Mesma troca para --soft-rgb que a calha da
+  // navegação levou: inverte com o tema e lê-se nos dois.
+  // Clicável (abre as partidas da sentada): o realce do hover vem de
+  // ".at-session" no index.css, por "outline", porque o fundo e a borda são
+  // declarados aqui inline e inline ganha à folha de estilo.
   sessionRow: {
     display: "flex",
     flexDirection: "column",
     gap: 4,
     padding: "8px 10px",
     borderRadius: "var(--radius-lg)",
-    background: "rgba(var(--panel-deep-rgb),0.7)",
+    background: "rgba(var(--soft-rgb),0.05)",
     border: "1px solid rgba(var(--border-rgb),0.4)",
+    cursor: "pointer",
+    outline: "1px solid transparent",
+    outlineOffset: -1,
+    transition: "outline-color 0.15s ease",
+  },
+
+  // "alignSelf" porque a fileira alinha pela linha de base do texto, e um
+  // ícone não tem linha de base que sirva — sem isto a seta ficava descaída.
+  sessionChevron: {
+    display: "inline-flex",
+    alignSelf: "center",
+    color: "var(--text-muted)",
+    transition: "transform 0.18s ease",
+  },
+
+  // "overflow: hidden" é o que permite ao framer-motion animar a altura de 0
+  // até "auto" sem o conteúdo transbordar durante a transição.
+  sessionGames: {
+    overflow: "hidden",
+  },
+
+  sessionGamesInner: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 2,
+    marginTop: 6,
+    paddingTop: 6,
+    borderTop: "1px solid rgba(var(--border-rgb),0.3)",
+  },
+
+  sessionGame: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "3px 2px",
+  },
+
+  // Largura fixa para os lugares ficarem todos alinhados na coluna, mesmo
+  // com "1º" e "8º" a terem larguras de glifo diferentes.
+  sessionGamePlace: {
+    width: 26,
+    flexShrink: 0,
+    fontSize: 11,
+    fontWeight: 800,
+  },
+
+  sessionGameIcon: {
+    width: 18,
+    height: 18,
+    borderRadius: "var(--radius-xs)",
+    flexShrink: 0,
+  },
+
+  sessionGameName: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 11.5,
+    color: "var(--text-body)",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  },
+
+  sessionGameKda: {
+    fontSize: 11,
+    fontWeight: 600,
+    color: "var(--text-muted)",
+    whiteSpace: "nowrap",
+    flexShrink: 0,
   },
 
   sessionHeader: {

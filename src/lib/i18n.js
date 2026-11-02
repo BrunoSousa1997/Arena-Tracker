@@ -893,6 +893,7 @@ const DICTIONARY = {
     pt: "Ainda sem dados. Joga uma Arena com a app aberta para começares a ver estatísticas aqui.",
     en: "No data yet. Play an Arena match with the app open to start seeing stats here.",
   },
+  overview_badges: { pt: "Distintivos", en: "Badges" },
   // Substitui o antigo "overview_see_more", que era repetido dentro de cada
   // um dos mais de vinte cartões da grelha. Dito uma vez por cima dela.
   overview_highlights_hint: {

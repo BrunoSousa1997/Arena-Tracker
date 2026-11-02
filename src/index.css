@@ -650,6 +650,45 @@ select:hover {
   color: var(--accent-text);
 }
 
+/* Bloco da progressão no cartão de destaque da Visão Geral — leva à tab das
+   Conquistas. "outline" e não "border"/"background" pela mesma razão de
+   sempre nesta app: o elemento define o fundo inline e inline ganha à folha
+   de estilo. O offset positivo afasta o realce do conteúdo, para o bloco
+   parecer selecionado sem ganhar uma caixa à volta em repouso. */
+.at-progress:hover {
+  outline-color: rgba(var(--accent-rgb), 0.45);
+}
+
+/* Fileiras das sentadas na Visão Geral — abrem no sítio para mostrar as
+   partidas. Mesma técnica do bloco acima, e pela mesma razão. */
+.at-session:hover {
+  outline-color: rgba(var(--accent-rgb), 0.45);
+}
+
+/* Os elementos pequenos da Visão Geral que têm informação por trás (o lugar
+   de cada uma das últimas partidas, cada dia do mosaico de atividade) só a
+   davam no tooltip, sem nada que dissesse que valia a pena lá pousar o rato.
+   Crescer um pouco é o sinal mais barato de "isto responde" — e é "transform"
+   e "outline" de propósito: a cor de fundo destes elementos é calculada por
+   item e vive inline, por isso uma regra de fundo aqui nunca pegaria. */
+.at-pill {
+  transition: transform 0.12s ease;
+}
+
+.at-pill:hover {
+  transform: scale(1.14);
+}
+
+.at-day {
+  transition: outline-color 0.12s ease;
+  outline: 1px solid transparent;
+  outline-offset: 1px;
+}
+
+.at-day:hover {
+  outline-color: rgba(var(--accent-rgb), 0.7);
+}
+
 /* Fileiras clicáveis que não são <button> (a linha do Histórico/Estatísticas
    que abre os detalhes) — o "!important" é mesmo preciso aqui: o fundo é
    definido inline (cor calculada por linha) e um estilo inline sempre ganha

@@ -1146,6 +1146,11 @@ export default function App() {
                 champions={champions}
                 DRAGON={DRAGON}
                 onOpenChampionStats={goToChampionStats}
+                // A Visão Geral mostra o resumo da progressão das conquistas
+                // (ver o bloco de distintivos lá) — precisa dos mesmos dados
+                // que a tab das Conquistas, e de saber abri-la.
+                challengeWins={challengeWins}
+                onOpenAchievements={() => setView("achievements")}
               />
             )}
 
