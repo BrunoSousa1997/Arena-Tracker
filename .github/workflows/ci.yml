@@ -7,6 +7,12 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Permite correr isto à mão em QUALQUER branch, pelo botão "Run workflow" no
+  # separador Actions, sem precisar de abrir um PR primeiro — útil para
+  # verificar trabalho em curso (ex: uma atualização de Electron) antes de ele
+  # ter PR nenhum. O GitHub só mostra o botão se este gatilho existir no
+  # ficheiro do branch por omissão, por isso tem de estar em main.
+  workflow_dispatch:
 
 jobs:
   verificar:
