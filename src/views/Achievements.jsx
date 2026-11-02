@@ -339,7 +339,7 @@ const styles = {
     flex: 1,
     height: 8,
     borderRadius: 5,
-    background: "rgba(0,0,0,0.35)",
+    background: "var(--bg-deep)",
     overflow: "hidden",
   },
 
@@ -466,7 +466,7 @@ const styles = {
     width: "100%",
     height: 3,
     borderRadius: 2,
-    background: "rgba(0,0,0,0.35)",
+    background: "var(--bg-deep)",
     overflow: "hidden",
     marginTop: 2,
   },

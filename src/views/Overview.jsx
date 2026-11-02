@@ -876,7 +876,7 @@ const styles = {
   progressTrack: {
     height: 10,
     borderRadius: "var(--radius-sm)",
-    background: "rgba(0,0,0,0.35)",
+    background: "var(--bg-deep)",
     overflow: "hidden",
     marginTop: 4,
   },
