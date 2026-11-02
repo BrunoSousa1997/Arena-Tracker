@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronRight } from "lucide-react";
-import { placementColor, placementText } from "../lib/placement";
+import { placementColor, placementText, lastPlacementFor } from "../lib/placement";
 import { useLanguage } from "../lib/i18n";
 import Tooltip from "../components/Tooltip";
 import { computeCareerSummary, computeSpotlightGroups } from "../lib/overviewSpotlights";
-import { splitSessions, sessionCurve } from "../lib/sessionCurve";
+import { splitSessions } from "../lib/sessionCurve";
 import { useCountUpInt } from "../lib/useCountUp";
 import {
   computeAchievementStats,
@@ -127,13 +127,6 @@ function buildSessions(matches) {
       durationMin: Math.max(1, Math.round((newest - oldest) / 60000)),
     };
   });
-}
-
-// Etiqueta de cada balde da curva: a posição da partida dentro da sentada.
-// O último balde é uma cauda ("da 6ª em diante"), não uma posição exata.
-function curveLabel(bucket, lang) {
-  if (lang === "en") return bucket.isTail ? `#${bucket.index}+` : `#${bucket.index}`;
-  return bucket.isTail ? `${bucket.index}ª+` : `${bucket.index}ª`;
 }
 
 // Sessões de uma partida só passaram a aparecer na lista (ver "sessions"),
@@ -289,7 +282,45 @@ export default function Overview({
   // A curva da sentada (ver lib/sessionCurve.js): a mesma divisão em sessões
   // lida ao contrário — não sessão a sessão, mas a 1ª partida de todas contra
   // a 2ª de todas, e assim por diante.
-  const curve = useMemo(() => sessionCurve(matches), [matches]);
+  // Quantas vezes em cada lugar, e o lugar médio.
+  //
+  // Conta o lugar EM BRUTO e não o normalizado (ver normalizedPlacement em
+  // lib/sessionCurve.js): a pergunta é "quantas vezes fiquei em 3º", e a
+  // resposta a isso tem de ser um número inteiro de partidas em que se ficou
+  // mesmo em 3º. O valor normalizado é fracionário — serve para médias, não
+  // para contagens.
+  //
+  // Quantos lugares mostrar sai do próprio formato das partidas: 6 equipas de
+  // 3 vão até ao 6º, 8 equipas de 2 vão até ao 8º. Com os dois no mesmo
+  // conjunto usa-se o maior e avisa-se (ver mixedFormats) — inventar oito
+  // lugares para quem só joga 3v3 dava duas linhas sempre a zero.
+  const placementSpread = useMemo(() => {
+    const withPlacement = matches.filter((m) => m.placement != null);
+    if (!withPlacement.length) {
+      return { total: 0, rows: [], average: 0, max: 0, mixedFormats: false };
+    }
+
+    const lasts = new Set(withPlacement.map((m) => lastPlacementFor(m.team_size)));
+    const maxPlace = Math.max(...lasts);
+
+    const counts = new Map();
+    withPlacement.forEach((m) => counts.set(m.placement, (counts.get(m.placement) || 0) + 1));
+
+    const rows = Array.from({ length: maxPlace }, (_, i) => ({
+      place: i + 1,
+      count: counts.get(i + 1) || 0,
+    }));
+
+    const sum = withPlacement.reduce((acc, m) => acc + m.placement, 0);
+
+    return {
+      total: withPlacement.length,
+      rows,
+      average: sum / withPlacement.length,
+      max: Math.max(...rows.map((r) => r.count)),
+      mixedFormats: lasts.size > 1,
+    };
+  }, [matches]);
 
   const heatmapWeeks = useMemo(() => {
     const dayMap = {};
@@ -824,77 +855,72 @@ export default function Overview({
         </div>
       )}
 
-      {/* CURVA DA SENTADA — a leitura ATRAVÉS das sessões, ao contrário do
-          painel de cima que as lê uma a uma: junta a 1ª partida de todas as
-          sentadas, a 2ª de todas, e por aí. Responde a "a partir de quando é
-          que começo a jogar pior", que é a única pergunta aqui que se resolve
-          a deixar de jogar. */}
-      {curve.sessions > 0 && (
+      {/* DISTRIBUIÇÃO DE LUGARES — quantas vezes em cada lugar, e o lugar
+          médio. Substituiu a "curva da sentada" (lugar médio conforme a
+          posição da partida dentro da sentada), que respondia a "a partir de
+          quando começo a jogar pior" — uma pergunta interessante mas que
+          ninguém faz ao abrir a app. Isto responde à que se faz: onde é que
+          costumo acabar. */}
+      {placementSpread.total > 0 && (
         <div className="riseIn" style={styles.section}>
-          <h2 style={styles.sectionTitle}>📉 {t("overview_session_curve")}</h2>
-          <div style={styles.rowHint}>{t("session_curve_hint")}</div>
+          <h2 style={styles.sectionTitle}>🎯 {t("overview_placement_spread")}</h2>
 
-          <div style={styles.curveList}>
-            {curve.buckets.map((b) => {
-              // Barra = qualidade, não lugar: mais comprida é melhor. Com a
-              // barra a crescer com o NÚMERO do lugar, a leitura visual ficava
-              // ao contrário do que o número diz.
-              const pct =
-                b.avgPlacement == null
-                  ? 0
-                  : Math.max(6, Math.min(100, ((6 - b.avgPlacement) / 5) * 100));
-              const color = placementColor(Math.round(b.avgPlacement || 0));
+          <div style={styles.spreadTop}>
+            <div style={styles.spreadAvgBox}>
+              <div style={{ ...styles.spreadAvgValue, color: placementColor(Math.round(placementSpread.average)) }}>
+                {placementSpread.average.toFixed(1)}º
+              </div>
+              <div style={styles.spreadAvgLabel}>{t("overview_avg_placement")}</div>
+            </div>
+            <div style={styles.spreadAvgBox}>
+              <div style={styles.spreadAvgValue}>{placementSpread.total}</div>
+              <div style={styles.spreadAvgLabel}>{t("overview_placement_counted")}</div>
+            </div>
+          </div>
 
+          <div style={styles.spreadList}>
+            {placementSpread.rows.map((row) => {
+              const color = placementColor(row.place);
+              // A barra mede a FREQUÊNCIA, por isso é a contagem contra o
+              // lugar mais repetido — não contra o total. Contra o total, com
+              // oito lugares, nenhuma barra passava de um terço e o gráfico
+              // ficava todo achatado contra a esquerda.
+              const pct = placementSpread.max ? (row.count / placementSpread.max) * 100 : 0;
               return (
-                <div key={b.index} style={styles.curveRow}>
-                  <span style={styles.curveLabel}>{curveLabel(b, lang)}</span>
+                <div key={row.place} style={styles.spreadRow}>
+                  <span style={{ ...styles.spreadPlace, color }}>{placementText(row.place)}</span>
 
-                  <div style={styles.curveTrack}>
-                    <div
+                  <div style={styles.spreadTrack}>
+                    <motion.div
                       style={{
-                        ...styles.curveBar,
-                        width: `${pct}%`,
+                        ...styles.spreadBar,
                         background: `color-mix(in srgb, ${color} 65%, transparent)`,
                       }}
+                      initial={{ width: 0 }}
+                      animate={{ width: `${pct}%` }}
+                      transition={{ duration: 0.5, ease: "easeOut" }}
                     />
                   </div>
 
-                  <span style={{ ...styles.curveValue, color }}>
-                    {b.avgPlacement == null ? "—" : `${b.avgPlacement.toFixed(1)}º`}
+                  <span style={styles.spreadCount}>
+                    {row.count} {gamesWord(row.count, lang)}
                   </span>
-
-                  <span style={styles.curveGames}>
-                    {b.games} {gamesWord(b.games, lang)}
-                    {b.thin && ` · ${t("session_curve_thin")}`}
+                  <span style={styles.spreadPct}>
+                    {Math.round((row.count / placementSpread.total) * 100)}%
                   </span>
                 </div>
               );
             })}
           </div>
 
-          <div style={styles.curveVerdict}>
-            {curve.verdict.type === "declines" && (
-              <span style={{ color: "var(--place-low)" }}>
-                {t("session_curve_declines")}{" "}
-                {Math.abs(curve.verdict.delta).toFixed(1)}
-                {t("session_curve_places")}
-              </span>
-            )}
-            {curve.verdict.type === "improves" && (
-              <span style={{ color: "var(--place-good)" }}>
-                {t("session_curve_improves")}{" "}
-                {Math.abs(curve.verdict.delta).toFixed(1)}
-                {t("session_curve_places")}
-              </span>
-            )}
-            {curve.verdict.type === "flat" && <span>{t("session_curve_flat")}</span>}
-            {curve.verdict.type === "insufficient" && (
-              <span>{t("session_curve_insufficient")}</span>
-            )}
-          </div>
-
-          {/* Sem isto, o painel afirmava uma causa que não mediu. */}
-          <div style={styles.rowHint}>{t("session_curve_caveat")}</div>
+          {/* A Arena já teve 8 equipas de 2 e tem 6 equipas de 3: um 4º lugar
+              está a meio da tabela num formato e na metade de baixo no outro.
+              Com os dois misturados a contagem por lugar junta duas escalas,
+              e o aviso é o mínimo honesto — o filtro de formato lá em cima
+              separa-os. Só aparece quando há mesmo os dois. */}
+          {placementSpread.mixedFormats && (
+            <div style={styles.rowHint}>{t("overview_placement_mixed")}</div>
+          )}
         </div>
       )}
 
@@ -922,7 +948,13 @@ export default function Overview({
               <h3 style={styles.spotlightGroupTitle}>
                 {group.icon} {group.title}
               </h3>
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6 gap-2.5">
+              {/* Grelha que se enche sozinha ("auto-fill") em vez de um
+                  número de colunas fixo por breakpoint. Com colunas fixas,
+                  um grupo de 5 cartões numa grelha de 4 deixava sempre um
+                  cartão sozinho na segunda linha, e a largura da janela não
+                  mudava nada disso. Assim as colunas acompanham o espaço
+                  real e o cartão órfão aparece em bem menos larguras. */}
+              <div style={styles.spotlightGrid}>
                 {group.items.map((sp, i) => (
                   <div
                     key={sp.label}
@@ -942,7 +974,14 @@ export default function Overview({
                       onOpenChampionStats(sp.champion, sp.sortKey);
                     }}
                   >
-                    <div style={styles.spotlightHeader}>
+                    {/* Rótulo, valor, campeão — por esta ordem, que é a da
+                        importância. Antes o rótulo vinha numa faixa com fundo
+                        de areia e o valor aparecia por baixo do campeão: com
+                        mais de vinte cartões na página, eram mais de vinte
+                        faixas douradas em fila, e o que se via primeiro em
+                        cada cartão era a legenda em vez do número. A faixa
+                        saiu e o valor subiu. */}
+                    <div style={styles.spotlightLabel}>
                       {sp.label}
                       {sp.sampleCount != null && (
                         <span style={styles.spotlightSampleCount}>
@@ -952,33 +991,35 @@ export default function Overview({
                         </span>
                       )}
                     </div>
-                    <div style={styles.spotlightBody}>
-                      {sp.champion ? (
-                        <Tooltip label={champName(sp.champion)}>
-                          <div style={styles.spotlightChampWrap}>
-                            {DRAGON && (
-                              <img
-                                src={`${DRAGON}/img/champion/${sp.champion}.png`}
-                                style={styles.spotlightIcon}
-                              />
-                            )}
-                            <span style={styles.spotlightChampName}>{champName(sp.champion)}</span>
-                          </div>
-                        </Tooltip>
-                      ) : (
-                        // Alguns destaques são recordes globais sem campeão associado
-                        // (ex: partida mais longa) — mantém a mesma altura de linha
-                        // do cartão em vez de encolher só por faltar o ícone.
-                        <div style={styles.spotlightChampWrap} />
-                      )}
-                      {/* O valor fica sempre na própria linha, a toda a largura do
-                          cartão, em vez de disputar espaço horizontal com o nome do
-                          campeão (era isso que cortava valores longos, ex: "Triple
-                          Kill" ou números grandes de dano/ouro em cartões estreitos). */}
-                      <div style={{ ...styles.spotlightValue, color: sp.color }} title={String(sp.value)}>
-                        {sp.value}
-                      </div>
+
+                    {/* O valor ocupa a largura toda do cartão em vez de
+                        disputar a linha com o nome do campeão — era isso que
+                        cortava valores longos ("Triple Kill", números grandes
+                        de dano/ouro) em cartões estreitos. */}
+                    <div style={{ ...styles.spotlightValue, color: sp.color }} title={String(sp.value)}>
+                      {sp.value}
                     </div>
+
+                    {sp.champion ? (
+                      <Tooltip label={champName(sp.champion)}>
+                        <div style={styles.spotlightChampWrap}>
+                          {DRAGON && (
+                            <img
+                              src={`${DRAGON}/img/champion/${sp.champion}.png`}
+                              style={styles.spotlightIcon}
+                              alt=""
+                            />
+                          )}
+                          <span style={styles.spotlightChampName}>{champName(sp.champion)}</span>
+                        </div>
+                      </Tooltip>
+                    ) : (
+                      // Alguns destaques são recordes globais sem campeão
+                      // associado (ex: partida mais longa) — a linha vazia
+                      // mantém a altura do cartão igual à dos vizinhos, para
+                      // a grelha não ficar aos degraus.
+                      <div style={styles.spotlightChampWrap} />
+                    )}
                   </div>
                 ))}
               </div>
@@ -1464,76 +1505,98 @@ const styles = {
     marginBottom: 10,
   },
 
-  curveList: {
+  spreadTop: {
     display: "flex",
-    flexDirection: "column",
-    gap: 6,
-    marginBottom: 10,
+    flexWrap: "wrap",
+    gap: 10,
+    marginBottom: 12,
   },
 
-  curveRow: {
+  // Os dois números de contexto (lugar médio e quantas partidas contaram)
+  // vivem em caixas próprias por cima da lista: são a leitura de um relance,
+  // a lista é o detalhe.
+  spreadAvgBox: {
     display: "flex",
-    alignItems: "center",
-    gap: 10,
-    padding: "6px 10px",
+    flexDirection: "column",
+    gap: 2,
+    padding: "8px 14px",
     borderRadius: "var(--radius-lg)",
-    background: "rgba(var(--panel-deep-rgb),0.7)",
+    background: "rgba(var(--soft-rgb),0.05)",
     border: "1px solid rgba(var(--border-rgb),0.4)",
   },
 
-  curveLabel: {
-    fontSize: 12,
-    fontWeight: 700,
+  spreadAvgValue: {
+    fontSize: 20,
+    fontWeight: 800,
     color: "var(--text-body)",
-    // Largura fixa para as barras arrancarem todas alinhadas — sem isto, o
-    // "6ª+" empurrava a sua barra para a direita e a curva lia-se torta.
-    minWidth: 34,
+    lineHeight: 1.1,
   },
 
-  // A barra vive dentro de um carril com fundo próprio: sem ele, um valor
-  // mau (barra curta) era indistinguível de "não há dados".
-  curveTrack: {
+  spreadAvgLabel: {
+    fontSize: 10,
+    fontWeight: 600,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+    color: "var(--text-muted)",
+    whiteSpace: "nowrap",
+  },
+
+  spreadList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 4,
+  },
+
+  spreadRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    padding: "5px 10px",
+    borderRadius: "var(--radius-md)",
+  },
+
+  // Largura fixa para as barras arrancarem todas alinhadas, mesmo com
+  // glifos de larguras diferentes entre "1º" e "8º".
+  spreadPlace: {
+    fontSize: 12.5,
+    fontWeight: 800,
+    minWidth: 26,
+    flexShrink: 0,
+  },
+
+  // A barra vive dentro de um carril com fundo próprio: sem ele, zero
+  // partidas num lugar era indistinguível de "não há dados".
+  spreadTrack: {
     flex: 1,
     minWidth: 0,
-    height: 8,
-    borderRadius: 999,
+    height: 10,
+    borderRadius: "var(--radius-pill)",
     background: "rgba(var(--border-rgb),0.3)",
     overflow: "hidden",
   },
 
-  curveBar: {
+  spreadBar: {
     height: "100%",
-    borderRadius: 999,
+    borderRadius: "var(--radius-pill)",
   },
 
-  curveValue: {
-    fontSize: 12.5,
-    fontWeight: 800,
-    minWidth: 42,
-    textAlign: "right",
-  },
-
-  curveGames: {
-    fontSize: 11,
+  spreadCount: {
+    fontSize: 11.5,
+    fontWeight: 600,
     color: "var(--text-secondary)",
-    minWidth: 92,
+    minWidth: 76,
+    textAlign: "right",
+    whiteSpace: "nowrap",
+  },
+
+  spreadPct: {
+    fontSize: 11,
+    color: "var(--text-muted)",
+    minWidth: 38,
     textAlign: "right",
   },
 
-  curveVerdict: {
-    fontSize: 12.5,
-    fontWeight: 700,
-    marginBottom: 6,
-  },
 
-  // Envolve o gráfico + legenda, centrados horizontalmente no cartão.
-  heatmapBody: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    gap: 4,
-    padding: "12px 0",
-  },
 
   // Já não tem overflowX/scroll — o tamanho das células (ver heatmapCellSize
   // em Overview.jsx) encolhe para as 18 semanas caberem sempre inteiras
@@ -1604,34 +1667,45 @@ const styles = {
     letterSpacing: 0.3,
   },
 
+  // Grelha que se enche sozinha: as colunas nascem do espaço disponível em
+  // vez de um número fixo por breakpoint. 190px é a largura mínima em que um
+  // valor longo ("Triple Kill", números de ouro) ainda cabe sem reticências.
+  spotlightGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))",
+    gap: 10,
+  },
+
   // Translúcido como os outros painéis, mas sem "--panel-blur" de propósito:
   // ao contrário das secções (que são meia dúzia), estes cartões vêm numa
-  // grelha de até 6 colunas e chegam facilmente a 18 em simultâneo — e um
-  // backdrop-filter por cartão a essa contagem custa GPU no scroll. A aurora
-  // por baixo já é um gradiente suave, por isso o blur aqui quase não se
-  // notava; a translucidez, essa, mantém-se e é o que deixa a cor passar.
+  // grelha larga e chegam facilmente a 18 em simultâneo — e um backdrop-filter
+  // por cartão a essa contagem custa GPU no scroll. A aurora por baixo já é um
+  // gradiente suave, por isso o blur aqui quase não se notava; a translucidez,
+  // essa, mantém-se e é o que deixa a cor passar.
   spotlightCard: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+    padding: "10px 12px",
     background: "var(--panel-bg)",
     border: "1px solid rgba(var(--border-rgb),0.5)",
     borderRadius: "var(--radius-xl)",
-    overflow: "hidden",
     cursor: "pointer",
-    transition: "border-color 0.15s ease",
-    display: "flex",
-    flexDirection: "column",
   },
 
-  // Faixa de cabeçalho com fundo próprio, distinto do corpo do cartão.
-  spotlightHeader: {
-    padding: "7px 10px",
+  // Legenda discreta, sem faixa de fundo. Duas linhas no máximo: os rótulos
+  // mudam de comprimento entre português e inglês, e um corte a meio da
+  // primeira linha deixava cartões sem se perceber do que falavam.
+  spotlightLabel: {
     fontSize: 10.5,
-    lineHeight: 1.25,
+    lineHeight: 1.3,
+    fontWeight: 600,
     color: "var(--text-secondary)",
-    background: "rgba(var(--accent-rgb),0.14)",
-    borderBottom: "1px solid rgba(var(--border-rgb),0.4)",
-    minHeight: 30,
-    display: "flex",
-    alignItems: "center",
+    display: "-webkit-box",
+    WebkitLineClamp: 2,
+    WebkitBoxOrient: "vertical",
+    overflow: "hidden",
+    minHeight: 27,
   },
 
   spotlightSampleCount: {
@@ -1639,52 +1713,14 @@ const styles = {
     fontWeight: 500,
   },
 
-  // Antes o nome do campeão e o valor competiam pela mesma linha horizontal
-  // (space-between) — em cartões estreitos ou com valores compridos (ex:
-  // "Triple Kill", números grandes de dano/ouro) o valor acabava cortado.
-  // Agora o valor fica sempre na sua própria linha, a toda a largura do
-  // cartão, por baixo do campeão.
-  spotlightBody: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 6,
-    padding: "10px 10px",
-  },
-
-  // Ícone + nome do campeão lado a lado (à esquerda) — antes só o ícone
-  // aparecia, obrigando a passar o rato por cima para saber de quem se trata.
-  spotlightChampWrap: {
-    display: "flex",
-    alignItems: "center",
-    gap: 7,
-    minWidth: 0,
-    minHeight: 24,
-  },
-
-  spotlightIcon: {
-    width: 24,
-    height: 24,
-    borderRadius: 7,
-    pointerEvents: "none",
-    flexShrink: 0,
-  },
-
-  spotlightChampName: {
-    fontSize: 11.5,
-    fontWeight: 600,
-    color: "var(--text-body)",
-    whiteSpace: "nowrap",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    minWidth: 0,
-  },
-
-  // "minWidth: 0" é o que permite o ellipsis funcionar dentro de um
-  // container flex (sem isto o texto simplesmente transbordava e ficava
-  // cortado pelo "overflow: hidden" do cartão, em vez de mostrar "...").
+  // O número é o que o cartão tem para dizer, por isso é o maior e vem antes
+  // do campeão. "minWidth: 0" é o que permite às reticências funcionarem
+  // dentro de um container flex — sem isso o texto transbordava e ficava
+  // cortado a direito pelo overflow do cartão.
   spotlightValue: {
-    fontSize: 18,
+    fontSize: 21,
     fontWeight: 800,
+    lineHeight: 1.15,
     width: "100%",
     minWidth: 0,
     whiteSpace: "nowrap",
@@ -1692,4 +1728,32 @@ const styles = {
     textOverflow: "ellipsis",
   },
 
+  // Ícone + nome do campeão, em rodapé. Altura mínima para os cartões sem
+  // campeão (recordes globais, como a partida mais longa) não encolherem e
+  // deixarem a grelha aos degraus.
+  spotlightChampWrap: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    minWidth: 0,
+    minHeight: 20,
+  },
+
+  spotlightIcon: {
+    width: 20,
+    height: 20,
+    borderRadius: "var(--radius-sm)",
+    pointerEvents: "none",
+    flexShrink: 0,
+  },
+
+  spotlightChampName: {
+    fontSize: 11,
+    fontWeight: 600,
+    color: "var(--text-secondary)",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    minWidth: 0,
+  },
 };

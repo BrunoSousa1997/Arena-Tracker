@@ -1,10 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  sessionCurve,
-  splitSessions,
-  normalizedPlacement,
-  MIN_GAMES_PER_BUCKET,
-} from "./sessionCurve";
+import { splitSessions, normalizedPlacement } from "./sessionCurve";
 
 // Constrói uma partida com um "created_at" a N minutos do início da série.
 // As listas destes testes são escritas da mais ANTIGA para a mais recente
@@ -67,93 +62,5 @@ describe("splitSessions", () => {
   it("não se engasga com listas vazias ou sem data", () => {
     expect(splitSessions([])).toEqual([]);
     expect(splitSessions([{ placement: 1 }])).toEqual([]);
-  });
-});
-
-describe("sessionCurve", () => {
-  it("conta a posição dentro da sentada pela ordem cronológica", () => {
-    // Uma sentada: 1º, depois 4º, depois 6º. A app entrega ao contrário —
-    // se a curva lesse a lista como vem, a "primeira partida" seria o 6º.
-    const { buckets } = sessionCurve(feed([match(0, 1), match(30, 4), match(60, 6)]));
-
-    expect(buckets[0].avgPlacement).toBe(1);
-    expect(buckets[1].avgPlacement).toBe(4);
-    expect(buckets[2].avgPlacement).toBe(6);
-  });
-
-  it("junta no balde-cauda tudo o que passa do máximo", () => {
-    const long = Array.from({ length: 9 }, (_, i) => match(i * 20, 3));
-    const { buckets } = sessionCurve(feed(long), { maxBucket: 6 });
-
-    expect(buckets).toHaveLength(6);
-    expect(buckets[5].isTail).toBe(true);
-    // 9 partidas: 5 nos baldes 1-5, as outras 4 na cauda.
-    expect(buckets[5].games).toBe(4);
-  });
-
-  it("soma sentadas diferentes no mesmo balde", () => {
-    const first = [match(0, 1), match(20, 1)];
-    const second = [match(300, 5), match(320, 5)];
-    const { buckets, sessions } = sessionCurve(feed([...first, ...second]));
-
-    expect(sessions).toBe(2);
-    // Duas primeiras-partidas (1º e 5º) e duas segundas-partidas (1º e 5º).
-    expect(buckets[0].games).toBe(2);
-    expect(buckets[0].avgPlacement).toBe(3);
-    expect(buckets[1].avgPlacement).toBe(3);
-  });
-
-  it("marca como fraco o balde sem amostra que chegue", () => {
-    const { buckets } = sessionCurve(feed([match(0, 1), match(20, 2)]));
-    expect(buckets[0].thin).toBe(true);
-    expect(buckets[0].games).toBeLessThan(MIN_GAMES_PER_BUCKET);
-  });
-
-  it("não emite veredicto sem amostra dos dois lados", () => {
-    const { verdict } = sessionCurve(feed([match(0, 1), match(20, 6)]));
-    expect(verdict.type).toBe("insufficient");
-  });
-
-  // Muitas sentadas de 2 partidas: sempre bom à primeira, mau à segunda.
-  // É o padrão que a funcionalidade existe para apanhar.
-  const manySessions = (placements) =>
-    feed(
-      placements.flatMap((pair, s) =>
-        pair.map((p, i) => match(s * 300 + i * 20, p))
-      )
-    );
-
-  it("deteta a descida ao longo da sentada", () => {
-    const games = manySessions(Array.from({ length: 10 }, () => [1, 6]));
-    const { verdict } = sessionCurve(games);
-
-    expect(verdict.type).toBe("declines");
-    expect(verdict.delta).toBeCloseTo(5, 5);
-  });
-
-  it("deteta a subida (aquecer a jogar)", () => {
-    const games = manySessions(Array.from({ length: 10 }, () => [6, 1]));
-    const { verdict } = sessionCurve(games);
-
-    expect(verdict.type).toBe("improves");
-    expect(verdict.delta).toBeCloseTo(-5, 5);
-  });
-
-  it("chama estável ao que oscila pouco", () => {
-    // Meia dúzia de décimas de diferença não é um padrão.
-    const games = manySessions([
-      ...Array.from({ length: 9 }, () => [3, 3]),
-      [3, 4],
-    ]);
-    const { verdict } = sessionCurve(games);
-
-    expect(verdict.type).toBe("flat");
-  });
-
-  it("devolve baldes vazios sem partidas", () => {
-    const { buckets, sessions, verdict } = sessionCurve([]);
-    expect(sessions).toBe(0);
-    expect(verdict.type).toBe("insufficient");
-    expect(buckets.every((b) => b.games === 0)).toBe(true);
   });
 });
