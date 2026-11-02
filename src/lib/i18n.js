@@ -893,7 +893,12 @@ const DICTIONARY = {
     pt: "Ainda sem dados. Joga uma Arena com a app aberta para começares a ver estatísticas aqui.",
     en: "No data yet. Play an Arena match with the app open to start seeing stats here.",
   },
-  overview_see_more: { pt: "Ver nas Estatísticas →", en: "See in Statistics →" },
+  // Substitui o antigo "overview_see_more", que era repetido dentro de cada
+  // um dos mais de vinte cartões da grelha. Dito uma vez por cima dela.
+  overview_highlights_hint: {
+    pt: "Clica num destaque para o abrir nas Estatísticas.",
+    en: "Click a highlight to open it in Statistics.",
+  },
   spotlight_most_first: { pt: "Mais vezes em 1º", en: "Most 1st places" },
   spotlight_most_top3: { pt: "Mais vezes no Top 3", en: "Most Top 3 finishes" },
   spotlight_most_games: { pt: "Mais jogos", en: "Most games" },

@@ -664,12 +664,24 @@ select:hover {
 
 /* Cartões clicáveis (ex: destaques da Visão Geral) — pequeno levantamento +
    contorno mais vivo ao passar o rato, para reforçar que são clicáveis. */
+/* O realce é um "outline" e não "border-color", por um motivo que custou a
+   descobrir: os três sítios que usam esta classe (destaques da Visão Geral,
+   cartões da Coleção, botão grande dos Desafios) declaram o "border" inline,
+   nos seus próprios objetos de estilo — e estilo inline ganha sempre a uma
+   folha de estilo. Durante muito tempo esta regra só levantava o cartão; a
+   moldura nunca chegou a acender, em nenhum dos três. O "outline" não é
+   declarado inline em lado nenhum, por isso pega; com "outline-offset: -1px"
+   assenta exatamente por cima da borda e dá o mesmo efeito que se queria,
+   sem obrigar os três componentes a passarem o border para aqui. É a mesma
+   armadilha que apanhou o hover dos botões do cabeçalho (ver mais acima). */
 .clickableCard {
-  transition: border-color 0.15s ease, transform 0.15s ease;
+  transition: outline-color 0.15s ease, transform 0.15s ease;
+  outline: 1px solid transparent;
+  outline-offset: -1px;
 }
 
 .clickableCard:hover {
-  border-color: rgba(var(--accent-rgb), 0.6);
+  outline-color: rgba(var(--accent-rgb), 0.6);
   transform: translateY(-2px);
 }
 

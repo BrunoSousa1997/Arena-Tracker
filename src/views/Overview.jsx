@@ -299,60 +299,47 @@ export default function Overview({ matches, wins, champions, DRAGON, onOpenChamp
             </div>
           </div>
 
+          {/* Só as sequências. Os três números que aqui estavam — total de
+              partidas, taxa de top 3 e taxa de 1º lugar — são EXATAMENTE os
+              que a StatsBar mostra a poucos pixéis daqui, no cabeçalho, e
+              que ela mostra em todas as tabs. Eram os mesmos valores duas
+              vezes, em duas linguagens visuais diferentes, e era isso que
+              fazia o topo da página parecer cheio sem dizer mais nada. O que
+              fica é o que a StatsBar NÃO dá: a cobertura do roster (o número
+              grande ao lado) e as sequências. */}
           <div style={styles.heroStatsRow}>
-            <div style={styles.heroStat}>
-              <div style={styles.heroStatValue}>{career.totalGames}</div>
-              <div style={styles.heroStatLabel}>{t("overview_total_games")}</div>
-            </div>
-            <div style={styles.heroStatDivider} />
-            <div style={{ ...styles.heroStat, ...heroChipStyle(placementColor(3)) }}>
-              <div style={{ ...styles.heroStatValue, color: placementColor(3) }}>
-                {career.top3RatePct}%
-              </div>
-              <div style={styles.heroStatLabel}>{t("overview_top3_rate")}</div>
-            </div>
-            <div style={styles.heroStatDivider} />
-            <div style={{ ...styles.heroStat, ...heroChipStyle("var(--place-good)") }}>
-              <div style={{ ...styles.heroStatValue, color: "var(--place-good)" }}>
-                {career.top1RatePct}%
-              </div>
-              <div style={styles.heroStatLabel}>{t("overview_top1_rate")}</div>
-            </div>
+            {/* Sem divisórias entre as duas: são no máximo dois valores e o
+                "gap" da fileira já os separa. As divisórias faziam sentido
+                quando aqui viviam cinco. */}
             {career.streakCurrent > 1 && (
-              <>
-                <div style={styles.heroStatDivider} />
+              <div
+                style={{
+                  ...styles.heroStat,
+                  ...heroChipStyle(
+                    career.streakCurrentType === "win" ? "var(--place-good)" : "var(--place-low)"
+                  ),
+                }}
+              >
                 <div
                   style={{
-                    ...styles.heroStat,
-                    ...heroChipStyle(
-                      career.streakCurrentType === "win" ? "var(--place-good)" : "var(--place-low)"
-                    ),
+                    ...styles.heroStatValue,
+                    color: career.streakCurrentType === "win" ? "var(--place-good)" : "var(--place-low)",
                   }}
                 >
-                  <div
-                    style={{
-                      ...styles.heroStatValue,
-                      color: career.streakCurrentType === "win" ? "var(--place-good)" : "var(--place-low)",
-                    }}
-                  >
-                    {career.streakCurrentType === "win" ? "🔥" : "❄️"} {career.streakCurrent}
-                  </div>
-                  <div style={styles.heroStatLabel}>
-                    {career.streakCurrentType === "win" ? t("streak_wins_suffix") : t("streak_losses_suffix")}
-                  </div>
+                  {career.streakCurrentType === "win" ? "🔥" : "❄️"} {career.streakCurrent}
                 </div>
-              </>
+                <div style={styles.heroStatLabel}>
+                  {career.streakCurrentType === "win" ? t("streak_wins_suffix") : t("streak_losses_suffix")}
+                </div>
+              </div>
             )}
             {career.streakBestWin > 1 && (
-              <>
-                <div style={styles.heroStatDivider} />
-                <Tooltip label={t("streak_best_tooltip")}>
-                  <div style={styles.heroStat}>
-                    <div style={styles.heroStatValue}>🏆 {career.streakBestWin}</div>
-                    <div style={styles.heroStatLabel}>{t("streak_best_label")}</div>
-                  </div>
-                </Tooltip>
-              </>
+              <Tooltip label={t("streak_best_tooltip")}>
+                <div style={styles.heroStat}>
+                  <div style={styles.heroStatValue}>🏆 {career.streakBestWin}</div>
+                  <div style={styles.heroStatLabel}>{t("streak_best_label")}</div>
+                </div>
+              </Tooltip>
             )}
           </div>
         </div>
@@ -365,14 +352,17 @@ export default function Overview({ matches, wins, champions, DRAGON, onOpenChamp
             transition={{ duration: 0.5 }}
           />
         </div>
-      </div>
 
-      {/* FORMA RECENTE — a sequência atual/melhor já aparece no cartão de
-          destaque no topo, aqui fica só a fileira visual das últimas partidas. */}
-      {recentForm.length > 0 && (
-        <div className="riseIn" style={styles.section}>
-          <h2 style={styles.sectionTitle}>📈 {t("overview_recent_form")}</h2>
-          <div style={styles.formRow}>
+        {/* FORMA RECENTE — veio para dentro do cartão de destaque. Tinha uma
+            secção inteira só para si: título, moldura, sombra e padding à
+            volta de UMA fila de oito quadrados de 28px. Custava uma faixa
+            inteira de altura para a informação que menos espaço precisa, e
+            em cima pertence mesmo aqui: as últimas oito partidas são a
+            leitura curta das sequências que estão logo ao lado. */}
+        {recentForm.length > 0 && (
+          <div style={styles.heroForm}>
+            <span style={styles.heroFormLabel}>{t("overview_recent_form")}</span>
+            <div style={styles.formRow}>
             {recentForm.map((m, i) => {
               // Se já houver o lugar exato (via Riot API) mostramos esse
               // número; partidas antigas (só Live Client Data) mostram V/D
@@ -406,9 +396,10 @@ export default function Overview({ matches, wins, champions, DRAGON, onOpenChamp
                 </Tooltip>
               );
             })}
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* ATIVIDADE + SESSÕES + PREMADE em "bento grid" — Sessões é sempre o
           conteúdo mais denso (várias linhas, cada uma com data/hora + 4-5
@@ -678,11 +669,17 @@ export default function Overview({ matches, wins, champions, DRAGON, onOpenChamp
       {spotlightGroups.length > 0 && (
         <div>
           <h2 style={styles.spotlightSectionTitle}>🏆 {t("overview_highlights")}</h2>
+          {/* O "ver nas estatísticas" era repetido DENTRO de cada cartão, e
+              são mais de vinte na grelha — a mesma frase vinte vezes é
+              ruído, não ajuda, e roubava uma linha de altura a cada cartão.
+              Dito uma vez aqui chega; que o cartão é clicável já se percebe
+              pelo hover (.clickableCard levanta-o e acende-lhe a moldura). */}
+          <div style={styles.rowHint}>{t("overview_highlights_hint")}</div>
 
           {spotlightGroups.map((group, gi) => (
             <div
               key={group.key}
-              style={{ ...styles.spotlightGroup, marginTop: gi === 0 ? 0 : 18 }}
+              style={{ ...styles.spotlightGroup, marginTop: gi === 0 ? 12 : 16 }}
             >
               <h3 style={styles.spotlightGroupTitle}>
                 {group.icon} {group.title}
@@ -744,7 +741,6 @@ export default function Overview({ matches, wins, champions, DRAGON, onOpenChamp
                         {sp.value}
                       </div>
                     </div>
-                    <div style={styles.spotlightHint}>{t("overview_see_more")}</div>
                   </div>
                 ))}
               </div>
@@ -787,7 +783,16 @@ const styles = {
     boxShadow: "0 6px 20px rgba(0,0,0,0.16)",
   },
 
-  sectionTitle: { marginBottom: 10, color: "var(--accent-text)" },
+  // 18px (--fs-lg) e não os 22 que o <h2> traz do index.css: estes são
+  // rótulos de secção dentro de cartões, não títulos de página. Aos 22 a
+  // palavra "Sessões recentes" pesava mais do que as linhas de números que
+  // anuncia, e numa página com seis secções isso é muita tinta gasta em
+  // cabeçalhos.
+  sectionTitle: {
+    marginBottom: 10,
+    fontSize: "var(--fs-lg)",
+    color: "var(--accent-text)",
+  },
 
   // Cartão de destaque no topo — junta o progresso do roster e as
   // estatísticas rápidas de carreira (jogos, winrate, sequências) num único
@@ -840,12 +845,6 @@ const styles = {
     gap: 2,
   },
 
-  heroStatDivider: {
-    width: 1,
-    alignSelf: "stretch",
-    background: "rgba(var(--border-rgb),0.35)",
-  },
-
   heroStatValue: {
     fontSize: 18,
     fontWeight: 800,
@@ -881,14 +880,40 @@ const styles = {
     marginTop: 4,
   },
 
+  // O gradiente começava num cinzento escrito à mão (#9aa0a6), sobra da
+  // paleta antiga: com a cobertura baixa só se via o cinzento, ou seja, a
+  // barra do roster quase nunca aparecia na cor da app. Passa a usar o token
+  // do acento, que é o que as outras barras de progresso já usam.
   progressFill: {
     height: "100%",
-    background: "linear-gradient(90deg, #9aa0a6, var(--accent-solid-light))",
+    background: "var(--accent-gradient)",
     borderRadius: "var(--radius-sm)",
+  },
+
+  // Fileira das últimas partidas, agora dentro do cartão de destaque. A
+  // linha fina por cima separa-a da barra de progresso sem precisar de outro
+  // cartão à volta.
+  heroForm: {
+    display: "flex",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 12,
+    paddingTop: 12,
+    borderTop: "1px solid rgba(var(--border-rgb),0.3)",
+  },
+
+  heroFormLabel: {
+    fontSize: 10,
+    fontWeight: 700,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+    color: "var(--text-muted)",
+    whiteSpace: "nowrap",
   },
 
   formRow: {
     display: "flex",
+    flexWrap: "wrap",
     gap: 8,
   },
 
@@ -1134,8 +1159,11 @@ const styles = {
     color: "var(--text-muted)",
   },
 
+  // Mesmo degrau dos outros títulos de secção (ver sectionTitle) — "Destaques"
+  // não vive dentro de um cartão, mas continua a ser uma secção entre pares.
   spotlightSectionTitle: {
-    marginBottom: 10,
+    marginBottom: 6,
+    fontSize: "var(--fs-lg)",
     color: "var(--accent-text)",
   },
 
@@ -1245,10 +1273,4 @@ const styles = {
     textOverflow: "ellipsis",
   },
 
-  spotlightHint: {
-    padding: "0 10px 8px",
-    fontSize: 10,
-    color: "var(--accent-text)",
-    fontWeight: 600,
-  },
 };
