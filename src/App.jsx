@@ -944,7 +944,11 @@ export default function App() {
               {liveChampionAlert && liveBannerHidden && liveSessionActive && (
                 <>
                   <Tooltip label={t("live_banner_reopen")}>
-                    <button onClick={() => setLiveBannerHidden(false)} style={styles.liveReopenBtn}>
+                    <button
+                      onClick={() => setLiveBannerHidden(false)}
+                      className="at-icon-btn"
+                      style={styles.liveReopenBtn}
+                    >
                       {/* Sem o Data Dragon (arranque sem internet, ver
                           patchFailed) não há ícone de campeão nenhum na app —
                           aqui cai para um símbolo genérico em vez de deixar o
@@ -973,7 +977,11 @@ export default function App() {
               />
               <div style={styles.iconClusterDivider} />
               <Tooltip label={t("open_settings")}>
-                <button onClick={() => openSettings("general")} style={styles.iconClusterBtn}>
+                <button
+                  onClick={() => openSettings("general")}
+                  className="at-icon-btn"
+                  style={styles.iconClusterBtn}
+                >
                   <SettingsIcon size={14} strokeWidth={2.25} />
                 </button>
               </Tooltip>
@@ -991,16 +999,17 @@ export default function App() {
             instantaneamente. */}
         {activeAccount && (
           <div style={{ ...styles.navRow, padding: headerCompact ? 2 : 3 }}>
-            <div style={styles.tabBar}>
+            <div className="at-tab-bar" style={styles.tabBar}>
               {TABS.map((tab) => {
                 const isActive = view === tab.key;
                 return (
                   <button
                     key={tab.key}
+                    className="at-tab"
                     onClick={() => setView(tab.key)}
                     style={{
                       ...styles.tabBtn,
-                      padding: headerCompact ? "4px 16px" : "6px 16px",
+                      padding: headerCompact ? "5px 12px" : "7px 12px",
                       color: isActive ? "var(--accent-solid-text)" : "var(--text-secondary)",
                     }}
                   >
@@ -1016,7 +1025,7 @@ export default function App() {
                         index.css): sem ele ficavam 8 ícones sem nome. */}
                     <span style={styles.tabBtnLabel} title={tab.label}>
                       <span style={styles.tabBtnIcon}>
-                        <tab.icon size={14} strokeWidth={2.25} />
+                        <tab.icon size={15} strokeWidth={2.25} />
                       </span>
                       <span className="at-tab-label">{tab.label}</span>
                     </span>
@@ -1042,7 +1051,10 @@ export default function App() {
                       style={{
                         ...styles.formatBtn,
                         padding: headerCompact ? "4px 10px" : "6px 10px",
-                        color: isActive ? "var(--accent-solid-text)" : "var(--text-secondary)",
+                        // Areia em texto (e não tinta sobre bloco cheio):
+                        // o marcador do formato ativo passou a contorno,
+                        // ver formatIndicator.
+                        color: isActive ? "var(--accent-text)" : "var(--text-secondary)",
                       }}
                     >
                       {isActive && (
@@ -1625,12 +1637,19 @@ const styles = {
   // tabBar e formatBar são apenas grupos de botões lá dentro, separados por
   // um divisor fino (ver navDivider) — a mesma "pill" contínua de ponta a
   // ponta, tal como a barra de tabs tinha antes.
+  // O fundo usa --soft-rgb (branco no tema escuro, preto no claro) e não
+  // --panel-deep-rgb: este último é a cor do painel, e no tema claro é
+  // 240,246,245 — a 50% por cima de um cartão branco dava um fundo
+  // praticamente branco, ou seja a calha desaparecia e as tabs ficavam a
+  // flutuar sem nada que as agrupasse. O --soft-rgb inverte com o tema, por
+  // isso a calha lê-se nos dois: um lavado claro no escuro, uma sombra leve
+  // no claro.
   navRow: {
     display: "flex",
     alignItems: "stretch",
     width: "100%",
     borderRadius: 13,
-    background: "rgba(var(--panel-deep-rgb),0.5)",
+    background: "rgba(var(--soft-rgb),0.05)",
     border: "1px solid rgba(var(--border-rgb),0.35)",
   },
 
@@ -1640,28 +1659,36 @@ const styles = {
     gap: 4,
   },
 
+  // Encurtado em altura (margem vertical de 6px em vez de 2) para ser um
+  // traço discreto entre os dois grupos e não uma barra de ponta a ponta.
+  // A margem HORIZONTAL fica nos 6px originais de propósito: subi-la para 8
+  // roubava 4px à linha e, em inglês — onde os rótulos são mais longos que
+  // em português —, era quanto bastava para a linha transbordar na largura
+  // imediatamente acima do ponto em que os rótulos desaparecem (1181px).
   navDivider: {
     width: 1,
     alignSelf: "stretch",
-    margin: "2px 6px",
-    background: "rgba(var(--border-rgb),0.5)",
+    margin: "6px 6px",
+    background: "rgba(var(--border-rgb),0.45)",
   },
 
   // Mesmo "segmented control" da barra de tabs, só que mais estreito (3
   // opções curtas — Todos/2v2/3v3 — em vez de 5 tabs com texto). Largura
   // fixa para não competir por espaço com as tabs à medida que a janela
   // muda de tamanho.
-  // Fundo próprio, ligeiramente rebaixado. As tabs navegam, isto filtra — são
-  // dois tipos de controlo diferentes e antes só uma linha de 1px os separava,
-  // o que os fazia ler como uma fila de 11 botões em vez de 8 + 3.
+  // Teve fundo próprio durante algum tempo, para separar "navegar" de
+  // "filtrar". Saiu: dentro de uma calha que agora também tem fundo, era uma
+  // caixa dentro de outra caixa quase da mesma cor — mais ruído do que
+  // separação. Quem faz esse trabalho agora é a diferença de ESTADO ATIVO
+  // (ver formatIndicator): a tab ativa é um bloco cheio na cor de destaque, a
+  // opção de formato ativa é só um contorno. Dois controlos com aspetos
+  // diferentes separam-se melhor do que dois fundos iguais encostados.
   formatBar: {
     display: "flex",
     flexShrink: 0,
     width: 168,
     gap: 2,
     padding: 2,
-    borderRadius: 10,
-    background: "rgba(var(--soft-rgb),0.05)",
   },
 
   // O Tooltip embrulha cada botão num <span display:inline-flex> — sem isto,
@@ -1687,19 +1714,28 @@ const styles = {
     padding: "6px 10px",
     borderRadius: 9,
     border: "none",
-    background: "transparent",
+    // O fundo (transparente em repouso, ténue no hover) vive no CSS, em
+    // ".formatSegBtn" — declarado aqui inline, ganhava à regra e matava o hover.
     cursor: "pointer",
-    fontSize: 11.5,
-    fontWeight: 700,
+    fontSize: 12,
+    fontWeight: 600,
     transition: "color 0.15s ease, background-color 0.15s ease",
   },
 
+  // Contorno, não bloco cheio — e é esta a mudança que mais arruma a linha.
+  // Antes o formato ativo usava o mesmo gradiente de areia com halo que a tab
+  // ativa, por isso a linha tinha DOIS "estás aqui" com exatamente o mesmo
+  // peso: um a dizer em que vista se está, outro a dizer que filtro está
+  // posto. São coisas de níveis diferentes — a vista é destino, o formato é
+  // só um ajuste ao que se vê — e com o mesmo aspeto o olho não sabia qual
+  // ler primeiro. O filtro passa a marcar-se com fundo ténue + contorno,
+  // suficiente para se ver qual está escolhido sem disputar com a navegação.
   formatIndicator: {
     position: "absolute",
     inset: 0,
     borderRadius: "var(--radius-md)",
-    background: "var(--accent-gradient)",
-    boxShadow: "0 3px 12px var(--accent-glow)",
+    background: "rgba(var(--accent-rgb),0.16)",
+    border: "1px solid rgba(var(--accent-rgb),0.55)",
     zIndex: 0,
   },
 
@@ -1719,14 +1755,25 @@ const styles = {
     flex: 1,
     display: "flex",
     justifyContent: "center",
-    padding: "6px 16px",
+    padding: "7px 12px",
     borderRadius: 9,
     border: "none",
-    background: "transparent",
+    // O fundo (transparente em repouso, ténue no hover) vive no CSS, em
+    // ".at-tab" — declarado aqui inline, ganhava à regra e matava o hover.
     cursor: "pointer",
-    fontSize: 12.5,
-    fontWeight: 700,
-    transition: "color 0.15s ease",
+    // 13px (--fs-sm) em vez de 12.5, e o espaço para isso veio do padding
+    // horizontal (16 -> 12), não de encurtar a linha: são 8px recuperados
+    // por tab, 64 no total, muito mais do que os poucos que o tamanho maior
+    // custa. Em inglês a linha estava a passar-se no limite logo acima do
+    // ponto em que os rótulos desaparecem, por isso qualquer aumento tinha
+    // mesmo de se pagar a si próprio.
+    fontSize: 13,
+    // 600 e não 700: a este tamanho, oito rótulos a bold lêem-se como um
+    // bloco escuro contínuo em vez de oito palavras. O estado ativo já se
+    // marca com fundo e cor — não precisa também de peso, e mudar o peso
+    // conforme o estado faria a largura de cada tab saltar a cada clique.
+    fontWeight: 600,
+    transition: "color 0.15s ease, background-color 0.15s ease",
   },
 
   tabIndicator: {
@@ -1838,12 +1885,18 @@ const styles = {
   // Cluster único (3 botões visualmente unidos, com divisores finos) em vez
   // de 3 cartões soltos com espaço entre eles — sinaliza que são um grupo
   // de preferências, não ações independentes.
+  // Contorno neutro e não de destaque: este cluster fica encostado ao
+  // Sincronizar, que é o único bloco cheio na cor de destaque do cabeçalho.
+  // Com a moldura também puxada a areia, ficavam duas coisas douradas lado a
+  // lado e o botão principal deixava de ser o que salta à vista. Mesma razão
+  // do fundo: --soft-rgb lê-se nos dois temas, ao contrário de
+  // --panel-deep-rgb, que no claro é quase branco.
   iconCluster: {
     display: "flex",
     alignItems: "stretch",
     borderRadius: "var(--radius-lg)",
-    border: "1px solid rgba(var(--accent-rgb),0.25)",
-    background: "rgba(var(--panel-deep-rgb),0.85)",
+    border: "1px solid rgba(var(--border-rgb),0.45)",
+    background: "rgba(var(--soft-rgb),0.05)",
     overflow: "hidden",
   },
 
@@ -1895,7 +1948,7 @@ const styles = {
     display: "flex",
     alignItems: "center",
     border: "none",
-    background: "transparent",
+    // Fundo e hover vêm do CSS (".at-icon-btn") — ver nota em iconClusterBtn.
     cursor: "pointer",
   },
 
@@ -1923,18 +1976,22 @@ const styles = {
   iconClusterDivider: {
     width: 1,
     alignSelf: "stretch",
-    background: "rgba(var(--accent-rgb),0.2)",
+    background: "rgba(var(--border-rgb),0.4)",
   },
 
+  // Cinzento em repouso, areia ao passar o rato (ver .at-icon-btn em
+  // index.css). Em areia permanente, dois ícones decorativos competiam em cor
+  // com a única ação que interessa mesmo encontrar aqui — o Sincronizar.
   iconClusterBtn: {
     padding: "6px 11px",
     display: "flex",
     alignItems: "center",
     border: "none",
-    background: "transparent",
-    color: "var(--accent-text)",
+    // O fundo (transparente em repouso, ténue no hover) vive no CSS, em
+    // ".at-icon-btn" — declarado aqui inline, ganhava à regra e matava o hover.
+    color: "var(--text-secondary)",
     cursor: "pointer",
-    transition: "background 0.15s ease",
+    transition: "background 0.15s ease, color 0.15s ease",
   },
 
   syncBox: {

@@ -79,7 +79,7 @@ export default function NotificationBell({ notifications, unreadCount, markAllRe
 
   return (
     <div ref={wrapRef} style={styles.wrap}>
-      <button onClick={toggle} style={styles.btn} title={t("notif_title")}>
+      <button onClick={toggle} className="at-icon-btn" style={styles.btn} title={t("notif_title")}>
         <Bell size={14} strokeWidth={2.25} />
         {unreadCount > 0 && (
           <span style={styles.badge}>{unreadCount > 9 ? "9+" : unreadCount}</span>
@@ -146,16 +146,20 @@ const styles = {
     display: "flex",
   },
 
+  // Mesmo aspeto do ⚙ ao lado (ver iconClusterBtn em App.jsx): cinzento em
+  // repouso, areia ao passar o rato. Vivem no mesmo cluster e devem ler-se
+  // como o mesmo tipo de botão.
   btn: {
     position: "relative",
     padding: "6px 11px",
     display: "flex",
     alignItems: "center",
     border: "none",
-    background: "transparent",
-    color: "var(--accent-text)",
+    // O fundo (transparente em repouso, ténue no hover) vive no CSS, em
+    // ".at-icon-btn" — declarado aqui inline, ganhava à regra e matava o hover.
+    color: "var(--text-secondary)",
     cursor: "pointer",
-    transition: "background 0.15s ease",
+    transition: "background 0.15s ease, color 0.15s ease",
   },
 
   badge: {

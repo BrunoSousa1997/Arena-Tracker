@@ -616,8 +616,38 @@ select:hover {
    transparente por omissão, por isso o filtro global "button:hover
    { filter: brightness(1.16) }" quase não se nota. Um fundo próprio no
    hover deixa claro que cada opção é clicável. */
-.formatSegBtn:hover {
-  background: rgba(var(--accent-rgb), 0.14);
+/* Os três grupos de botões do cabeçalho: tabs, filtro de formato, e o par
+   campainha/⚙ do canto. Todos transparentes em repouso e com um fundo ténue
+   ao passar o rato — sem isto não têm resposta nenhuma ao hover, porque o
+   filtro global "brightness(1.16)" não tem fundo em que pegar e a mudança de
+   cor do texto, num cinzento, quase não se nota.
+
+   O "background: transparent" TEM de viver aqui e não nos estilos inline do
+   App.jsx, e é a parte que já tinha falhado uma vez: a regra de hover dos
+   botões de formato existia há muito, mas cada botão declarava
+   "background: transparent" inline, e estilo inline ganha sempre a uma folha
+   de estilo — ou seja, a regra nunca chegou a pintar nada. Com as duas
+   pontas em CSS, o hover passa a valer. Mesma lógica da secção do cabeçalho
+   responsivo mais abaixo: uma propriedade é de um sítio só.
+
+   As tabs não precisam de exceção para a ativa — o indicador do
+   framer-motion é um filho absoluto pintado por cima deste fundo. */
+.at-tab,
+.formatSegBtn,
+.at-icon-btn {
+  background: transparent;
+}
+
+.at-tab:hover,
+.formatSegBtn:hover,
+.at-icon-btn:hover {
+  background: rgba(var(--accent-rgb), 0.12);
+}
+
+/* No cluster do canto o hover também devolve a cor de destaque, que saiu do
+   estado de repouso para não competir com o Sincronizar ao lado. */
+.at-icon-btn:hover {
+  color: var(--accent-text);
 }
 
 /* Fileiras clicáveis que não são <button> (a linha do Histórico/Estatísticas
@@ -691,6 +721,25 @@ select:hover {
 @media (max-width: 1180px) {
   .at-tab-label {
     display: none;
+  }
+
+  /* Sem o rótulo, cada tab continuava com "flex: 1" e por isso a esticar-se
+     para ocupar um oitavo da linha inteira — ou seja, um ícone de 14px no
+     meio de um botão com mais de 100px de largura, e a tab ativa a aparecer
+     como uma mancha dourada enorme à volta de um símbolo minúsculo. Pior
+     ainda, o filtro de formato à direita mantém o texto, e passava a ser a
+     coisa mais pesada da linha: o filtro a dominar a navegação.
+     Limitar a largura e distribuir o espaço que sobra resolve as duas coisas
+     — oito ícones em quadrados regulares, fáceis de contar e de acertar.
+     "max-width" e "justify-content" são das poucas propriedades que o
+     App.jsx não define inline (ver nota no topo desta secção), por isso a
+     regra pega sem precisar de !important. */
+  .at-tab {
+    max-width: 62px;
+  }
+
+  .at-tab-bar {
+    justify-content: space-evenly;
   }
 }
 
