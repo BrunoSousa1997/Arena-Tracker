@@ -417,4 +417,12 @@ function startLiveGameWatcher() {
   }, 3000);
 }
 
-module.exports = { startLiveGameWatcher };
+// Há uma partida a decorrer? Consultado pelo auto-update (ver
+// electron/updater.js) antes de aplicar uma atualização sozinho: reiniciar a
+// meio de um jogo matava o overlay e perdia a sessão ao vivo (as sequências
+// medidas poll a poll só existem em memória até ao GameEnd).
+function isGameActive() {
+  return liveGamePhase === "active";
+}
+
+module.exports = { startLiveGameWatcher, isGameActive };

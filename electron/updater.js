@@ -2,6 +2,7 @@ const { app, ipcMain } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const https = require("https");
 const { getWindow } = require("./windowState");
+const { isGameActive } = require("./liveGame");
 
 const RELEASES_OWNER = "BrunoSousa1997";
 const RELEASES_REPO = "Arena-Tracker";
@@ -9,6 +10,28 @@ const RELEASES_REPO = "Arena-Tracker";
 // ================= AUTO UPDATE =================
 autoUpdater.autoDownload = true;
 autoUpdater.autoInstallOnAppQuit = true;
+
+// De quanto em quanto tempo se volta a perguntar ao GitHub se há versão nova.
+// Só verificar no arranque não chegava: com o modo em segundo plano a app
+// fica ligada dias seguidos (é esse o objetivo dele), e nesse tempo nunca
+// chegava a saber que havia atualização — o aviso só aparecia ao fim de um
+// reinício que podia nunca acontecer.
+const CHECK_INTERVAL_MS = 3 * 60 * 60 * 1000;
+
+// Com a atualização já descarregada, de quanto em quanto tempo se vê se a app
+// está num momento em que se pode reiniciar sem ninguém dar por isso.
+const IDLE_POLL_MS = 5 * 60 * 1000;
+
+// Versão já descarregada à espera de ser aplicada (null = não há nada).
+let downloadedVersion = null;
+let idleTimer = null;
+
+// Há sincronizações automáticas por terminar? Vem da interface (ver
+// scheduleAutoSync em useLiveGame.js), porque é lá que elas vivem: são
+// temporizadores em memória, que um reinício deita fora. Aplicar a
+// atualização a meio de um desses ciclos deixaria a partida acabada de jogar
+// por sincronizar até alguém carregar no botão à mão.
+let syncPending = false;
 
 function sendUpdaterStatus(status, data) {
   console.log("[updater]", status, data || "");
@@ -26,6 +49,47 @@ function sendUpdaterStatus(status, data) {
 // "Reiniciar agora" (banner) e pelo item da bandeja (ver electron/background.js).
 function installUpdate() {
   autoUpdater.quitAndInstall(true, true);
+}
+
+// Onde está a app do ponto de vista de quem a usa: "hidden" (na bandeja, ou
+// ainda sem janela), "minimized", ou null quando está à vista — e aí não se
+// lhe toca, que é o que o banner "Reiniciar agora" existe para resolver.
+function awayState() {
+  const win = getWindow();
+  if (!win || win.isDestroyed()) return "hidden";
+
+  // Pela ordem certa: escondida na bandeja primeiro (ver isWindowHidden em
+  // electron/background.js, que acompanha os eventos em vez de adivinhar),
+  // depois minimizada, e isVisible() só como rede de segurança. Ao contrário,
+  // a app relançava-se escondida na bandeja a quem a tinha simplesmente
+  // minimizada na barra de tarefas — sumia do sítio onde a foram pôr.
+  if (require("./background").isWindowHidden()) return "hidden";
+  if (win.isMinimized()) return "minimized";
+  if (!win.isVisible()) return "hidden";
+  return null;
+}
+
+// O reinício é inevitável para aplicar uma atualização (o Windows não deixa
+// substituir o .exe de um processo vivo), mas não tem de ser o utilizador a
+// escolher o momento: faz-se quando ele não está a olhar. Fica de fora tudo
+// o que um reinício estragaria — uma partida a decorrer (perdia-se a sessão
+// ao vivo e o overlay) e sincronizações por terminar.
+function installWhenIdle() {
+  if (!downloadedVersion) return;
+  if (isGameActive() || syncPending) return;
+
+  const state = awayState();
+  if (!state) return;
+
+  clearInterval(idleTimer);
+  idleTimer = null;
+  console.log("[updater] app ociosa (" + state + ") — a aplicar " + downloadedVersion);
+
+  // Para o arranque seguinte repor a app como ela estava (ver
+  // setRelaunchState em electron/background.js): quem a tinha na bandeja não
+  // deve receber uma janela na cara por causa de uma atualização.
+  require("./background").setRelaunchState(state);
+  installUpdate();
 }
 
 autoUpdater.on("checking-for-update", () => {
@@ -59,16 +123,25 @@ autoUpdater.on("update-downloaded", (info) => {
   // vive o banner) um sítio para aplicar sem reabrir. Require tardio para não
   // criar dependência circular na carga dos módulos.
   require("./background").setPendingUpdate(info?.version, installUpdate);
+
+  // A partir daqui a atualização aplica-se sozinha mal haja um momento bom
+  // para isso; o banner e a bandeja ficam para quem não quiser esperar.
+  downloadedVersion = info?.version || null;
+  if (idleTimer) clearInterval(idleTimer);
+  idleTimer = setInterval(installWhenIdle, IDLE_POLL_MS);
+  installWhenIdle();
 });
 
 autoUpdater.on("error", (err) => {
   sendUpdaterStatus("error", { message: err?.message || String(err) });
 });
 
-ipcMain.handle("updater:check", () => {
-  return autoUpdater.checkForUpdates().catch((err) => {
-    sendUpdaterStatus("error", { message: err?.message || String(err) });
-  });
+ipcMain.handle("updater:check", () => checkNow());
+
+// A interface avisa quando fica (ou deixa de ficar) com auto-syncs em aberto
+// — ver syncPending acima.
+ipcMain.handle("updater:syncPending", (_event, pending) => {
+  syncPending = !!pending;
 });
 
 ipcMain.handle("updater:install", () => {
@@ -144,14 +217,23 @@ ipcMain.handle("updater:history", async () => {
   }
 });
 
+function checkNow() {
+  return autoUpdater.checkForUpdates().catch((err) => {
+    sendUpdaterStatus("error", { message: err?.message || String(err) });
+  });
+}
+
 function checkForUpdatesOnStartup() {
-  if (!process.env.ELECTRON_START_URL) {
-    setTimeout(() => {
-      autoUpdater.checkForUpdates().catch((err) => {
-        sendUpdaterStatus("error", { message: err?.message || String(err) });
-      });
-    }, 2000);
-  }
+  // Em desenvolvimento não há app-update.yml nenhum para consultar.
+  if (process.env.ELECTRON_START_URL) return;
+
+  setTimeout(checkNow, 2000);
+
+  // Ver CHECK_INTERVAL_MS. Com uma versão já descarregada não há nada a
+  // procurar — o que falta é só o momento de a aplicar (ver installWhenIdle).
+  setInterval(() => {
+    if (!downloadedVersion) checkNow();
+  }, CHECK_INTERVAL_MS);
 }
 
 function initUpdater() {

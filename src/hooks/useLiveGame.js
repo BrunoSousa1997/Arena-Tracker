@@ -73,8 +73,25 @@ export function useLiveGame({
   // seguinte (que podia demorar até 5 min).
   const pendingAutoSyncs = useRef([]);
 
+  // O processo principal precisa de saber que estes ciclos existem: enquanto
+  // houver algum em aberto, o auto-update não pode reiniciar a app por baixo
+  // (os temporizadores são de memória — um reinício deixava a partida por
+  // sincronizar até alguém carregar no botão). Ver electron/updater.js.
+  const reportPendingAutoSyncs = () => {
+    window.electron?.setSyncPending?.(pendingAutoSyncs.current.length > 0);
+  };
+
+  // Uma interface acabada de carregar não tem ciclos nenhuns em aberto —
+  // dizê-lo em voz alta é o que impede o processo principal de ficar preso
+  // num "sim" antigo (ex: a janela recarregou a meio de um ciclo) e nunca
+  // mais aplicar uma atualização sozinho.
+  useEffect(() => {
+    window.electron?.setSyncPending?.(false);
+  }, []);
+
   const removePendingAutoSync = (id) => {
     pendingAutoSyncs.current = pendingAutoSyncs.current.filter((p) => p.id !== id);
+    reportPendingAutoSyncs();
   };
 
   // Agenda uma tentativa de auto-sync e, se a partida ainda não aparecer
@@ -128,6 +145,7 @@ export function useLiveGame({
     const existing = pendingAutoSyncs.current.find((p) => p.id === id);
     if (existing) existing.timerId = timer;
     else pendingAutoSyncs.current.push({ id, username, signature, timerId: timer });
+    reportPendingAutoSyncs();
   };
 
   // Chamar depois de QUALQUER sincronização manual (botão "Sincronizar" ou

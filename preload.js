@@ -43,6 +43,9 @@ contextBridge.exposeInMainWorld("electron", {
   checkForUpdates: () => ipcRenderer.invoke("updater:check"),
   installUpdate: () => ipcRenderer.invoke("updater:install"),
   getReleaseHistory: () => ipcRenderer.invoke("updater:history"),
+  // Trava o reinício automático do auto-update enquanto houver partidas por
+  // sincronizar (ver electron/updater.js).
+  setSyncPending: (pending) => ipcRenderer.invoke("updater:syncPending", pending),
   onUpdaterStatus: (callback) => {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on("updater:status", listener);

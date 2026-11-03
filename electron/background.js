@@ -42,8 +42,39 @@ let quitting = false;
 // Atualização já descarregada à espera de ser aplicada — { version, install }.
 // Em modo segundo plano o utilizador quase não abre a janela (onde vive o
 // banner "Reiniciar agora"), por isso a bandeja passa a mostrar um item para
-// aplicar. É sempre o utilizador a carregar; nunca reiniciamos por baixo dele.
+// aplicar à mão. Com a app ociosa o updater acaba por a aplicar sozinho (ver
+// electron/updater.js); este item é para quem não quer esperar por isso.
 let pendingUpdate = null;
+
+// ================= RELANÇAMENTO APÓS UPDATE SILENCIOSO =================
+// O updater só aplica a atualização sozinho com a app fora da vista — na
+// bandeja ou minimizada (ver electron/updater.js) — mas o quitAndInstall
+// relança-a sempre visível. Sem isto, uma atualização discreta acabava com
+// uma janela a saltar para a frente do jogo, que é o contrário do que se
+// queria. Guarda-se como a app estava para o arranque seguinte repor, e
+// lê-se uma única vez (apagando), para um arranque normal mais tarde não
+// nascer escondido por engano.
+// A janela está escondida na bandeja, por oposição a minimizada? O updater
+// precisa de distinguir as duas (ver awayState em electron/updater.js) e as
+// APIs do Electron não chegam para isso: no Windows uma janela minimizada
+// responde isVisible() === false na mesma, e uma janela escondida enquanto
+// estava minimizada responde que sim às duas perguntas. Os eventos é que não
+// são ambíguos — minimizar nunca emite "hide".
+let windowHidden = false;
+
+function isWindowHidden() {
+  return windowHidden;
+}
+
+function setRelaunchState(state) {
+  store.set("relaunchState", state);
+}
+
+function takeRelaunchState() {
+  const state = store.get("relaunchState", null);
+  if (state) store.delete("relaunchState");
+  return state;
+}
 
 function isBackgroundMode() {
   return store.get("backgroundMode", false);
@@ -173,7 +204,9 @@ function currentLabels() {
 }
 
 // Chamado a partir de createWindow (ver electron/window.js), já com a janela
-// criada. Devolve se a janela deve arrancar escondida.
+// criada. Devolve como a janela deve arrancar: escondida (arranque automático
+// do Windows, ou relançamento depois de uma atualização aplicada com a app na
+// bandeja) ou minimizada (relançamento com a app minimizada).
 function initBackgroundMode(win) {
   syncTray(currentLabels());
 
@@ -183,7 +216,24 @@ function initBackgroundMode(win) {
     win.hide();
   });
 
-  return startedHidden() && isBackgroundMode();
+  // Ver isWindowHidden. Em "show"/"hide" e não só no handler acima porque a
+  // janela também se esconde e reaparece por outras vias (showWindow, a
+  // bandeja, o atalho global).
+  win.on("hide", () => {
+    windowHidden = true;
+  });
+  win.on("show", () => {
+    windowHidden = false;
+  });
+
+  const relaunch = takeRelaunchState();
+
+  // Esconder exige o modo em segundo plano: sem bandeja, uma janela escondida
+  // seria uma app a correr sem forma nenhuma de lá chegar.
+  return {
+    startHidden: (startedHidden() || relaunch === "hidden") && isBackgroundMode(),
+    startMinimized: relaunch === "minimized",
+  };
 }
 
 // A app só deve mesmo morrer quando todas as janelas fecham SE não estivermos
@@ -269,4 +319,6 @@ module.exports = {
   registerBackgroundHandlers,
   shouldQuitOnAllWindowsClosed,
   setPendingUpdate,
+  setRelaunchState,
+  isWindowHidden,
 };

@@ -68,8 +68,10 @@ function createWindow() {
 
   // Arranca escondida quando foi o arranque automático do Windows a abrir a
   // app (ver electron/background.js) — nesse caso só o ícone na bandeja
-  // aparece, que é precisamente o objetivo.
-  const startHidden = initBackgroundMode(win);
+  // aparece, que é precisamente o objetivo. Escondida ou minimizada também
+  // quando este arranque é o relançamento de uma atualização que a app
+  // aplicou sozinha estando fora da vista: volta como estava.
+  const { startHidden, startMinimized } = initBackgroundMode(win);
 
   console.log("PRELOAD PATH:", path.join(__dirname, "..", "preload.js"));
 
@@ -89,6 +91,20 @@ function createWindow() {
   // sempre, para quem nunca mexeu nisto não notar diferença nenhuma.
   win.once("ready-to-show", () => {
     if (startHidden) return;
+
+    // Relançamento depois de uma atualização aplicada com a app minimizada:
+    // showInactive() em vez de show() para não roubar o foco a quem está no
+    // League. Mostrar antes de minimizar é o que permite repor o maximizado
+    // (uma janela nunca mostrada não tem estado de ecrã para restaurar) — o
+    // maximize pode piscar por um instante, e é por isso que o updater nunca
+    // faz isto com uma partida a decorrer.
+    if (startMinimized) {
+      win.showInactive();
+      if (store.get("displayMode", "maximized") === "maximized") win.maximize();
+      win.minimize();
+      return;
+    }
+
     win.show();
 
     const mode = store.get("displayMode", "maximized");

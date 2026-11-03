@@ -51,7 +51,7 @@ export default function UpdateNotifier() {
       ? `Nova versão encontrada${data?.version ? ` (${data.version})` : ""}. A descarregar em segundo plano — continua a jogar.`
       : status === "downloading"
       ? `A descarregar atualização... ${Math.round(data?.percent || 0)}%`
-      : `Atualização pronta${data?.version ? ` (${data.version})` : ""}. Aplica-se sozinha quando reiniciares — sem pressa.`;
+      : `Atualização pronta${data?.version ? ` (${data.version})` : ""}. Aplica-se sozinha mal deixes a app de lado — sem pressa.`;
 
   return (
     <>
