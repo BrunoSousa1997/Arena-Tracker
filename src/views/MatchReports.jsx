@@ -8,6 +8,7 @@ import { augmentRarityStyle } from "../lib/augments";
 import { useLanguage } from "../lib/i18n";
 import Tooltip from "../components/Tooltip";
 import { ALWAYS_EXCLUDED_ITEM_NAMES } from "../lib/items";
+import { canShowIcons, championIcon, itemIcon } from "../lib/icons";
 
 // 1º-8º — a Arena de 2 (8 equipas) tem sempre estes 8 lugares possíveis; na
 // Arena de 3 (6 equipas) só existem até ao 6º, mas mostramos os 8 cartões
@@ -800,9 +801,9 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
                     {idx === 0 ? t("compare_slot_a_label") : t("compare_slot_b_label")}
                   </div>
                   <div style={{ ...styles.searchBox, position: "relative", marginBottom: 0 }}>
-                  {slot.champ && DRAGON && (
+                  {slot.champ && canShowIcons(DRAGON) && (
                     <img
-                      src={`${DRAGON}/img/champion/${slot.champ.champion}.png`}
+                      src={championIcon(slot.champ.champion, DRAGON)}
                       style={styles.compareSlotIcon}
                     />
                   )}
@@ -836,9 +837,9 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
                             slot.setQuery("");
                           }}
                         >
-                          {DRAGON && (
+                          {canShowIcons(DRAGON) && (
                             <img
-                              src={`${DRAGON}/img/champion/${c.champion}.png`}
+                              src={championIcon(c.champion, DRAGON)}
                               style={styles.buildFilterOptionIcon}
                             />
                           )}
@@ -938,9 +939,9 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
                         ...(idx === champSearchHighlight ? styles.searchOptionActive : null),
                       }}
                     >
-                      {DRAGON && (
+                      {canShowIcons(DRAGON) && (
                         <img
-                          src={`${DRAGON}/img/champion/${c.champion}.png`}
+                          src={championIcon(c.champion, DRAGON)}
                           style={styles.buildFilterOptionIcon}
                         />
                       )}
@@ -1027,7 +1028,7 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
                 <div style={styles.buildFilterChipRow}>
                   {selectedItemFilters.map((o) => (
                     <div key={o.id} style={styles.buildFilterChip}>
-                      {DRAGON && <img src={`${DRAGON}/img/item/${o.id}.png`} style={styles.buildFilterChipIcon} />}
+                      {canShowIcons(DRAGON) && <img src={itemIcon(o.id, DRAGON)} style={styles.buildFilterChipIcon} />}
                       <span>{o.name}</span>
                       <button onClick={() => toggleItemFilter(o)} style={styles.buildFilterClear}>
                         <X size={11} strokeWidth={2.25} />
@@ -1062,7 +1063,7 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
                           toggleItemFilter(o);
                         }}
                       >
-                        {DRAGON && <img src={`${DRAGON}/img/item/${o.id}.png`} style={styles.buildFilterOptionIcon} />}
+                        {canShowIcons(DRAGON) && <img src={itemIcon(o.id, DRAGON)} style={styles.buildFilterOptionIcon} />}
                         <span style={styles.buildFilterOptionName}>{o.name}</span>
                       </div>
                     ))}
@@ -1106,9 +1107,9 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
                     setExpanded(isOpen ? null : s.champion);
                   }}
                 >
-                  {DRAGON && (
+                  {canShowIcons(DRAGON) && (
                     <img
-                      src={`${DRAGON}/img/champion/${s.champion}.png`}
+                      src={championIcon(s.champion, DRAGON)}
                       style={styles.champIcon}
                     />
                   )}
@@ -1304,9 +1305,9 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
                                       label={`${champName(o.champion)} · ${o.wins}/${o.games} (${o.winrate}%)`}
                                     >
                                       <div style={{ ...styles.matchupPill, borderColor: "rgba(74,222,128,0.4)" }}>
-                                        {DRAGON && (
+                                        {canShowIcons(DRAGON) && (
                                           <img
-                                            src={`${DRAGON}/img/champion/${o.champion}.png`}
+                                            src={championIcon(o.champion, DRAGON)}
                                             style={styles.matchupIcon}
                                           />
                                         )}
@@ -1327,9 +1328,9 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
                                       label={`${champName(o.champion)} · ${o.wins}/${o.games} (${o.winrate}%)`}
                                     >
                                       <div style={{ ...styles.matchupPill, borderColor: "rgba(226,85,95,0.4)" }}>
-                                        {DRAGON && (
+                                        {canShowIcons(DRAGON) && (
                                           <img
-                                            src={`${DRAGON}/img/champion/${o.champion}.png`}
+                                            src={championIcon(o.champion, DRAGON)}
                                             style={styles.matchupIcon}
                                           />
                                         )}
@@ -1450,9 +1451,9 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
                                 return (
                                   <Tooltip key={it.id} label={`${itemName} · ${it.count}x ${t("in_wins_suffix")}`}>
                                     <div style={{ ...styles.itemPill, ...styles.winningBuildPill }}>
-                                      {DRAGON && (
+                                      {canShowIcons(DRAGON) && (
                                         <img
-                                          src={`${DRAGON}/img/item/${it.id}.png`}
+                                          src={itemIcon(it.id, DRAGON)}
                                           style={styles.itemPillIcon}
                                         />
                                       )}
@@ -1500,9 +1501,9 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
                               return (
                                 <Tooltip key={it.id} label={`${itemName} · ${it.count}x`}>
                                   <div style={styles.itemPill}>
-                                    {DRAGON && (
+                                    {canShowIcons(DRAGON) && (
                                       <img
-                                        src={`${DRAGON}/img/item/${it.id}.png`}
+                                        src={itemIcon(it.id, DRAGON)}
                                         style={styles.itemPillIcon}
                                       />
                                     )}

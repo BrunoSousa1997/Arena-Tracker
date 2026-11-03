@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { loadAugments } from "../lib/augments";
+import { spellIcon } from "../lib/icons";
 import { buildItemTierMap } from "../lib/itemTiers";
 
 // Dados estáticos (Data Dragon + Community Dragon) que a app inteira lê mas
@@ -16,6 +17,10 @@ export function useStaticData() {
   const [champions, setChampions] = useState([]);
   const [augmentsMap, setAugmentsMap] = useState({});
   const [summonerSpellsMap, setSummonerSpellsMap] = useState({});
+  // Os nomes de ficheiro dos ícones dos feitiços, para o pré-aquecimento da
+  // cache os poder pedir (ver useIconPrefetch) — o mapa acima já guarda os
+  // URLs montados, e desmontá-los outra vez era pior.
+  const [summonerSpellFiles, setSummonerSpellFiles] = useState([]);
   const [itemsMap, setItemsMap] = useState({});
   // Mapa à parte em vez de enriquecer o itemsMap: seis sítios na app fazem
   // itemsMap[id] à espera de uma STRING com o nome (tooltips do Histórico,
@@ -87,10 +92,13 @@ export function useStaticData() {
       .then((r) => r.json())
       .then((data) => {
         const map = {};
+        const files = [];
         Object.values(data.data || {}).forEach((spell) => {
-          map[spell.name] = `${DRAGON}/img/spell/${spell.image.full}`;
+          map[spell.name] = spellIcon(spell.image.full, DRAGON);
+          if (spell.image?.full) files.push(spell.image.full);
         });
         setSummonerSpellsMap(map);
+        setSummonerSpellFiles(files);
       });
   }, [DRAGON]);
 
@@ -116,6 +124,7 @@ export function useStaticData() {
     champions,
     augmentsMap,
     summonerSpellsMap,
+    summonerSpellFiles,
     itemsMap,
     itemTiersMap,
     DRAGON,

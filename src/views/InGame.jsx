@@ -20,6 +20,7 @@ import { placementColor } from "../lib/placement";
 import { scoreLiveGame, resolveRoomRules } from "../lib/challengeScoring";
 import { normalizeItems } from "../lib/items";
 import Tooltip from "../components/Tooltip";
+import { canShowIcons, championIcon, itemIcon } from "../lib/icons";
 
 // ================= A TAB "EM JOGO" =================
 // Junta num só ecrã as três coisas que só fazem sentido juntas enquanto a
@@ -411,9 +412,9 @@ export default function InGame({
             : "rgba(var(--border-rgb),0.35)",
         }}
       >
-        {DRAGON && (
+        {canShowIcons(DRAGON) && (
           <img
-            src={`${DRAGON}/img/champion/${championId}.png`}
+            src={championIcon(championId, DRAGON)}
             alt=""
             style={styles.heroIcon}
           />
@@ -462,7 +463,7 @@ export default function InGame({
               {normalizeItems(liveChampionAlert.items).map((it, idx) => (
                 <Tooltip key={idx} label={itemsMap?.[it.itemID] || `#${it.itemID}`}>
                   <img
-                    src={`${DRAGON}/img/item/${it.itemID}.png`}
+                    src={itemIcon(it.itemID, DRAGON)}
                     alt=""
                     style={styles.heroItemIcon}
                   />
@@ -570,9 +571,9 @@ export default function InGame({
                   opacity: p.isDead ? 0.45 : 1,
                 }}
               >
-                {DRAGON && (
+                {canShowIcons(DRAGON) && (
                   <img
-                    src={`${DRAGON}/img/champion/${p.id}.png`}
+                    src={championIcon(p.id, DRAGON)}
                     alt=""
                     style={styles.lobbyIcon}
                   />
@@ -875,9 +876,9 @@ function PlanSlot({ slot, isNext, name, DRAGON, itemsMap, augmentsMap, t }) {
         label={`${label} — ${t(EVIDENCE_LABEL_KEYS[row.evidence] || "ingame_evidence_global")}, ${row.games} ${t("ingame_plan_games")} · ${t("ingame_plan_confidence")} ${t(CONFIDENCE_LABEL_KEYS[row.confidence])}`}
       >
         <span style={styles.planSlotIconWrap}>
-          {DRAGON && (
+          {canShowIcons(DRAGON) && (
             <img
-              src={`${DRAGON}/img/item/${row.id}.png`}
+              src={itemIcon(row.id, DRAGON)}
               alt=""
               style={styles.planSlotIcon}
               loading="lazy"
@@ -1061,9 +1062,9 @@ function ItemLine({ row, name, DRAGON, owned, ownedLabel, inBuild, inBuildLabel,
   return (
     <div style={{ ...styles.line, ...(owned ? styles.lineOwned : null) }}>
       <span style={styles.lineIconWrap}>
-        {DRAGON && (
+        {canShowIcons(DRAGON) && (
           <img
-            src={`${DRAGON}/img/item/${row.id}.png`}
+            src={itemIcon(row.id, DRAGON)}
             alt=""
             style={styles.lineIcon}
             loading="lazy"

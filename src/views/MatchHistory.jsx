@@ -6,6 +6,7 @@ import { augmentRarityStyle } from "../lib/augments";
 import { useLanguage } from "../lib/i18n";
 import Tooltip from "../components/Tooltip";
 import EmptyState from "../components/EmptyState";
+import { canShowIcons, championIcon, itemIcon } from "../lib/icons";
 
 function timeAgo(iso, lang) {
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -386,8 +387,8 @@ export default function MatchHistory({
                     ...(idx === highlightedSuggestion ? styles.searchOptionActive : null),
                   }}
                 >
-                  {DRAGON && (
-                    <img src={`${DRAGON}/img/champion/${c.id}.png`} style={styles.searchOptionIcon} />
+                  {canShowIcons(DRAGON) && (
+                    <img src={championIcon(c.id, DRAGON)} style={styles.searchOptionIcon} />
                   )}
                   <span>{c.name}</span>
                 </div>
@@ -465,9 +466,9 @@ export default function MatchHistory({
                   }}
                 >
                   <div style={styles.matchIconWrap}>
-                    {DRAGON && (
+                    {canShowIcons(DRAGON) && (
                       <img
-                        src={`${DRAGON}/img/champion/${m.champion}.png`}
+                        src={championIcon(m.champion, DRAGON)}
                         style={{ ...styles.matchIcon, border: `2px solid ${color}` }}
                       />
                     )}
@@ -613,7 +614,7 @@ export default function MatchHistory({
                               return (
                                 <Tooltip key={idx} label={label}>
                                   <img
-                                    src={`${DRAGON}/img/item/${it.itemID}.png`}
+                                    src={itemIcon(it.itemID, DRAGON)}
                                     style={styles.itemIcon}
                                   />
                                 </Tooltip>
@@ -700,9 +701,9 @@ export default function MatchHistory({
                                         }}
                                       >
                                         <Tooltip label={p.name ? `${champName(p.champion)} — ${p.name}` : champName(p.champion)}>
-                                          {DRAGON && (
+                                          {canShowIcons(DRAGON) && (
                                             <img
-                                              src={`${DRAGON}/img/champion/${p.champion}.png`}
+                                              src={championIcon(p.champion, DRAGON)}
                                               style={styles.teamPlayerIcon}
                                             />
                                           )}
@@ -763,7 +764,7 @@ export default function MatchHistory({
                                             {(p.items || []).map((itemId, i2) => (
                                               <Tooltip key={`i-${i2}`} label={itemsMap?.[itemId] || `Item #${itemId}`}>
                                                 <img
-                                                  src={`${DRAGON}/img/item/${itemId}.png`}
+                                                  src={itemIcon(itemId, DRAGON)}
                                                   style={styles.teamPlayerItemIcon}
                                                 />
                                               </Tooltip>

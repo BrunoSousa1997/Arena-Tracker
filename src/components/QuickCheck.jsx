@@ -3,6 +3,7 @@ import { Search, X } from "lucide-react";
 import Tooltip from "./Tooltip";
 import { championMatchesTerm, parseSearchTerms, SEARCH_SEPARATORS } from "../lib/champions";
 import { useLanguage } from "../lib/i18n";
+import { canShowIcons, championIcon } from "../lib/icons";
 
 // ================= CONSULTA RÁPIDA =================
 // O ecrã que responde a "destes campeões, em quais é que ainda me falta
@@ -201,8 +202,8 @@ export default function QuickCheck({ search, setSearch, champions, owned, dragon
                   : null),
               }}
             >
-              {dragon && (
-                <img src={`${dragon}/img/champion/${champ.id}.png`} alt="" style={styles.suggestIcon} />
+              {canShowIcons(dragon) && (
+                <img src={championIcon(champ.id, dragon)} alt="" style={styles.suggestIcon} />
               )}
               <span>{champ.name}</span>
               <span
@@ -226,8 +227,8 @@ export default function QuickCheck({ search, setSearch, champions, owned, dragon
               key={champ.id}
               style={{ ...styles.chip, ...(hasWin ? styles.chipWon : styles.chipMissing) }}
             >
-              {dragon && (
-                <img src={`${dragon}/img/champion/${champ.id}.png`} alt="" style={styles.chipIcon} />
+              {canShowIcons(dragon) && (
+                <img src={championIcon(champ.id, dragon)} alt="" style={styles.chipIcon} />
               )}
               <div style={styles.chipInfo}>
                 <div style={styles.chipName}>{champ.name}</div>

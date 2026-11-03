@@ -25,6 +25,7 @@ import {
 } from "../db/api";
 import Loading from "../components/Loading";
 import AchievementIcon from "../components/AchievementIcon";
+import { canShowIcons, championIcon } from "../lib/icons";
 
 function kdaLabel(k, d, a) {
   return `${k.toFixed(1)} / ${d.toFixed(1)} / ${a.toFixed(1)}`;
@@ -784,13 +785,13 @@ function SpotlightCompareRow({ label, DRAGON, champA, valueA, champB, valueB }) 
   return (
     <div style={styles.row}>
       <div style={styles.spotlightSide}>
-        {champA && DRAGON && <img src={`${DRAGON}/img/champion/${champA}.png`} style={styles.spotlightIcon} />}
+        {champA && canShowIcons(DRAGON) && <img src={championIcon(champA, DRAGON)} style={styles.spotlightIcon} />}
         <span style={styles.rowValue}>{valueA ?? "—"}</span>
       </div>
       <div style={styles.rowLabel}>{label}</div>
       <div style={{ ...styles.spotlightSide, justifyContent: "flex-end" }}>
         <span style={styles.rowValue}>{valueB ?? "—"}</span>
-        {champB && DRAGON && <img src={`${DRAGON}/img/champion/${champB}.png`} style={styles.spotlightIcon} />}
+        {champB && canShowIcons(DRAGON) && <img src={championIcon(champB, DRAGON)} style={styles.spotlightIcon} />}
       </div>
     </div>
   );

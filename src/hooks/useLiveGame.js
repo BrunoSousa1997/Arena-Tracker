@@ -15,6 +15,7 @@ import {
 } from "../db/api";
 import { normalizeChampionId } from "../lib/champions";
 import { getRoast, detectRoastSituation } from "../lib/roasts";
+import { championIcon } from "../lib/icons";
 
 // Agenda do auto-sync após o fim de uma partida (ver scheduleAutoSync). A
 // Live Client Data só dá Win/Lose, nunca o lugar exato — mas só 1º e 2º
@@ -651,7 +652,7 @@ export function useLiveGame({
     window.electron.updateOverlay({
       championName: champion?.name || liveChampionAlert.championId,
       championIcon: DRAGON
-        ? `${DRAGON}/img/champion/${liveChampionAlert.championId}.png`
+        ? championIcon(liveChampionAlert.championId, DRAGON)
         : null,
       hasWin: liveChampionAlert.hasWin,
       roast: liveChampionAlert.roast,

@@ -45,6 +45,8 @@ import { useAccounts } from "./hooks/useAccounts";
 import { useLiveGame } from "./hooks/useLiveGame";
 import { useRiotSync } from "./hooks/useRiotSync";
 import { useNotifications } from "./hooks/useNotifications";
+import { useIconPrefetch } from "./hooks/useIconPrefetch";
+import { canShowIcons, championIcon, itemIcon } from "./lib/icons";
 
 // Marcas de "isto já foi mostrado uma vez" (ver PRIMEIRA UTILIZAÇÃO). Ficam
 // em localStorage e não na Supabase de propósito: descrevem o que ESTE
@@ -52,6 +54,130 @@ import { useNotifications } from "./hooks/useNotifications";
 // conta — quem instala a app noutro sítio merece a apresentação de novo.
 const WELCOME_SEEN_KEY = "onboarding-welcome-seen";
 const TOUR_SEEN_KEY = "onboarding-tour-seen";
+
+// Há quanto tempo, curto. O azulejo é pequeno e o tooltip estreito; uma data
+// completa por campeão roubava a linha toda ao que interessa.
+function haQuantoTempo(ms, lang) {
+  const dias = Math.floor((Date.now() - ms) / 86400000);
+  if (dias <= 0) return lang === "en" ? "today" : "hoje";
+  if (dias === 1) return lang === "en" ? "yesterday" : "ontem";
+  if (dias < 30) return lang === "en" ? `${dias}d ago` : `há ${dias}d`;
+  const meses = Math.floor(dias / 30);
+  return lang === "en" ? `${meses}mo ago` : `há ${meses}m`;
+}
+
+// O conteúdo do tooltip de cada campeão da Coleção. Era uma linha de texto
+// ("nome — 3 partidas 7.2/4.1/9.0"); passa a um bloco com o estado em
+// destaque e os números em pares, porque o azulejo não mostra nada e este é
+// o único sítio onde a app diz o que se fez com aquele campeão.
+//
+// Muda com o ESTADO, em vez de mostrar sempre os mesmos campos vazios: quem
+// nunca jogou não tem números para ver, e quem jogou sem ganhar quer saber
+// quantas vezes tentou e quão perto chegou — não um KDA de vitórias que não
+// existem.
+function ChampionTooltip({ name, stats, hasWin, tried, lang, t }) {
+  const estado = hasWin
+    ? { texto: t("collection_tt_in"), cor: "var(--place-good)" }
+    : tried
+    ? { texto: t("collection_tt_no_win"), cor: "var(--place-mid)" }
+    : { texto: t("collection_tt_untouched"), cor: "var(--text-muted)" };
+
+  const linhas = [];
+  if (stats) {
+    const pct = (n) => Math.round((n / stats.games) * 100);
+    linhas.push([t("collection_tt_games"), String(stats.games)]);
+    linhas.push([t("collection_tt_first"), `${stats.wins} (${pct(stats.wins)}%)`]);
+    linhas.push([t("collection_tt_top3"), `${stats.top3} (${pct(stats.top3)}%)`]);
+    if (stats.placementCount > 0) {
+      linhas.push([
+        t("collection_tt_avg"),
+        `${(stats.placementSum / stats.placementCount).toFixed(1)}º`,
+      ]);
+      linhas.push([t("collection_tt_best"), `${stats.best}º`]);
+    }
+    linhas.push([
+      t("collection_tt_kda"),
+      `${(stats.kills / stats.games).toFixed(1)} / ${(stats.deaths / stats.games).toFixed(1)} / ${(stats.assists / stats.games).toFixed(1)}`,
+    ]);
+    if (stats.last) linhas.push([t("collection_tt_last"), haQuantoTempo(stats.last, lang)]);
+  }
+
+  return (
+    <span style={ttStyles.wrap}>
+      <span style={ttStyles.head}>
+        <span style={ttStyles.name}>{name}</span>
+        <span style={{ ...ttStyles.estado, color: estado.cor }}>{estado.texto}</span>
+      </span>
+
+      {linhas.length > 0 ? (
+        <span style={ttStyles.grid}>
+          {linhas.map(([rotulo, valor]) => (
+            <span key={rotulo} style={ttStyles.linha}>
+              <span style={ttStyles.rotulo}>{rotulo}</span>
+              <span style={ttStyles.valor}>{valor}</span>
+            </span>
+          ))}
+        </span>
+      ) : (
+        <span style={ttStyles.vazio}>{t("collection_tt_never")}</span>
+      )}
+
+      {/* O estado da coleção vem da tabela de vitórias, que pode ficar atrás
+          do histórico — a app tem um "Reparar vitórias" nas Definições
+          justamente para isso. Quando as duas discordam, mais vale dizê-lo:
+          "sem vitória" ao lado de "1º lugar: 3" sozinho lê-se como erro. */}
+      {!hasWin && stats?.wins > 0 && (
+        <span style={ttStyles.aviso}>{t("collection_tt_drift")}</span>
+      )}
+    </span>
+  );
+}
+
+// Estilos do tooltip à parte do objeto "styles" do App: este componente vive
+// fora dele e puxar por lá obrigava a passá-lo como argumento.
+const ttStyles = {
+  wrap: { display: "flex", flexDirection: "column", gap: 6, minWidth: 170 },
+
+  head: {
+    display: "flex",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+
+  name: { fontSize: 12.5, fontWeight: 800, color: "var(--text-body)" },
+
+  estado: {
+    fontSize: 9.5,
+    fontWeight: 800,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+    whiteSpace: "nowrap",
+  },
+
+  grid: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 2,
+    paddingTop: 5,
+    borderTop: "1px solid rgba(var(--border-rgb),0.4)",
+  },
+
+  linha: { display: "flex", justifyContent: "space-between", gap: 14 },
+
+  rotulo: { color: "var(--text-muted)", fontWeight: 600 },
+
+  valor: { color: "var(--text-body)", fontWeight: 700, whiteSpace: "nowrap" },
+
+  vazio: { color: "var(--text-muted)", fontWeight: 600 },
+
+  aviso: {
+    paddingTop: 5,
+    borderTop: "1px solid rgba(var(--border-rgb),0.4)",
+    color: "var(--place-mid)",
+    fontWeight: 600,
+  },
+};
 
 export default function App() {
   const { t, lang, setLang } = useLanguage();
@@ -99,6 +225,7 @@ export default function App() {
     champions,
     augmentsMap,
     summonerSpellsMap,
+    summonerSpellFiles,
     itemsMap,
     itemTiersMap,
     DRAGON,
@@ -114,6 +241,11 @@ export default function App() {
   // de sempre), "unowned" (só os que faltam) ou "all" (todos, com um marker
   // nos que já tens).
   const [collectionFilter, setCollectionFilter] = useState("won");
+  // Como a Coleção se organiza: por classe (prateleiras) ou tudo em fila por
+  // ordem alfabética, como era antes. Não é persistido, de propósito — fica
+  // igual ao filtro aqui ao lado, que também volta ao normal a cada arranque;
+  // persistir um dos dois e o outro não é que seria estranho.
+  const [collectionSort, setCollectionSort] = useState("class");
 
   const [showSettings, setShowSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState("general");
@@ -197,6 +329,10 @@ export default function App() {
     enrichHistory,
     repairAllData,
   } = useRiotSync({ accounts, setAccounts, activeAccount, matches, setMatches, setWins, champions, patch, t });
+
+  // Enche a cache de ícones em disco em segundo plano, antes de o utilizador
+  // chegar ao Histórico — ver hooks/useIconPrefetch.js.
+  useIconPrefetch({ matches, champions, summonerSpellFiles });
 
   // A Arena já teve formatos diferentes (8 equipas de 2 vs 6 equipas de 3) —
   // "top 3" e os baldes de lugar não significam o mesmo nos dois formatos,
@@ -485,22 +621,46 @@ export default function App() {
     }
   };
 
-  // ================= KDA POR CAMPEÃO (só vitórias, para o tooltip) =================
-  const champStats = useMemo(() => {
+  // ================= TUDO POR CAMPEÃO (para o tooltip da Coleção) ============
+  // Conta TODAS as partidas, ganhas e perdidas. Substituiu um "champStats"
+  // que só somava as GANHAS: esse era o único consumidor do tooltip antigo e
+  // não conseguia dizer nada sobre um campeão já jogado mas nunca ganho —
+  // para esse, simplesmente não existia entrada nenhuma, que é precisamente
+  // o caso em que uma pessoa quer saber quantas vezes tentou.
+  const champCollectionStats = useMemo(() => {
     const map = {};
 
-    matches
-      .filter((m) => m.win)
-      .forEach((rawMatch) => {
-        const champion = normalizeChampionId(rawMatch.champion, champions);
-        if (!map[champion]) {
-          map[champion] = { games: 0, kills: 0, deaths: 0, assists: 0 };
-        }
-        map[champion].games += 1;
-        map[champion].kills += rawMatch.kills || 0;
-        map[champion].deaths += rawMatch.deaths || 0;
-        map[champion].assists += rawMatch.assists || 0;
-      });
+    matches.forEach((m) => {
+      const champion = normalizeChampionId(m.champion, champions);
+      if (!map[champion]) {
+        map[champion] = {
+          games: 0,
+          wins: 0,
+          top3: 0,
+          kills: 0,
+          deaths: 0,
+          assists: 0,
+          placementSum: 0,
+          placementCount: 0,
+          best: null,
+          last: null,
+        };
+      }
+      const e = map[champion];
+      e.games += 1;
+      if (m.win) e.wins += 1;
+      e.kills += m.kills || 0;
+      e.deaths += m.deaths || 0;
+      e.assists += m.assists || 0;
+      if (m.placement != null) {
+        e.placementSum += m.placement;
+        e.placementCount += 1;
+        if (m.placement <= 3) e.top3 += 1;
+        if (e.best == null || m.placement < e.best) e.best = m.placement;
+      }
+      const quando = m.created_at ? new Date(m.created_at).getTime() : null;
+      if (quando && (e.last == null || quando > e.last)) e.last = quando;
+    });
 
     return map;
   }, [matches, champions]);
@@ -570,6 +730,12 @@ export default function App() {
   // em duas prateleiras, o que estragava as contagens e fazia a grelha
   // parecer ter mais campeões do que o jogo tem.
   const collectionGroups = useMemo(() => {
+    // Em alfabético é uma prateleira só, sem cabeçalho — a grelha corrida de
+    // antes. "filteredCollection" já vem ordenado por nome.
+    if (collectionSort === "name") {
+      return [{ classe: "todos", titulo: null, campeoes: filteredCollection }];
+    }
+
     const ordem = [
       ["Assassin", "collection_class_assassin"],
       ["Fighter", "collection_class_fighter"],
@@ -599,7 +765,7 @@ export default function App() {
       })
       .filter((g) => g.campeoes.length > 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filteredCollection, champions, owned, lang]);
+  }, [filteredCollection, champions, owned, lang, collectionSort]);
 
   // ================= RESUMO FILTRADO POR FORMATO =================
   const statsMatches = useMemo(() => {
@@ -733,9 +899,9 @@ export default function App() {
               goToInGameTab();
             }}
           >
-            {DRAGON && (
+            {canShowIcons(DRAGON) && (
               <img
-                src={`${DRAGON}/img/champion/${liveChampionAlert.championId}.png`}
+                src={championIcon(liveChampionAlert.championId, DRAGON)}
                 style={styles.liveBannerIcon}
               />
             )}
@@ -793,7 +959,7 @@ export default function App() {
                     .map((it, idx) => (
                       <Tooltip key={idx} label={itemsMap?.[it.itemID] || `#${it.itemID}`}>
                         <img
-                          src={`${DRAGON}/img/item/${it.itemID}.png`}
+                          src={itemIcon(it.itemID, DRAGON)}
                           style={styles.liveBannerItemIcon}
                         />
                       </Tooltip>
@@ -998,7 +1164,7 @@ export default function App() {
                           botão praticamente vazio. */}
                       {DRAGON ? (
                         <img
-                          src={`${DRAGON}/img/champion/${liveChampionAlert.championId}.png`}
+                          src={championIcon(liveChampionAlert.championId, DRAGON)}
                           style={styles.liveReopenIcon}
                           alt=""
                         />
@@ -1310,6 +1476,27 @@ export default function App() {
                         </button>
                       ))}
                     </div>
+                    {/* Ordenação à direita do filtro: por classe serve para
+                        ver o que falta e onde, alfabética serve para ir
+                        direto a um campeão. Nenhuma das duas faz as duas
+                        coisas bem, por isso escolhe-se. */}
+                    <div style={styles.segGroup}>
+                      {[
+                        { key: "class", label: t("collection_sort_class") },
+                        { key: "name", label: t("collection_sort_name") },
+                      ].map((opt) => (
+                        <button
+                          key={opt.key}
+                          onClick={() => setCollectionSort(opt.key)}
+                          style={{
+                            ...styles.segBtn,
+                            ...(collectionSort === opt.key ? styles.segBtnActive : null),
+                          }}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
                     <span style={styles.collectionCount}>
                       {filteredCollection.length} / {champions.length}
                     </span>
@@ -1353,17 +1540,20 @@ export default function App() {
                       todo disponível. */}
                   {collectionGroups.map((grupo) => (
                     <div key={grupo.classe || "outros"} style={styles.collectionGroup}>
-                      <div style={styles.collectionGroupHead}>
-                        <span style={styles.collectionGroupTitle}>{grupo.titulo}</span>
-                        <span style={styles.collectionGroupCount}>
-                          {grupo.ganhos} / {grupo.total}
-                        </span>
-                      </div>
+                      {/* Em alfabético não há cabeçalho: é uma prateleira só
+                          e um título por cima dela não diria nada. */}
+                      {grupo.titulo && (
+                        <div style={styles.collectionGroupHead}>
+                          <span style={styles.collectionGroupTitle}>{grupo.titulo}</span>
+                          <span style={styles.collectionGroupCount}>
+                            {grupo.ganhos} / {grupo.total}
+                          </span>
+                        </div>
+                      )}
 
                       <div style={styles.grid}>
                         <AnimatePresence>
                           {grupo.campeoes.map((champ) => {
-                            const stat = champStats[champ];
                             const hasWin = owned.has(champ);
                             // Três estados e não dois. O meio — já jogado,
                             // ainda sem vitória — é o mais útil de todos:
@@ -1372,17 +1562,19 @@ export default function App() {
                             // que nunca se tocaram.
                             const tried = !hasWin && playedChampions.has(champ);
                             const name = championsById[champ] || champ;
-                            const status = stat
-                              ? `${stat.games} ${t("wins_count_kda")} ${(stat.kills / stat.games).toFixed(1)}/${(stat.deaths / stat.games).toFixed(1)}/${(stat.assists / stat.games).toFixed(1)}`
-                              : tried
-                              ? t("collection_tried")
-                              : hasWin
-                              ? t("no_kda_data_yet")
-                              : t("no_win_yet");
-                            // Sem legenda visível no cartão (só o ícone, para
-                            // caber mais por linha) — o nome vive só no tooltip
-                            // agora, à frente do estado/KDA.
-                            const tooltip = `${name} — ${status}`;
+                            // Sem legenda visível no azulejo (só o ícone, para
+                            // caber mais por linha) — tudo o que há para dizer
+                            // sobre o campeão vive no tooltip.
+                            const tooltip = (
+                              <ChampionTooltip
+                                name={name}
+                                stats={champCollectionStats[champ]}
+                                hasWin={hasWin}
+                                tried={tried}
+                                lang={lang}
+                                t={t}
+                              />
+                            );
 
                             return (
                               <Tooltip key={champ} label={tooltip}>
@@ -1419,7 +1611,7 @@ export default function App() {
                                   }}
                                 >
                                   <div style={styles.winIconWrap}>
-                                    <img src={`${DRAGON}/img/champion/${champ}.png`} style={styles.winIcon} />
+                                    <img src={championIcon(champ, DRAGON)} style={styles.winIcon} />
                                     {hasWin && <div style={styles.winBadge}>✓</div>}
                                   </div>
                                 </motion.div>
@@ -2213,10 +2405,14 @@ const styles = {
   // própria: cresce livremente, a única scroll é a da área principal.
   // Tamanho pensado para caber o máximo de campeões por linha (menos scroll
   // a percorrer), não para os cartões serem grandes.
+  // Azulejos encostados: o espaço entre eles desceu de 8 para 3 e a coluna
+  // mínima de 60 para 50. São mais campeões por fila e, com 173 deles, menos
+  // filas é menos scroll — que é o que mais pesa nesta aba. A moldura de cada
+  // azulejo continua a separá-los; o espaço a mais só os fazia flutuar.
   grid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fill, minmax(60px, 1fr))",
-    gap: 8,
+    gridTemplateColumns: "repeat(auto-fill, minmax(50px, 1fr))",
+    gap: 3,
     marginTop: 4,
   },
 

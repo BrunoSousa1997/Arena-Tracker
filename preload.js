@@ -87,6 +87,9 @@ contextBridge.exposeInMainWorld("electron", {
     return () => ipcRenderer.removeListener("quickcheck:open", listener);
   },
 
+  // Enche a cache de ícones em disco em segundo plano — ver electron/iconCache.js.
+  prefetchIcons: (payload) => ipcRenderer.invoke("icons:prefetch", payload),
+
   listMatchIds: (payload) => ipcRenderer.invoke("riotapi:listMatchIds", payload),
   fetchMatchDetails: (payload) => ipcRenderer.invoke("riotapi:fetchMatchDetails", payload),
   backfillMatchDetails: (payload) => ipcRenderer.invoke("riotapi:backfillMatchDetails", payload),

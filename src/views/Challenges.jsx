@@ -54,6 +54,7 @@ import {
 } from "../db/api";
 import { scorePlayer, SCORE_POINTS, ARCHETYPE_MULTIPLIER, DEFAULT_RULES, sumStreakBonus } from "../lib/challengeScoring";
 import { normalizeChampionId } from "../lib/champions";
+import { canShowIcons, championIcon } from "../lib/icons";
 
 const PLAYER_OPTIONS = [2, 3, 4, 6, 8];
 const MIN_GAMES = 1;
@@ -2005,9 +2006,9 @@ function PlayerCombatCard({
 
       {isLive && (
         <div style={styles.liveProgressBadge}>
-          {DRAGON && (
+          {canShowIcons(DRAGON) && (
             <img
-              src={`${DRAGON}/img/champion/${normalizeChampionId(liveGame.champion, champions)}.png`}
+              src={championIcon(normalizeChampionId(liveGame.champion, champions), DRAGON)}
               style={styles.liveProgressIcon}
             />
           )}
@@ -2061,9 +2062,9 @@ function PlayerCombatCard({
                   borderColor: m.win ? "rgba(88,199,120,0.5)" : "rgba(226,85,95,0.45)",
                 }}
               >
-                {DRAGON && (
+                {canShowIcons(DRAGON) && (
                   <img
-                    src={`${DRAGON}/img/champion/${normalizeChampionId(m.champion, champions)}.png`}
+                    src={championIcon(normalizeChampionId(m.champion, champions), DRAGON)}
                     style={styles.combatGameIcon}
                   />
                 )}

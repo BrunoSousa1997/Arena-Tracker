@@ -11,12 +11,16 @@ const {
 } = require("./electron/background");
 const { registerOverlayHandlers } = require("./electron/overlay");
 const { registerExportHandlers } = require("./electron/exportData");
+const { registerIconScheme, registerIconCacheHandlers } = require("./electron/iconCache");
 
 // Ponto de entrada — cada módulo em ./electron trata só da sua área
 // (janela, auto-update, deteção ao vivo, cliente da Riot API) e regista os
 // próprios listeners/IPC handlers quando é "require"-ado.
 initUpdater();
 registerRiotApiHandlers();
+// Antes do "ready", ao contrário de tudo o resto aqui: é o único momento em
+// que o Chromium aceita registar o esquema at-img:// (ver electron/iconCache.js).
+registerIconScheme();
 
 // Uma segunda instância não deve abrir uma segunda janela — sobretudo com o
 // modo em segundo plano ligado, em que clicar no atalho com a app já a correr
@@ -39,6 +43,7 @@ app.whenReady().then(() => {
   console.log("APP READY");
   registerBackgroundHandlers();
   registerOverlayHandlers();
+  registerIconCacheHandlers();
   registerExportHandlers();
   createWindow();
   startLiveGameWatcher();

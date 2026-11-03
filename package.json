@@ -18,7 +18,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint .",
-    "verify:platform": ".\\node_modules\\electron\\dist\\electron.exe scripts/verify-platform.js"
+    "verify:platform": ".\\node_modules\\electron\\dist\\electron.exe scripts/verify-platform.js",
+    "verify:icons": ".\\node_modules\\electron\\dist\\electron.exe scripts/verify-icons.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.0",

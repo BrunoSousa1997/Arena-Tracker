@@ -15,6 +15,7 @@ import {
   rankForTierIndex,
   formatAchievementValue,
 } from "../lib/achievementStats";
+import { canShowIcons, championIcon } from "../lib/icons";
 
 // Fundo translúcido por trás dos números com resultado no resumo de topo —
 // mesma ideia do StatsBar (ver chipStyle lá), para o "0%"/streaks também
@@ -194,10 +195,10 @@ function SpotlightCard({ sp, index, DRAGON, champName, onOpen, lang }) {
           Não custa pedido nenhum extra — é a mesma imagem que o rodapé já
           carrega — e dá a cada cartão um fundo próprio em vez de vinte e
           cinco retângulos iguais. */}
-      {DRAGON && sp.champion && (
+      {canShowIcons(DRAGON) && sp.champion && (
         <img
           className="at-highlight-bg"
-          src={`${DRAGON}/img/champion/${sp.champion}.png`}
+          src={championIcon(sp.champion, DRAGON)}
           alt=""
           aria-hidden="true"
         />
@@ -227,9 +228,9 @@ function SpotlightCard({ sp, index, DRAGON, champName, onOpen, lang }) {
         {sp.champion ? (
           <Tooltip label={champName(sp.champion)}>
             <div style={styles.spotlightChampWrap}>
-              {DRAGON && (
+              {canShowIcons(DRAGON) && (
                 <img
-                  src={`${DRAGON}/img/champion/${sp.champion}.png`}
+                  src={championIcon(sp.champion, DRAGON)}
                   style={styles.spotlightIcon}
                   alt=""
                 />
@@ -852,9 +853,9 @@ export default function Overview({
                                       ? lang === "en" ? "W" : "V"
                                       : lang === "en" ? "L" : "D"}
                                   </span>
-                                  {DRAGON && (
+                                  {canShowIcons(DRAGON) && (
                                     <img
-                                      src={`${DRAGON}/img/champion/${m.champion}.png`}
+                                      src={championIcon(m.champion, DRAGON)}
                                       style={styles.sessionGameIcon}
                                       alt=""
                                     />

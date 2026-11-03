@@ -1098,6 +1098,31 @@ const DICTIONARY = {
   collection_class_support: { pt: "Suportes", en: "Supports" },
   collection_class_tank: { pt: "Tanques", en: "Tanks" },
   collection_class_other: { pt: "Outros", en: "Other" },
+  collection_sort_class: { pt: "Por classe", en: "By class" },
+  collection_sort_name: { pt: "A-Z", en: "A-Z" },
+  // Tooltip de cada campeão da Coleção.
+  collection_tt_in: { pt: "Na coleção", en: "Collected" },
+  collection_tt_no_win: { pt: "Sem vitória", en: "No win yet" },
+  collection_tt_untouched: { pt: "Por jogar", en: "Not played" },
+  collection_tt_games: { pt: "Partidas", en: "Games" },
+  collection_tt_first: { pt: "1º lugar", en: "1st place" },
+  collection_tt_top3: { pt: "Top 3", en: "Top 3" },
+  collection_tt_avg: { pt: "Lugar médio", en: "Avg. placement" },
+  collection_tt_best: { pt: "Melhor", en: "Best" },
+  collection_tt_kda: { pt: "KDA médio", en: "Avg. KDA" },
+  collection_tt_last: { pt: "Última", en: "Last" },
+  collection_tt_never: {
+    pt: "Ainda não jogaste com este campeão.",
+    en: "You have not played this champion yet.",
+  },
+  // Aparece quando o histórico tem 1ºs lugares com um campeão que não consta
+  // da coleção. Sem esta linha, o tooltip mostrava "sem vitória" ao lado de
+  // "1º lugar: 3" e lia-se como erro da app — quando é a discrepância que o
+  // "Reparar vitórias" das Definições existe para corrigir.
+  collection_tt_drift: {
+    pt: "Tens 1ºs lugares por registar. Corre «Reparar vitórias» nas Definições → Sincronização.",
+    en: "You have unrecorded 1st places. Run “Repair wins” in Settings → Sync.",
+  },
   collection_progress: { pt: "Coleção completa", en: "Collection complete" },
   collection_tried: { pt: "já jogado, ainda sem vitória", en: "played, no win yet" },
   collection_filter_won: { pt: "Com vitória", en: "With a win" },
