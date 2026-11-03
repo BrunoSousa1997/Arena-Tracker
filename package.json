@@ -1,7 +1,7 @@
 {
   "name": "arena-tracker",
   "private": true,
-  "version": "2.0.11",
+  "version": "2.1.0",
   "main": "electron.js",
   "description": "Arena Tracker - League of Legends Arena win tracker",
   "author": "Bruno Sousa",
