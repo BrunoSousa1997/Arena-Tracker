@@ -1068,13 +1068,26 @@ const DICTIONARY = {
   no_build_yet: { pt: "Sem build guardada ainda para este campeão.", en: "No build saved yet for this champion." },
 
   // ================= COLEÇÃO / WINS =================
-  search_placeholder: { pt: "Procurar campeões ou vitórias...", en: "Search champions or wins..." },
+  search_placeholder: {
+    pt: "Escreve um campeão e carrega Enter — podes juntar vários",
+    en: "Type a champion and press Enter — you can add several",
+  },
   shortcut_tooltip: {
     pt: "Atalho global — funciona mesmo com o League em primeiro plano",
     en: "Global shortcut — works even with League in the foreground",
   },
   already_have_win: { pt: "✅ Já tens vitória", en: "✅ Already have a win" },
   no_win_yet: { pt: "🆕 Ainda não tens vitória", en: "🆕 No win yet" },
+  quick_check_missing: { pt: "Faltam-te:", en: "You still need:" },
+  quick_check_all_done: {
+    pt: "✅ Já tens vitória em todos",
+    en: "✅ You already have a win on all of them",
+  },
+  quick_check_unmatched: { pt: "Sem resultados:", en: "No match:" },
+  quick_check_remove: { pt: "Tirar da lista", en: "Remove from the list" },
+  quick_check_clear: { pt: "Limpar tudo", en: "Clear all" },
+  quick_check_short_won: { pt: "tens", en: "have it" },
+  quick_check_short_missing: { pt: "falta", en: "missing" },
   collection_filter_won: { pt: "Com vitória", en: "With a win" },
   collection_filter_unowned: { pt: "Sem vitória", en: "No win yet" },
   collection_filter_all: { pt: "Todos", en: "All" },

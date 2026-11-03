@@ -11,7 +11,6 @@ import {
   Settings as SettingsIcon,
   X,
   RotateCw,
-  Search,
   Scale,
   Swords,
   Sparkles,
@@ -36,8 +35,9 @@ import StatsBar from "./components/StatsBar";
 import Tooltip from "./components/Tooltip";
 import ConfirmDialog from "./components/ConfirmDialog";
 import NotificationBell from "./components/NotificationBell";
+import QuickCheck from "./components/QuickCheck";
 import AchievementToasts from "./components/AchievementToasts";
-import { normalizeChampionId } from "./lib/champions";
+import { championMatchesTerm, normalizeChampionId, parseSearchTerms } from "./lib/champions";
 import { useLanguage } from "./lib/i18n";
 import { useStaticData } from "./hooks/useStaticData";
 import { useTheme } from "./hooks/useTheme";
@@ -506,20 +506,10 @@ export default function App() {
   }, [matches, champions]);
 
   // ================= FILTER =================
-  const q = debouncedSearch.toLowerCase().trim();
-
-  // Cartão de estado claro (tens ou não vitória) para CADA campeão que a
-  // busca encontrar — antes só aparecia quando a busca apontava para um
-  // único campeão exato, por isso uma busca mais genérica (ex: "vi", que
-  // também apanha Viktor/Viego) escondia esse estado logo para todos,
-  // incluindo o próprio Vi. Agora mostra sempre um cartão por cada
-  // correspondência, sem depender de ser só uma.
-  const searchedChampions = useMemo(() => {
-    if (!q) return [];
-    return champions
-      .filter((c) => c.name.toLowerCase().includes(q))
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [q, champions]);
+  // Os vários campeões que a caixa de pesquisa pode conter de uma vez
+  // ("ann, zed, lux" → três termos, três cartões de estado) — ver
+  // parseSearchTerms, que é onde está a regra de como se separam.
+  const searchTerms = useMemo(() => parseSearchTerms(debouncedSearch), [debouncedSearch]);
 
   // "won"/"unowned" partem sempre da lista completa de campeões (não só de
   // "wins") para o filtro "sem vitória" conseguir mostrar algo — "wins" só
@@ -532,9 +522,9 @@ export default function App() {
   // encontrar, mesmo o campeão se chamando "Wukong" em todo o lado na app.
   const filteredCollection = useMemo(() => {
     const bySearch = (id) => {
-      if (q === "") return true;
-      const name = (championsById[id] || id).toLowerCase();
-      return name.includes(q) || id.toLowerCase().includes(q);
+      if (!searchTerms.length) return true;
+      const champ = { id, name: championsById[id] || id };
+      return searchTerms.some((term) => championMatchesTerm(champ, term));
     };
     // Também por nome (não id) — senão o Wukong ordenava-se sob "M" (de
     // "MonkeyKing") em vez de "W", o que seria estranho numa grelha alfabética.
@@ -556,7 +546,7 @@ export default function App() {
     }
 
     return wins.filter(bySearch).sort(byName);
-  }, [wins, champions, championsById, owned, collectionFilter, debouncedSearch]);
+  }, [wins, champions, championsById, owned, collectionFilter, searchTerms]);
 
   // ================= RESUMO FILTRADO POR FORMATO =================
   const statsMatches = useMemo(() => {
@@ -1234,50 +1224,14 @@ export default function App() {
 
             {view === "wins" && (
               <>
-                <div style={styles.globalSearch}>
-                  <span style={styles.searchIcon}>
-                    <Search size={14} strokeWidth={2.25} />
-                  </span>
-                  <input
-                    ref={searchInputRef}
-                    placeholder={t("search_placeholder")}
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    style={styles.globalSearchInput}
-                  />
-                  <Tooltip label={t("shortcut_tooltip")}>
-                    <span style={styles.shortcutHint}>
-                      Ctrl+Shift+A
-                    </span>
-                  </Tooltip>
-                </div>
-
-                {searchedChampions.length > 0 && (
-                  <div style={styles.quickCheckList}>
-                    {searchedChampions.map((champ) => (
-                      <div key={champ.id} style={styles.quickCheck}>
-                        {DRAGON && (
-                          <img
-                            src={`${DRAGON}/img/champion/${champ.id}.png`}
-                            style={styles.quickCheckIcon}
-                          />
-                        )}
-                        <div style={styles.quickCheckInfo}>
-                          <div style={styles.quickCheckName}>{champ.name}</div>
-                          {owned.has(champ.id) ? (
-                            <div style={{ ...styles.quickCheckStatus, color: "var(--place-good)" }}>
-                              {t("already_have_win")}
-                            </div>
-                          ) : (
-                            <div style={{ ...styles.quickCheckStatus, color: "var(--accent-text)" }}>
-                              {t("no_win_yet")}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <QuickCheck
+                  search={search}
+                  setSearch={setSearch}
+                  champions={champions}
+                  owned={owned}
+                  dragon={DRAGON}
+                  inputRef={searchInputRef}
+                />
 
                 <div style={styles.cardScroll}>
                   {/* Sem título "Coleção" aqui em cima — a própria tab já
@@ -2127,41 +2081,7 @@ const styles = {
     cursor: "pointer",
   },
 
-  globalSearch: {
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-    padding: "10px 12px",
-    borderRadius: 12,
-    background: "rgba(var(--panel-deep-rgb),0.85)",
-    border: "1px solid rgba(var(--accent-rgb),0.25)",
-    marginTop: 12,
-    marginBottom: 16,
-  },
 
-  globalSearchInput: {
-    width: "100%",
-    border: "none",
-    outline: "none",
-    background: "transparent",
-    color: "var(--text-body)",
-  },
-
-  searchIcon: {
-    display: "inline-flex",
-    flexShrink: 0,
-    color: "var(--text-muted)",
-  },
-
-  shortcutHint: {
-    fontSize: 10,
-    color: "var(--text-muted)",
-    border: "1px solid rgba(var(--border-rgb),0.4)",
-    borderRadius: "var(--radius-sm)",
-    padding: "2px 6px",
-    whiteSpace: "nowrap",
-    flexShrink: 0,
-  },
 
   // Envolve um cartão de estado por cada campeão que a busca encontrar —
   // antes só existia um cartão (só aparecia com uma correspondência exata),
@@ -2174,39 +2094,6 @@ const styles = {
     marginBottom: 16,
   },
 
-  quickCheck: {
-    display: "flex",
-    alignItems: "center",
-    gap: 12,
-    padding: "10px 14px",
-    borderRadius: 12,
-    background: "var(--panel-bg)",
-    backdropFilter: "var(--panel-blur)",
-    border: "1px solid rgba(var(--accent-rgb),0.4)",
-  },
-
-  quickCheckIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: "var(--radius-md)",
-    pointerEvents: "none",
-  },
-
-  quickCheckInfo: {
-    flex: 1,
-  },
-
-  quickCheckName: {
-    fontSize: 14,
-    fontWeight: 700,
-    color: "var(--text-body)",
-  },
-
-  quickCheckStatus: {
-    fontSize: 12,
-    fontWeight: 600,
-    marginTop: 1,
-  },
 
   // Cartões compactos, com nome visível (antes eram só ícones de 48px, sem
   // legenda, presos a uma grelha com maxHeight de 26vh fixo — minúscula e
