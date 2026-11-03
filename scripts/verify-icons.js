@@ -55,13 +55,24 @@ registerIconScheme();
 
 const ITEMS = [3031, 6672, 3153, 3089, 3157, 3142];
 const CHAMPS = ["Ahri", "Jhin"];
+// Os augments não são identificados por um id mas por um caminho dentro da
+// árvore de assets do Community Dragon — barras incluídas, e já com o ".png".
+const AUGMENTS = [
+  "assets/ux/cherry/augments/icons/adapt_small.png",
+  "assets/ux/cherry/augments/icons/allforyou_small.png",
+];
 
-function cacheFiles() {
-  const dir = path.join(userData, "icon-cache");
+// Em profundidade, e não só o primeiro nível: os augments ficam em disco com o
+// caminho deles todo ("augment/assets/ux/cherry/..."), por isso uma contagem
+// só do topo dizia que o pré-aquecimento tinha trazido menos do que trouxe.
+function cacheFiles(dir = path.join(userData, "icon-cache"), prefixo = "") {
+  if (!fs.existsSync(dir)) return [];
+
   const out = [];
-  for (const kind of ["item", "champion", "spell"]) {
-    const p = path.join(dir, kind);
-    if (fs.existsSync(p)) for (const f of fs.readdirSync(p)) out.push(`${kind}/${f}`);
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const nome = prefixo ? `${prefixo}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) out.push(...cacheFiles(path.join(dir, entry.name), nome));
+    else if (entry.name.endsWith(".png")) out.push(nome);
   }
   return out;
 }
@@ -127,6 +138,13 @@ app.whenReady().then(async () => {
     "at-img://item/3031.exe",
     "at-img://segredos/3031.png",
     "at-img://item/undefined.png",
+    // Os augments são os únicos que aceitam barras no nome, por isso são os
+    // únicos onde sair da pasta da cache seria sequer concebível.
+    "at-img://augment/assets/../../../manifest.json",
+    "at-img://augment/assets%2F..%2F..%2Fmanifest.json",
+    "at-img://augment/assets/ux/.ssh/id_rsa.png",
+    // E um caminho de uma só peça não é um caminho de augment nenhum.
+    "at-img://augment/adapt_small.png",
   ]) {
     const res = await get(bad);
     check(`recusa ${bad}`, res.status === 404 || res.status === 400, `status ${res.status}`);
@@ -135,7 +153,12 @@ app.whenReady().then(async () => {
   // 5. Pré-aquecimento: enche o disco com a lista que o renderer manda.
   const before = cacheFiles().length;
   const t0 = Date.now();
-  const report = await prefetchIcons({ item: ITEMS, champion: CHAMPS, spell: ["SummonerFlash"] });
+  const report = await prefetchIcons({
+    item: ITEMS,
+    champion: CHAMPS,
+    spell: ["SummonerFlash"],
+    augment: AUGMENTS,
+  });
   const after = cacheFiles().length;
   check(
     "pré-aquecimento descarregou tudo",
@@ -144,7 +167,12 @@ app.whenReady().then(async () => {
   );
 
   // 6. Correr outra vez, no mesmo patch, não volta à rede.
-  const again = await prefetchIcons({ item: ITEMS, champion: CHAMPS, spell: ["SummonerFlash"] });
+  const again = await prefetchIcons({
+    item: ITEMS,
+    champion: CHAMPS,
+    spell: ["SummonerFlash"],
+    augment: AUGMENTS,
+  });
   check(
     "segundo pré-aquecimento não volta à rede",
     again.downloaded === 0 && again.revalidated === 0,
@@ -160,6 +188,15 @@ app.whenReady().then(async () => {
     `${ITEMS.length} ícones em ${Date.now() - t1}ms`
   );
 
+  // 7b. E os augments, que são o outro lado da mesma linha do Histórico: a
+  //     build de cada jogador e, ao lado dela, os augments de cada jogador.
+  const comAugments = await Promise.all(AUGMENTS.map((p) => get(`at-img://augment/${p}`)));
+  check(
+    "augments servidos do disco, com o caminho e tudo",
+    comAugments.every((r) => r.status === 200 && r.png === "PNG"),
+    JSON.stringify(comAugments.map((r) => `${r.bytes}B em ${r.ms}ms`))
+  );
+
   // 8. O que nenhum dos passos acima prova: um <img src="at-img://..."> numa
   //    página de verdade. O session.fetch acima fala com o handler direto; o
   //    renderer passa pelas regras de esquema do Chromium, e é aí que um
@@ -168,11 +205,13 @@ app.whenReady().then(async () => {
   const win = new BrowserWindow({ show: false, width: 200, height: 200 });
   await win.loadURL(
     `data:text/html,${encodeURIComponent(
-      '<img id="i" src="at-img://item/3031.png"><img id="j" src="at-img://champion/Ahri.png">'
+      '<img id="i" src="at-img://item/3031.png">' +
+        '<img id="j" src="at-img://champion/Ahri.png">' +
+        `<img id="k" src="at-img://augment/${AUGMENTS[0]}">`
     )}`
   );
   const loaded = await win.webContents.executeJavaScript(`
-    Promise.all(["i", "j"].map((id) => new Promise((resolve) => {
+    Promise.all(["i", "j", "k"].map((id) => new Promise((resolve) => {
       const el = document.getElementById(id);
       const done = () => resolve({ id, w: el.naturalWidth, h: el.naturalHeight });
       if (el.complete) done();

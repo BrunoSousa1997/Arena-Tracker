@@ -1,3 +1,5 @@
+import { augmentIcon } from "./icons";
+
 // A Riot não expõe nomes de augments da Arena em nenhum Data Dragon oficial
 // (item0-6 tem champion.json/item.json, mas playerAugment1-4 não tem
 // equivalente). Quem os publica é o Community Dragon, projeto não-oficial que
@@ -17,9 +19,9 @@ export const AUGMENTS_URL = `${CDRAGON_BASE}/v1/cherry-augments.json`;
 
 // Os caminhos vêm como "/lol-game-data/assets/ASSETS/UX/..." e resolvem-se
 // contra a mesma árvore, sem esse prefixo e em minúsculas.
-function iconUrl(path) {
+function assetPath(path) {
   if (!path) return null;
-  return CDRAGON_BASE + path.toLowerCase().replace("/lol-game-data/assets", "");
+  return path.toLowerCase().replace("/lol-game-data/assets", "").replace(/^\//, "");
 }
 
 // A lista canónica dá a raridade por nome ("kGold"), não pelo 0/1/2 que o
@@ -142,11 +144,15 @@ export function buildAugmentMap(data) {
   list.forEach((a) => {
     if (!isArenaAugment(a)) return;
     const rarity = RARITY_BY_NAME[a.rarity] ?? (typeof a.rarity === "number" ? a.rarity : null);
+    const path = assetPath(a.augmentSmallIconPath || a.iconSmall || a.iconLarge);
     map[a.id] = {
       id: a.id,
       // "nameTRA" na lista canónica, "name" na antiga.
       name: a.nameTRA || a.name || `Augment #${a.id}`,
-      icon: iconUrl(a.augmentSmallIconPath || a.iconSmall || a.iconLarge),
+      icon: augmentIcon(path, CDRAGON_BASE) || null,
+      // O caminho em cru fica à mão para o pré-aquecimento da cache o poder
+      // pedir sem ter de desmontar o URL outra vez (ver useIconPrefetch).
+      iconPath: path,
       rarity,
       tierLabel: AUGMENT_TIER_LABELS[rarity] || null,
     };

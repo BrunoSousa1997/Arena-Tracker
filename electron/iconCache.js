@@ -2,7 +2,7 @@ const { ipcMain, net, protocol } = require("electron");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 
-const { getCurrentPatch, DDRAGON_ORIGIN } = require("./dataDragon");
+const { getCurrentPatch, DDRAGON_ORIGIN, CDRAGON_BASE } = require("./dataDragon");
 const { cacheDir: userDataDir, writeFileAtomic } = require("./diskCache");
 
 // ================= CACHE DE ÍCONES (Data Dragon) =================
@@ -26,20 +26,45 @@ const { cacheDir: userDataDir, writeFileAtomic } = require("./diskCache");
 // um download quando é a primeira vez, é o handler do protocolo lá em baixo.
 const SCHEME = "at-img";
 
-// Cada "kind" do protocolo é um caminho dentro do CDN. É também a lista de
-// valores aceites — o host do pedido vem do renderer e é tratado como
-// qualquer outro input: o que não estiver aqui não chega ao disco nem à rede.
-const KINDS = {
-  item: "img/item",
-  champion: "img/champion",
-  spell: "img/spell",
-};
+const CDN = `${DDRAGON_ORIGIN}/cdn`;
 
-// Nomes de ficheiro possíveis: "3031.png", "Ahri.png", "SummonerFlash.png".
-// Nada de barras, pontos ou ".." — o nome entra num path.join e num URL.
+// Um nome de ficheiro só: "3031.png", "Ahri.png", "SummonerFlash.png". Nada de
+// barras, pontos ou ".." — o nome entra num path.join e num URL.
 const SAFE_FILE = /^[A-Za-z0-9_-]{1,64}\.png$/;
 
-const CDN = `${DDRAGON_ORIGIN}/cdn`;
+// Para os augments as barras fazem parte do nome
+// ("assets/ux/cherry/augments/icons/adapt_small.png"). Cada segmento tem de
+// começar por letra ou dígito e não leva pontos: é isso que torna ".."
+// impossível de escrever, sem precisar de o procurar. Verificado contra os 594
+// caminhos reais da lista da Arena — nenhum é recusado.
+const SAFE_ASSET_PATH = /^(?:[a-z0-9][a-z0-9_-]*\/){1,11}[a-z0-9][a-z0-9_-]*\.png$/;
+
+// Cada "kind" do protocolo diz de onde vem o ícone e que forma tem o nome. É
+// também a lista de valores aceites — o kind e o nome vêm os dois do renderer
+// e são tratados como qualquer outro input: o que não passar aqui não chega ao
+// disco nem à rede.
+//
+// O {patch} marca as origens cujo URL o leva. Os augments não têm: a Riot não
+// os publica em Data Dragon nenhum (ver src/lib/augments.js) e o Community
+// Dragon serve sempre "latest".
+const KINDS = {
+  item: { base: `${CDN}/{patch}/img/item`, name: SAFE_FILE },
+  champion: { base: `${CDN}/{patch}/img/champion`, name: SAFE_FILE },
+  spell: { base: `${CDN}/{patch}/img/spell`, name: SAFE_FILE },
+  augment: { base: CDRAGON_BASE, name: SAFE_ASSET_PATH },
+};
+
+// O patch só é pedido por quem precisa dele no URL. Sem isto, um ícone de
+// augment que já estivesse em disco deixava de aparecer só porque o
+// versions.json não respondeu.
+async function upstreamUrl(kind, file) {
+  const { base } = KINDS[kind];
+  if (!base.includes("{patch}")) return `${base}/${file}`;
+
+  const patch = await getCurrentPatch();
+  if (!patch) throw new Error("sem patch (offline?)");
+  return `${base.replace("{patch}", patch)}/${file}`;
+}
 
 // Quantos downloads em paralelo no pré-aquecimento. Seis é o mesmo limite por
 // host que o Chromium usa, e o pré-aquecimento corre em segundo plano — não
@@ -89,10 +114,7 @@ async function saveManifest() {
 // Devolve o Buffer do ícone, ou null se o CDN respondeu 304 (o ficheiro que
 // está em disco continua bom).
 async function downloadIcon(kind, file, { etag } = {}) {
-  const patch = await getCurrentPatch();
-  if (!patch) throw new Error("sem patch (offline?)");
-
-  const url = `${CDN}/${patch}/${KINDS[kind]}/${file}`;
+  const url = await upstreamUrl(kind, file);
   const res = await net.fetch(url, etag ? { headers: { "If-None-Match": etag } } : undefined);
 
   if (res.status === 304) return null;
@@ -152,8 +174,11 @@ async function prefetchIcons(payload) {
     const wanted = [];
     for (const kind of Object.keys(KINDS)) {
       for (const name of payload?.[kind] || []) {
-        const file = `${name}.png`;
-        if (SAFE_FILE.test(file)) wanted.push([kind, file]);
+        // Os ids chegam sem extensão ("3031", "Ahri"); os caminhos dos
+        // augments já a trazem, porque é assim que vêm na lista do Community
+        // Dragon. Aceitar as duas formas evita um ".png.png".
+        const file = String(name).toLowerCase().endsWith(".png") ? String(name) : `${name}.png`;
+        if (KINDS[kind].name.test(file)) wanted.push([kind, file]);
       }
     }
     if (!wanted.length) return { downloaded: 0, revalidated: 0, failed: 0 };
@@ -240,7 +265,7 @@ function registerIconCacheHandlers() {
     }
 
     const { kind, file } = parsed;
-    if (!KINDS[kind] || !SAFE_FILE.test(file)) {
+    if (!KINDS[kind] || !KINDS[kind].name.test(file)) {
       return new Response(null, { status: 404, headers: { "cache-control": "no-store" } });
     }
 

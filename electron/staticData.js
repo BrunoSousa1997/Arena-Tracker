@@ -1,7 +1,7 @@
 const { ipcMain, net } = require("electron");
 const fs = require("node:fs/promises");
 
-const { getCurrentPatch, DDRAGON_ORIGIN, CDRAGON_ORIGIN } = require("./dataDragon");
+const { getCurrentPatch, DDRAGON_ORIGIN, CDRAGON_BASE } = require("./dataDragon");
 const { cacheDir, writeFileAtomic } = require("./diskCache");
 
 // ================= DADOS ESTÁTICOS (nomes, tiers, raridades) =================
@@ -23,7 +23,7 @@ const { cacheDir, writeFileAtomic } = require("./diskCache");
 // como o renderer fazia, e guarda o resultado em memória — a app reinicia a
 // cada atualização, que é quando um patch novo interessa.
 const DDRAGON = `${DDRAGON_ORIGIN}/cdn`;
-const CDRAGON = `${CDRAGON_ORIGIN}/latest/plugins/rcp-be-lol-game-data/global/default`;
+const CDRAGON = CDRAGON_BASE;
 
 // O "patch" de cada entrada diz se o URL depende do patch atual. A lista de
 // augments não depende (o Community Dragon serve sempre "latest"), mas é

@@ -35,6 +35,18 @@ export function spellIcon(imageFull, dragon) {
   return iconUrl("spell", imageFull.replace(/\.png$/i, ""), dragon, "img/spell");
 }
 
+// Os augments são o único ícone que não vem da Data Dragon e por isso o único
+// que não é identificado por um id: o que os identifica é o caminho dentro da
+// árvore de assets do Community Dragon, barras incluídas (ver lib/augments.js
+// para o porquê de virem de lá). Daí este não passar pelo iconUrl acima.
+export function augmentIcon(assetPath, cdragonBase) {
+  if (!assetPath) return undefined;
+
+  const clean = assetPath.replace(/^\//, "");
+  if (HAS_ICON_CACHE) return `at-img://augment/${clean}`;
+  return cdragonBase ? `${cdragonBase}/${clean}` : undefined;
+}
+
 // Meia dúzia de views usavam "DRAGON &&" como "já posso mostrar ícones?" —
 // com o patch ainda a chegar, ou sem rede nenhuma para o ir buscar, não
 // desenhavam ícone nenhum. Com a cache em disco a pergunta mudou: os ícones

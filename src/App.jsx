@@ -332,7 +332,7 @@ export default function App() {
 
   // Enche a cache de ícones em disco em segundo plano, antes de o utilizador
   // chegar ao Histórico — ver hooks/useIconPrefetch.js.
-  useIconPrefetch({ matches, champions, summonerSpellFiles });
+  useIconPrefetch({ matches, champions, summonerSpellFiles, augmentsMap });
 
   // A Arena já teve formatos diferentes (8 equipas de 2 vs 6 equipas de 3) —
   // "top 3" e os baldes de lugar não significam o mesmo nos dois formatos,

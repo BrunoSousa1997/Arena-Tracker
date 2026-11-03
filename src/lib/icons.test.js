@@ -10,6 +10,11 @@ async function loadIcons({ electron } = {}) {
   return import("./icons.js");
 }
 
+// Um caminho real da lista da Arena, já em minúsculas e sem o prefixo
+// "/lol-game-data/assets" — é a forma com que o lib/augments.js os entrega.
+const AUGMENT_PATH = "assets/ux/cherry/augments/icons/adapt_small.png";
+const CDRAGON = "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default";
+
 afterEach(() => {
   delete globalThis.window;
 });
@@ -25,6 +30,17 @@ describe("icons dentro do Electron", () => {
     expect(itemIcon(3031, DRAGON)).toBe("at-img://item/3031.png");
     expect(championIcon("Ahri", DRAGON)).toBe("at-img://champion/Ahri.png");
     expect(spellIcon("SummonerFlash.png", DRAGON)).toBe("at-img://spell/SummonerFlash.png");
+  });
+
+  it("manda os augments pela cache, com o caminho inteiro", async () => {
+    const { augmentIcon } = await withCache();
+
+    // As barras ficam como estão: é o caminho que identifica o augment, e é
+    // assim que o protocolo o recebe (ver electron/iconCache.js).
+    expect(augmentIcon(AUGMENT_PATH, CDRAGON)).toBe(`at-img://augment/${AUGMENT_PATH}`);
+    // Com ou sem a barra à cabeça dá o mesmo — o lib/augments.js já a tira,
+    // mas o helper não fica dependente disso.
+    expect(augmentIcon(`/${AUGMENT_PATH}`, CDRAGON)).toBe(`at-img://augment/${AUGMENT_PATH}`);
   });
 
   it("não precisa do patch para nada", async () => {
@@ -55,6 +71,14 @@ describe("icons fora do Electron (vite no browser)", () => {
     expect(itemIcon(3031, null)).toBeUndefined();
     expect(canShowIcons(null)).toBe(false);
     expect(canShowIcons(DRAGON)).toBe(true);
+  });
+
+  it("os augments voltam à Community Dragon", async () => {
+    const { augmentIcon } = await noCache();
+
+    expect(augmentIcon(AUGMENT_PATH, CDRAGON)).toBe(`${CDRAGON}/${AUGMENT_PATH}`);
+    expect(augmentIcon(AUGMENT_PATH, null)).toBeUndefined();
+    expect(augmentIcon(null, CDRAGON)).toBeUndefined();
   });
 });
 

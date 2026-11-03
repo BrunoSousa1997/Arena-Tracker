@@ -82,4 +82,14 @@ async function getSummonerSpellNameMap() {
   }
 }
 
-module.exports = { getSummonerSpellNameMap, getCurrentPatch, DDRAGON_ORIGIN, CDRAGON_ORIGIN };
+// A árvore de assets do Community Dragon, que a cache de ícones e a cache de
+// dados resolvem as duas contra a mesma raiz.
+const CDRAGON_BASE = `${CDRAGON_ORIGIN}/latest/plugins/rcp-be-lol-game-data/global/default`;
+
+module.exports = {
+  getSummonerSpellNameMap,
+  getCurrentPatch,
+  DDRAGON_ORIGIN,
+  CDRAGON_ORIGIN,
+  CDRAGON_BASE,
+};

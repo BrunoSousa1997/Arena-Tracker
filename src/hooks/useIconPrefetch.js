@@ -14,7 +14,7 @@ import { useEffect, useRef } from "react";
 // Corre uma vez por conjunto de ids: a assinatura lá em baixo evita repetir o
 // pedido a cada render (o "matches" é recriado em cada sync) e deixa-o correr
 // outra vez quando o sync traz itens ou campeões que ainda não tínhamos.
-export function useIconPrefetch({ matches, champions, summonerSpellFiles }) {
+export function useIconPrefetch({ matches, champions, summonerSpellFiles, augmentsMap }) {
   const lastSignature = useRef(null);
 
   useEffect(() => {
@@ -22,6 +22,7 @@ export function useIconPrefetch({ matches, champions, summonerSpellFiles }) {
 
     const items = new Set();
     const champs = new Set();
+    const augmentIds = new Set();
 
     (matches || []).forEach((m) => {
       // A nossa build vem como { itemID, count }; a dos outros jogadores, em
@@ -31,8 +32,10 @@ export function useIconPrefetch({ matches, champions, summonerSpellFiles }) {
         if (id) items.add(id);
       });
       if (m.champion) champs.add(m.champion);
+      (m.augments || []).forEach((id) => id && augmentIds.add(id));
       (m.participants || []).forEach((p) => {
         (p.items || []).forEach((id) => id && items.add(id));
+        (p.augments || []).forEach((id) => id && augmentIds.add(id));
         if (p.champion) champs.add(p.champion);
       });
     });
@@ -48,18 +51,24 @@ export function useIconPrefetch({ matches, champions, summonerSpellFiles }) {
       item: [...items],
       champion: [...champs],
       spell: (summonerSpellFiles || []).map((file) => file.replace(/\.png$/i, "")),
+      // Ao contrário dos outros, os augments não vão todos: são 594 na lista, e
+      // as prateleiras do InGame que os mostram todos enchem-se à primeira vez
+      // que lá se vai. Aqui só interessam os que o Histórico vai desenhar — os
+      // das partidas, que são os que apanham a linha expandida com os augments
+      // de toda a gente.
+      augment: [...augmentIds].map((id) => augmentsMap?.[id]?.iconPath).filter(Boolean),
     };
 
-    const signature = [payload.item, payload.champion, payload.spell]
+    const signature = [payload.item, payload.champion, payload.spell, payload.augment]
       .map((list) => [...list].sort().join(","))
       .join("|");
     if (signature === lastSignature.current) return;
-    if (!payload.item.length && !payload.champion.length) return;
+    if (!payload.item.length && !payload.champion.length && !payload.augment.length) return;
     lastSignature.current = signature;
 
     // Deliberadamente sem await e sem estado: isto não tem de bloquear nem de
     // reportar nada: se falhar, o protocolo busca o ícone que falta quando a
     // view o pedir, como fazia antes.
     window.electron.prefetchIcons(payload).catch(() => {});
-  }, [matches, champions, summonerSpellFiles]);
+  }, [matches, champions, summonerSpellFiles, augmentsMap]);
 }
