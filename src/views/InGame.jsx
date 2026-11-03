@@ -397,13 +397,13 @@ export default function InGame({
   }, [isLive, liveChampionAlert, championId, champions]);
 
   if (!championId) {
-    return <div style={styles.empty}>{t("ingame_empty_no_champion")}</div>;
+    return <div className="at-panel" style={styles.empty}>{t("ingame_empty_no_champion")}</div>;
   }
 
   return (
     <div style={styles.wrap}>
       {/* ================= CABEÇALHO ================= */}
-      <div
+      <div className="at-panel"
         style={{
           ...styles.hero,
           borderColor: isLive
@@ -501,7 +501,7 @@ export default function InGame({
 
       {/* ================= PONTUAÇÃO DO DESAFIO ================= */}
       {liveScore && (
-        <div style={styles.panel}>
+        <div className="at-panel" style={styles.panel}>
           <div style={styles.panelHead}>
             <span style={styles.panelTitle}>{t("ingame_score_title")}</span>
             <span style={styles.panelHint}>
@@ -552,7 +552,7 @@ export default function InGame({
       {/* Só com partida a decorrer: fora dela não há lobby nenhum de que
           falar, e um painel vazio à espera seria pior do que não existir. */}
       {isLive && lobbyRows.length > 0 && (
-        <div style={styles.panel}>
+        <div className="at-panel" style={styles.panel}>
           <div style={styles.panelHead}>
             <span style={styles.panelTitle}>{t("ingame_lobby_title")}</span>
             <span style={styles.panelHint}>{t("ingame_lobby_hint")}</span>
@@ -651,7 +651,7 @@ export default function InGame({
           levados (ver suggestBuild em lib/recommend.js). Painel próprio e à
           largura toda porque é a conclusão, e uma conclusão não se lê no meio
           de uma tabela. */}
-      <div style={styles.panel}>
+      <div className="at-panel" style={styles.panel}>
         <div style={styles.panelHead}>
           <span style={styles.panelTitle}>{t("ingame_plan_title")}</span>
           {build.slots.length > 0 && (
@@ -710,7 +710,7 @@ export default function InGame({
 
       <div style={styles.columns}>
         {/* ================= AUGMENTS ================= */}
-        <div style={styles.panel}>
+        <div className="at-panel" style={styles.panel}>
           <div style={styles.panelHead}>
             <span style={styles.panelTitle}>{t("ingame_augments_title")}</span>
             <span style={styles.panelHint}>{t("ingame_augments_hint")}</span>
@@ -783,7 +783,7 @@ export default function InGame({
         {/* A build sugerida responde a "o que compro"; isto responde a "e se o
             que preciso não for nada disso" — a prateleira inteira, ordenada,
             para quando a partida não corre como o plano. */}
-        <div style={styles.panel}>
+        <div className="at-panel" style={styles.panel}>
           <div style={styles.panelHead}>
             <span style={styles.panelTitle}>{t("ingame_build_title")}</span>
             <span style={styles.panelHint}>{t("ingame_build_hint")}</span>
@@ -1123,9 +1123,7 @@ const styles = {
     alignItems: "center",
     gap: 14,
     padding: "14px 16px",
-    borderRadius: "var(--radius-lg)",
     background: "rgba(var(--panel-deep-rgb),0.9)",
-    border: "1px solid",
   },
 
   heroIcon: {
@@ -1208,9 +1206,7 @@ const styles = {
   panel: {
     display: "flex",
     flexDirection: "column",
-    borderRadius: "var(--radius-lg)",
     background: "rgba(var(--panel-deep-rgb),0.85)",
-    border: "1px solid rgba(var(--accent-rgb),0.15)",
     overflow: "hidden",
   },
 
@@ -1259,9 +1255,7 @@ const styles = {
     alignItems: "center",
     gap: 8,
     padding: "6px 8px",
-    borderRadius: "var(--radius-lg)",
     background: "rgba(var(--panel-deep-rgb),0.7)",
-    border: "1px solid rgba(var(--border-rgb),0.35)",
     minWidth: 0,
   },
 
@@ -1698,9 +1692,7 @@ const styles = {
     textAlign: "center",
     fontSize: 12.5,
     color: "var(--text-muted)",
-    borderRadius: "var(--radius-lg)",
     background: "rgba(var(--panel-deep-rgb),0.85)",
-    border: "1px solid rgba(var(--border-rgb),0.35)",
   },
 
   footnote: { fontSize: 10.5, lineHeight: 1.5, color: "var(--text-muted)" },

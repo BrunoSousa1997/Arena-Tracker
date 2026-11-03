@@ -49,7 +49,7 @@ export default function Augments({ matches, augmentsMap }) {
   );
 
   if (!matches.length) {
-    return <div style={styles.empty}>{t("aug_empty_no_matches")}</div>;
+    return <div className="at-panel" style={styles.empty}>{t("aug_empty_no_matches")}</div>;
   }
 
   return (
@@ -126,9 +126,9 @@ export default function Augments({ matches, augmentsMap }) {
       </div>
 
       {visible.length === 0 ? (
-        <div style={styles.empty}>{t("aug_empty_filtered")}</div>
+        <div className="at-panel" style={styles.empty}>{t("aug_empty_filtered")}</div>
       ) : (
-        <div style={styles.list}>
+        <div className="at-panel" style={styles.list}>
           <div style={{ ...styles.row, ...styles.headRow }}>
             <span style={styles.headName}>{t("aug_col_augment")}</span>
             <span style={styles.headCell}>{t("aug_col_games")}</span>
@@ -265,9 +265,7 @@ const styles = {
   list: {
     display: "flex",
     flexDirection: "column",
-    borderRadius: "var(--radius-lg)",
     background: "rgba(var(--panel-deep-rgb),0.85)",
-    border: "1px solid rgba(var(--accent-rgb),0.15)",
     overflow: "hidden",
   },
 
@@ -372,9 +370,7 @@ const styles = {
     textAlign: "center",
     fontSize: 12.5,
     color: "var(--text-muted)",
-    borderRadius: "var(--radius-lg)",
     background: "rgba(var(--panel-deep-rgb),0.85)",
-    border: "1px solid rgba(var(--border-rgb),0.35)",
   },
 
   footnote: { fontSize: 10.5, lineHeight: 1.5, color: "var(--text-muted)" },

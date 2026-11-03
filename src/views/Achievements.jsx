@@ -77,12 +77,12 @@ export default function Achievements({ matches, champions, wins, challengeWins =
   }, [categories]);
 
   if (!matches.length) {
-    return <div style={styles.empty}>{t("achv_empty")}</div>;
+    return <div className="at-panel" style={styles.empty}>{t("achv_empty")}</div>;
   }
 
   return (
     <div style={styles.wrap}>
-      <div style={styles.header}>
+      <div className="at-panel" style={styles.header}>
         <h2 style={styles.headerTitle}>{t("achv_page_title")}</h2>
         <div style={styles.headerProgress}>
           <span style={styles.headerCount}>
@@ -103,7 +103,7 @@ export default function Achievements({ matches, champions, wins, challengeWins =
           badges sem nenhuma indicação de onde focar; isto dá aos 3 níveis
           mais próximos um destaque logo no topo. */}
       {closestToUnlock.length > 0 && (
-        <div className="riseIn" style={styles.section}>
+        <div className="riseIn at-panel" style={styles.section}>
           <div style={styles.sectionHeader}>
             <span style={styles.sectionIcon}>
               <AchievementIcon iconId="target" color="var(--accent-text)" size={17} />
@@ -112,7 +112,7 @@ export default function Achievements({ matches, champions, wins, challengeWins =
           </div>
           <div style={styles.closestRow}>
             {closestToUnlock.map((cat, i) => (
-              <div key={cat.id} className="riseIn" style={{ ...styles.closestCard, animationDelay: `${i * 30}ms` }}>
+              <div key={cat.id} className="riseIn at-panel-sm" style={{ ...styles.closestCard, animationDelay: `${i * 30}ms` }}>
                 <span style={styles.badgeIcon}>
                   <AchievementIcon iconId={cat.iconId} color={cat.nextRank.color} size={22} />
                 </span>
@@ -150,7 +150,7 @@ export default function Achievements({ matches, champions, wins, challengeWins =
           const rank = currentRankOf(cat);
 
           return (
-            <div key={cat.id} className="riseIn" style={{ ...styles.section, animationDelay: `${Math.min(i, 8) * 30}ms` }}>
+            <div key={cat.id} className="riseIn at-panel" style={{ ...styles.section, animationDelay: `${Math.min(i, 8) * 30}ms` }}>
               <div style={styles.catHeader}>
                 <span style={styles.catIconWrap}>
                   <AchievementIcon
@@ -244,7 +244,7 @@ export default function Achievements({ matches, champions, wins, challengeWins =
         })}
       </div>
 
-      <div className="riseIn" style={styles.section}>
+      <div className="riseIn at-panel" style={styles.section}>
         <div style={styles.sectionHeader}>
           <span style={styles.sectionIcon}>
             <AchievementIcon iconId="crest" color="var(--accent-text)" size={17} />
@@ -300,8 +300,6 @@ const styles = {
     textAlign: "center",
     color: "var(--text-secondary)",
     background: "rgba(var(--panel-deep-rgb),0.85)",
-    border: "1px solid rgba(var(--border-rgb),0.5)",
-    borderRadius: "var(--radius-xl)",
   },
 
   header: {
@@ -311,8 +309,6 @@ const styles = {
     gap: 16,
     background: "var(--panel-bg)",
     backdropFilter: "var(--panel-blur)",
-    border: "1px solid rgba(var(--border-rgb),0.5)",
-    borderRadius: "var(--radius-2xl)",
     padding: 16,
   },
 
@@ -352,8 +348,6 @@ const styles = {
   section: {
     background: "var(--panel-bg)",
     backdropFilter: "var(--panel-blur)",
-    border: "1px solid rgba(var(--border-rgb),0.5)",
-    borderRadius: "var(--radius-2xl)",
     padding: 16,
   },
 
@@ -490,9 +484,7 @@ const styles = {
     alignItems: "center",
     gap: 10,
     padding: "10px 12px",
-    borderRadius: "var(--radius-lg)",
     background: "rgba(var(--panel-deep-rgb),0.6)",
-    border: "1px solid rgba(var(--border-rgb),0.45)",
   },
 
   closestInfo: {

@@ -770,7 +770,7 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
 
   if (!matches.length) {
     return (
-      <div style={styles.empty}>
+      <div className="at-panel" style={styles.empty}>
         {t("history_empty")}
       </div>
     );
@@ -780,7 +780,7 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
     <div style={styles.wrap}>
       {/* COMPARAÇÃO LADO A LADO — dois campeões escolhidos à mão, fora do
           filtro/ordenação ativos na lista principal. */}
-      <div className="riseIn" style={styles.section}>
+      <div className="riseIn at-panel" style={styles.section}>
         <div style={styles.sectionHeader}>
           <h2 style={styles.sectionTitle}>{t("compare_champions")}</h2>
           <button onClick={() => setCompareOpen((v) => !v)} style={styles.compareToggleBtn}>
@@ -897,7 +897,7 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
       </div>
 
       {/* LEADERBOARD DE CAMPEÕES */}
-      <div className="riseIn" style={{ ...styles.section, animationDelay: "30ms" }}>
+      <div className="riseIn at-panel" style={{ ...styles.section, animationDelay: "30ms" }}>
         <div style={styles.sectionHeader}>
           <h2 style={styles.sectionTitle}>{t("stats_by_champion")}</h2>
         </div>
@@ -1090,7 +1090,7 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
             return (
               <div
                 key={s.champion}
-                className="riseIn"
+                className="riseIn at-panel-sm"
                 style={{ ...styles.champCard, animationDelay: `${Math.min(i, 8) * 30}ms` }}
               >
                 <div
@@ -1583,16 +1583,12 @@ const styles = {
     textAlign: "center",
     color: "var(--text-secondary)",
     background: "rgba(var(--panel-deep-rgb),0.85)",
-    border: "1px solid rgba(var(--border-rgb),0.5)",
-    borderRadius: "var(--radius-xl)",
   },
 
 
   section: {
     background: "var(--panel-bg)",
     backdropFilter: "var(--panel-blur)",
-    border: "1px solid rgba(var(--border-rgb),0.5)",
-    borderRadius: "var(--radius-2xl)",
     padding: 16,
   },
 
@@ -1805,9 +1801,7 @@ const styles = {
   // no tema claro ficava com um tom escuro estranho em vez de acompanhar o
   // resto do painel.
   champCard: {
-    borderRadius: "var(--radius-lg)",
     background: "rgba(var(--panel-deep-rgb),0.85)",
-    border: "1px solid rgba(var(--border-rgb),0.25)",
     overflow: "hidden",
   },
 

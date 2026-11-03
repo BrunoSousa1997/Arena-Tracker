@@ -424,7 +424,7 @@ export default function Challenges({ activeAccount, accounts, champions = [], DR
     setScreen("idle");
   };
 
-  if (!activeAccount) return <div style={styles.empty}>{t("chal_no_account")}</div>;
+  if (!activeAccount) return <div className="at-panel" style={styles.empty}>{t("chal_no_account")}</div>;
   if (loading) return <Loading label={t("loading_generic")} />;
 
   return (
@@ -488,7 +488,7 @@ function IdleScreen({ onCreate, onJoin, onHistory, error, busy }) {
 
   return (
     <>
-      <div className="riseIn" style={styles.card}>
+      <div className="riseIn at-panel" style={styles.card}>
         <div style={styles.idleHeaderRow}>
           <div>
             <h2 style={styles.title}>{t("chal_page_title")}</h2>
@@ -512,7 +512,7 @@ function IdleScreen({ onCreate, onJoin, onHistory, error, busy }) {
           <span style={styles.bigChoiceTitle}>{t("chal_create_room")}</span>
         </button>
 
-        <div className="riseIn" style={{ ...styles.card, animationDelay: "60ms" }}>
+        <div className="riseIn at-panel" style={{ ...styles.card, animationDelay: "60ms" }}>
           <div style={styles.bigChoiceHeader}>
             <LogIn size={18} strokeWidth={2.25} color="var(--accent-text)" />
             <span style={styles.bigChoiceTitle}>{t("chal_join_room")}</span>
@@ -558,7 +558,7 @@ function ChallengeHistory({ activeAccount, onBack }) {
 
   return (
     <>
-      <div className="riseIn" style={styles.card}>
+      <div className="riseIn at-panel" style={styles.card}>
         <div style={styles.idleHeaderRow}>
           <h2 style={styles.title}>{t("chal_history")}</h2>
           <button onClick={onBack} style={styles.ghostBtn}>
@@ -607,7 +607,7 @@ function HistoryEntry({ room, activeAccount, t, delay = 0 }) {
 
   return (
     <div
-      className="riseIn"
+      className="riseIn at-panel"
       style={{ ...styles.card, ...(won ? styles.combatCardSelf : null), animationDelay: `${delay}ms` }}
     >
       <div style={styles.idleHeaderRow}>
@@ -731,7 +731,7 @@ function CreateForm({ hostUsername, identity, onCancel, onCreated }) {
   };
 
   return (
-    <div className="riseIn" style={styles.card}>
+    <div className="riseIn at-panel" style={styles.card}>
       <h2 style={styles.title}>{t("chal_create_room")}</h2>
 
       <label style={styles.label}>{t("chal_room_name")}</label>
@@ -951,7 +951,7 @@ function Lobby({ room, players, activeAccount, onLeave, onClose, champions, DRAG
 
   return (
     <>
-      <div className="riseIn" style={styles.card}>
+      <div className="riseIn at-panel" style={styles.card}>
         <div style={styles.lobbyHeader}>
           <div>
             <div style={styles.kicker}>{t("chal_lobby")}</div>
@@ -2229,7 +2229,7 @@ function InvitePanel({ room, activeAccount, players }) {
   };
 
   return (
-    <div className="riseIn" style={styles.card}>
+    <div className="riseIn at-panel" style={styles.card}>
       <h3 style={styles.sectionTitle}>{t("chal_invite_title")}</h3>
 
       <div style={styles.codeRow}>
@@ -2289,7 +2289,7 @@ function InvitesPanel({ invites, onAccept, onDecline }) {
   const { t } = useLanguage();
 
   return (
-    <div className="riseIn" style={{ ...styles.card, borderColor: "rgba(var(--accent-rgb),0.5)" }}>
+    <div className="riseIn at-panel" style={{ ...styles.card, borderColor: "rgba(var(--accent-rgb),0.5)" }}>
       <h3 style={styles.sectionTitle}>{t("chal_invites_received")}</h3>
       {invites.map((inv) => (
         <div key={inv.id} style={styles.inviteRow}>
@@ -2323,15 +2323,11 @@ const styles = {
     textAlign: "center",
     color: "var(--text-secondary)",
     background: "rgba(var(--panel-deep-rgb),0.85)",
-    border: "1px solid rgba(var(--border-rgb),0.5)",
-    borderRadius: "var(--radius-xl)",
   },
 
   card: {
     background: "var(--panel-bg)",
     backdropFilter: "var(--panel-blur)",
-    border: "1px solid rgba(var(--border-rgb),0.5)",
-    borderRadius: "var(--radius-2xl)",
     padding: 16,
   },
 

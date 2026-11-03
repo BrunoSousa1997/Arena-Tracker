@@ -761,6 +761,23 @@ select:hover {
   opacity: 0.75;
 }
 
+/* Variante com os cantos cortados SÓ à direita, para os cartões de partida do
+   Histórico. Esses trazem uma barra de 3px à esquerda com a cor do resultado,
+   e é por ela que se percorre a lista com os olhos; um corte no canto
+   inferior esquerdo decepava-lhe a ponta. O lado esquerdo fica a direito, a
+   barra fica inteira, e a forma de painel vem do lado direito. */
+.at-panel-right {
+  clip-path: polygon(
+    0 0,
+    calc(100% - 12px) 0,
+    100% 12px,
+    100% calc(100% - 12px),
+    calc(100% - 12px) 100%,
+    0 100%
+  );
+  box-shadow: inset 0 0 0 1px rgba(var(--border-rgb), 0.4);
+}
+
 /* Corte mais pequeno para os elementos pequenos (fileiras de sentadas,
    cartões do "quase lá", caixas de número): com 16px de chanfro, uma fileira
    de 40px de altura ficava com os cantos a comer-lhe metade da altura. */
@@ -930,9 +947,17 @@ select:hover {
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
+/* A sombra projetada que marcava o hover deixou de servir quando o cartão
+   passou a ter cantos cortados: o recorte corta as sombras exteriores e ela
+   nunca chegava a aparecer. Agora acende por dentro, e na cor do resultado da
+   partida — que o cartão já traz em "--hl-color" — em vez de um cinzento
+   neutro. É a mesma técnica dos cartões de destaque da Visão Geral: uma
+   variável inline é lida por uma regra de :hover, ao contrário de um estilo
+   inline, que lhe ganharia. */
 .historyCard:hover {
   transform: translateY(-2px);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.3);
+  box-shadow: inset 0 0 0 1px var(--hl-color, rgba(var(--accent-rgb), 0.5)),
+    inset 0 -24px 28px -24px var(--hl-color, rgba(var(--accent-rgb), 0.5));
 }
 /* ================= CABEÇALHO RESPONSIVO =================
    O cabeçalho é a única parte da app que tem de caber SEMPRE, seja qual for

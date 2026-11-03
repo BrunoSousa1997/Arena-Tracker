@@ -438,7 +438,7 @@ export default function MatchHistory({
             return (
               <motion.div
                 key={rowKey}
-                className="historyCard"
+                className="historyCard at-panel-right"
                 initial={{ opacity: 0, y: -6 }}
                 animate={{ opacity: 1, y: 0, transition: { duration: 0.12, delay: Math.min(i, 8) * 0.03 } }}
                 exit={{ opacity: 0 }}
@@ -446,6 +446,9 @@ export default function MatchHistory({
                 style={{
                   ...styles.matchCard,
                   borderLeft: `3px solid ${color}`,
+                  // A cor do resultado também vai como variável, para a regra
+                  // de :hover em index.css poder acender a moldura nela.
+                  "--hl-color": color,
                 }}
               >
                 <div
@@ -958,10 +961,12 @@ const styles = {
     fontWeight: 600,
   },
 
+  // A moldura e o recorte vêm de ".at-panel-right" (ver index.css); aqui fica
+  // só a barra de resultado, que é posta inline por ser calculada por
+  // partida. O "border" geral saiu: declarado inline, ganhava à moldura da
+  // classe e esta ficava sem efeito.
   matchCard: {
-    borderRadius: "var(--radius-lg)",
     background: "rgba(var(--panel-deep-rgb),0.85)",
-    border: "1px solid rgba(var(--border-rgb),0.25)",
     overflow: "hidden",
   },
 

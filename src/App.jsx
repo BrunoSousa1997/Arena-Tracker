@@ -1233,7 +1233,7 @@ export default function App() {
                   inputRef={searchInputRef}
                 />
 
-                <div style={styles.cardScroll}>
+                <div className="at-panel" style={styles.cardScroll}>
                   {/* Sem título "Coleção" aqui em cima — a própria tab já
                       tem esse nome na barra lateral, repeti-lo só empurrava
                       o filtro/grelha para baixo sem acrescentar nada. Filtro
@@ -2015,8 +2015,6 @@ const styles = {
   cardScroll: {
     background: "var(--panel-bg)",
     backdropFilter: "var(--panel-blur)",
-    border: "1px solid rgba(var(--border-rgb),0.5)",
-    borderRadius: "var(--radius-2xl)",
     padding: 18,
     marginTop: 16,
     display: "flex",

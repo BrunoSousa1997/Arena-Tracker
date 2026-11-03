@@ -479,7 +479,7 @@ export default function Compare({ matches, wins, champions, DRAGON, ownLabel, te
 
   return (
     <div style={styles.wrap}>
-      <div className="riseIn" style={styles.searchCard}>
+      <div className="riseIn at-panel" style={styles.searchCard}>
         <h2 style={styles.title}>{t("compare_page_title")}</h2>
         <p style={styles.intro}>{t("compare_intro")}</p>
 
@@ -554,7 +554,7 @@ export default function Compare({ matches, wins, champions, DRAGON, ownLabel, te
       {phase === "syncing" && <Loading label={statusMessage || t("compare_syncing")} size="sm" fullHeight={false} />}
 
       {phase === "needs-sync" && (
-        <div className="riseIn" style={styles.noticeCard}>
+        <div className="riseIn at-panel" style={styles.noticeCard}>
           <div style={styles.noticeTitle}>{t("compare_needs_sync_title")}</div>
           <div style={styles.noticeText}>{t("compare_needs_sync_text")}</div>
           <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
@@ -568,8 +568,18 @@ export default function Compare({ matches, wins, champions, DRAGON, ownLabel, te
         </div>
       )}
 
+      {/* O aviso de erro tinha a moldura tingida de vermelho via
+          "borderColor". Com os painéis a usarem sombra interior (ver
+          .at-panel), já não há border nenhuma para tingir — a mesma sombra,
+          declarada aqui, substitui a do painel neutro. */}
       {phase === "error" && (
-        <div className="riseIn" style={{ ...styles.noticeCard, borderColor: "rgba(226,85,95,0.4)" }}>
+        <div
+          className="riseIn at-panel"
+          style={{
+            ...styles.noticeCard,
+            boxShadow: "inset 0 0 0 1px rgba(226,85,95,0.45)",
+          }}
+        >
           <div style={{ ...styles.noticeTitle, color: "#e2555f" }}>{errorMessage}</div>
           <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
             <button onClick={resetSearch} style={styles.ghostBtn}>
@@ -580,7 +590,7 @@ export default function Compare({ matches, wins, champions, DRAGON, ownLabel, te
       )}
 
       {phase === "ready" && !opponentMatches.length && (
-        <div className="riseIn" style={styles.noticeCard}>
+        <div className="riseIn at-panel" style={styles.noticeCard}>
           <div style={styles.noticeTitle}>{t("compare_opponent_still_empty")}</div>
           <button onClick={resetSearch} style={{ ...styles.ghostBtn, marginTop: 10 }}>
             {t("compare_new_search_button")}
@@ -589,7 +599,7 @@ export default function Compare({ matches, wins, champions, DRAGON, ownLabel, te
       )}
 
       {phase === "ready" && !!opponentMatches.length && opponentPartial && (
-        <div className="riseIn" style={styles.noticeCard}>
+        <div className="riseIn at-panel" style={styles.noticeCard}>
           <div style={styles.noticeTitle}>{t("compare_partial_title")}</div>
           <div style={styles.noticeText}>{t("compare_partial_text")}</div>
           <button onClick={syncOpponent} style={{ ...styles.primaryBtn, marginTop: 10 }}>
@@ -600,7 +610,7 @@ export default function Compare({ matches, wins, champions, DRAGON, ownLabel, te
 
       {phase === "ready" && !!opponentMatches.length && (
         <>
-          <div className="riseIn" style={styles.section}>
+          <div className="riseIn at-panel" style={styles.section}>
             <div style={styles.sectionHeader}>
               <h3 style={styles.sectionTitle}>{t("compare_summary_title")}</h3>
               <button onClick={resetSearch} style={styles.ghostBtnSmall}>
@@ -659,7 +669,7 @@ export default function Compare({ matches, wins, champions, DRAGON, ownLabel, te
             />
           </div>
 
-          <div className="riseIn" style={{ ...styles.section, animationDelay: "30ms" }}>
+          <div className="riseIn at-panel" style={{ ...styles.section, animationDelay: "30ms" }}>
             <div style={styles.sectionHeader}>
               <h3 style={styles.sectionTitle}>{t("compare_achievements_title")}</h3>
               <div style={styles.badgeTotals}>
@@ -685,7 +695,7 @@ export default function Compare({ matches, wins, champions, DRAGON, ownLabel, te
             })}
           </div>
 
-          <div className="riseIn" style={{ ...styles.section, animationDelay: "60ms" }}>
+          <div className="riseIn at-panel" style={{ ...styles.section, animationDelay: "60ms" }}>
             <div style={styles.sectionHeader}>
               <h3 style={styles.sectionTitle}>{t("compare_special_title")}</h3>
             </div>
@@ -721,7 +731,7 @@ export default function Compare({ matches, wins, champions, DRAGON, ownLabel, te
             return (
               <div
                 key={group.key}
-                className="riseIn"
+                className="riseIn at-panel"
                 style={{ ...styles.section, animationDelay: `${90 + Math.min(gi, 8) * 30}ms` }}
               >
                 <div style={styles.sectionHeader}>
@@ -797,8 +807,6 @@ const styles = {
   searchCard: {
     background: "var(--panel-bg)",
     backdropFilter: "var(--panel-blur)",
-    border: "1px solid rgba(var(--border-rgb),0.5)",
-    borderRadius: "var(--radius-2xl)",
     padding: 16,
   },
 
@@ -961,8 +969,6 @@ const styles = {
   noticeCard: {
     background: "var(--panel-bg)",
     backdropFilter: "var(--panel-blur)",
-    border: "1px solid rgba(var(--border-rgb),0.5)",
-    borderRadius: "var(--radius-xl)",
     padding: 16,
   },
 
@@ -981,8 +987,6 @@ const styles = {
   section: {
     background: "var(--panel-bg)",
     backdropFilter: "var(--panel-blur)",
-    border: "1px solid rgba(var(--border-rgb),0.5)",
-    borderRadius: "var(--radius-2xl)",
     padding: 16,
   },
 
