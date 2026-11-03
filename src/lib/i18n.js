@@ -30,6 +30,7 @@ const DICTIONARY = {
   chal_room_name_placeholder: { pt: "Ex: Noite de Arena", en: "e.g. Arena Night" },
   chal_players: { pt: "Nº de jogadores", en: "Players" },
   chal_games: { pt: "Nº de jogos", en: "Games" },
+  chal_games_short: { pt: "jogos", en: "games" },
   chal_games_hint: {
     pt: "Contam as próximas partidas de cada um a partir do início do desafio.",
     en: "Counts each player's next matches from the moment the challenge starts.",
@@ -286,6 +287,103 @@ const DICTIONARY = {
     en: "legacy rules (no class handicap)",
   },
   chal_scoring_plain: { pt: "pontuação simples", en: "plain scoring" },
+
+  // ----- Ecrã inicial: registo pessoal e cartões de ação -----
+  chal_hero_kicker: { pt: "Arena · a contas com amigos", en: "Arena · settle it with friends" },
+  chal_record_played: { pt: "Desafios", en: "Challenges" },
+  chal_record_won: { pt: "Vitórias", en: "Wins" },
+  chal_record_winrate: { pt: "Taxa", en: "Win rate" },
+  chal_record_best: { pt: "Melhor pontuação", en: "Best score" },
+  chal_create_desc: {
+    pt: "Escolhes o formato, as regras e quem entra.",
+    en: "You pick the format, the rules and who joins.",
+  },
+  chal_join_desc: {
+    pt: "Tens um código? Entra na sala de outra pessoa.",
+    en: "Got a code? Join someone else's room.",
+  },
+  chal_code_label: { pt: "Código da sala", en: "Room code" },
+  chal_standings: { pt: "Classificação", en: "Standings" },
+  chal_live_tag: { pt: "ao vivo", en: "live" },
+
+  // ----- Assistente de criação -----
+  chal_step_of: { pt: "Passo {n} de {total}", en: "Step {n} of {total}" },
+  chal_step_room: { pt: "A sala", en: "The room" },
+  chal_step_rules: { pt: "Regras", en: "Rules" },
+  chal_step_invite: { pt: "Quem joga", en: "Who plays" },
+  chal_next: { pt: "Seguinte", en: "Next" },
+  chal_back_step: { pt: "Anterior", en: "Back" },
+  chal_random_name: { pt: "Sugerir outro nome", en: "Suggest another name" },
+  chal_players_short: { pt: "jogadores", en: "players" },
+  chal_invites_short: { pt: "convites", en: "invites" },
+  chal_create_and_invite: { pt: "Criar e convidar {count}", en: "Create and invite {count}" },
+  // Duas listas de palavras para as sugestões de nome de sala (ver
+  // lib/challengeNames.js) — combinadas uma de cada, separadas por "|".
+  chal_name_words_a: {
+    pt: "Noite|Torneio|Duelo|Ronda|Caça|Arena|Guerra|Troféu|Desafio|Taça",
+    en: "Night|Tournament|Duel|Round|Hunt|Arena|War|Trophy|Challenge|Cup",
+  },
+  chal_name_words_b: {
+    pt: "de Arena|dos Amigos|da Areia|sem Piedade|a Sério|do Caos|de Verão|até ao Fim|da Vingança|das Lendas",
+    en: "of Arena|of Friends|of Sand|without Mercy|for Real|of Chaos|of Summer|to the End|of Revenge|of Legends",
+  },
+
+  // ----- Convites rápidos -----
+  chal_quick_invites: { pt: "Convites rápidos", en: "Quick invites" },
+  chal_invite_search_more: { pt: "Ou procura outro jogador", en: "Or search another player" },
+  chal_invite_no_results: {
+    pt: "Ninguém encontrado com esse nome.",
+    en: "No one found with that name.",
+  },
+  chal_one_challenge: { pt: "desafio contigo", en: "challenge with you" },
+  chal_many_challenges: { pt: "desafios contigo", en: "challenges with you" },
+  chal_add: { pt: "Juntar", en: "Add" },
+  chal_added: { pt: "Na lista", en: "Added" },
+  chal_remove: { pt: "Tirar da lista", en: "Remove from list" },
+  chal_invites_ready: {
+    pt: "{count} convites a sair assim que a sala existir",
+    en: "{count} invites going out as soon as the room exists",
+  },
+  chal_invites_ready_one: {
+    pt: "1 convite a sair assim que a sala existir",
+    en: "1 invite going out as soon as the room exists",
+  },
+  chal_invite_slots_full: {
+    pt: "Já escolheste tantos convites como lugares livres na sala.",
+    en: "You've picked as many invites as there are free seats.",
+  },
+  chal_invite_later: {
+    pt: "Podes continuar a convidar (ou partilhar o código) depois de criar a sala.",
+    en: "You can keep inviting (or share the code) after the room is created.",
+  },
+  chal_slots_left: { pt: "{count} lugares livres", en: "{count} seats left" },
+  chal_slots_left_one: { pt: "1 lugar livre", en: "1 seat left" },
+
+  // ----- Painel de configurações: predefinições e "o que conta" -----
+  chal_preset_classic: { pt: "Clássico", en: "Classic" },
+  chal_preset_classic_desc: {
+    pt: "Tudo conta: KDA, sequências, dano, cura e multikills, com handicap por arquétipo.",
+    en: "Everything counts: KDA, streaks, damage, healing and multikills, with archetype handicap.",
+  },
+  chal_preset_kda: { pt: "Duelo puro", en: "Pure duel" },
+  chal_preset_kda_desc: {
+    pt: "Só abates, mortes, assistências e sequências. Simples de seguir de cabeça.",
+    en: "Only kills, deaths, assists and streaks. Easy to follow in your head.",
+  },
+  chal_preset_custom: { pt: "Personalizado", en: "Custom" },
+  chal_preset_custom_desc: {
+    pt: "Escolhes regra a regra o que entra na pontuação.",
+    en: "Pick rule by rule what goes into the score.",
+  },
+  chal_what_counts: { pt: "O que conta neste desafio", en: "What counts in this challenge" },
+  chal_counts_yes: { pt: "Conta para a pontuação", en: "Counts toward the score" },
+  chal_counts_no: { pt: "Não conta neste desafio", en: "Doesn't count in this challenge" },
+  chal_rule_only_solo_short: { pt: "Jogos sem rivais", en: "Rival-free games" },
+
+  // ----- Lobby -----
+  chal_you: { pt: "tu", en: "you" },
+  chal_waiting_slot: { pt: "À espera…", en: "Waiting…" },
+  chal_your_team: { pt: "a tua", en: "yours" },
 
   // ================= COMPARAR =================
   compare_page_title: { pt: "Comparar jogadores", en: "Compare players" },

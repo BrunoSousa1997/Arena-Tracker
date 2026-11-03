@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Users,
   Plus,
@@ -18,16 +18,26 @@ import {
   HeartPulse,
   Zap,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   History,
   ArrowLeft,
   Info,
   MonitorCheck,
   Flag,
   Clock,
+  Dices,
+  Percent,
+  Sliders,
+  UserPlus,
 } from "lucide-react";
 import { useLanguage } from "../lib/i18n";
 import Loading from "../components/Loading";
 import ConfirmDialog from "../components/ConfirmDialog";
+import ChallengeCodeInput from "../components/ChallengeCodeInput";
+import ChallengeInvitePicker from "../components/ChallengeInvitePicker";
+import ChallengeRulesPanel from "../components/ChallengeRulesPanel";
+import ChallengeStandings from "../components/ChallengeStandings";
 import {
   createRoom,
   joinRoom,
@@ -43,7 +53,6 @@ import {
   respondToInvite,
   subscribeToRoom,
   subscribeToInvites,
-  searchAccountsByGameName,
   startRoom,
   finishRoom,
   getRoomChallengeGames,
@@ -53,6 +62,9 @@ import {
   getChallengeHistory,
 } from "../db/api";
 import { scorePlayer, SCORE_POINTS, ARCHETYPE_MULTIPLIER, DEFAULT_RULES, sumStreakBonus } from "../lib/challengeScoring";
+import { challengeRecord, rivalInitials } from "../lib/challengeRivals";
+import { randomRoomName } from "../lib/challengeNames";
+import { useCountUpInt } from "../lib/useCountUp";
 import { normalizeChampionId } from "../lib/champions";
 import { canShowIcons, championIcon } from "../lib/icons";
 
@@ -102,28 +114,6 @@ function playerOptionsForTeam(teamSize) {
 // Cor de identidade por jogador no placar ao vivo (ver ScoreBoard) — só
 // entra em jogo enquanto o desafio decorre, antes de haver medalhas.
 const PLAYER_COLORS = ["#5b8cff", "#ff6b6b", "#4ade80", "#fbbf24", "#c084fc", "#22d3ee", "#f472b6", "#fb923c"];
-
-// Uma pessoa pode ter mais do que uma conta ("wins.username") para a mesma
-// identidade Riot — reinstalações antigas antes de "wins" ter constraint de
-// unicidade (ver ponto 6b em supabase/schema.sql), ou contas sem Riot ID
-// preenchido. Sem isto, a pesquisa de convite mostrava a mesma pessoa duas
-// vezes e era fácil convidar a conta errada (uma que já ninguém usa). Fica
-// só a primeira ocorrência por identidade — a RPC já devolve por ordem de
-// "has_matches desc", por isso a conta ativa tende a vir primeiro.
-function dedupeByIdentity(rows) {
-  const seen = new Set();
-  const result = [];
-  for (const r of rows) {
-    const key =
-      r.riot_game_name && r.riot_tag_line
-        ? `${r.riot_game_name.toLowerCase()}#${r.riot_tag_line.toLowerCase()}`
-        : r.username.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push(r);
-  }
-  return result;
-}
 
 // "Ao vivo" = linha em challenge_games ainda com status "live" e atualizada
 // nos últimos 20s (ver updateChallengeGameProgress em db/rooms.js, chamado a
@@ -283,10 +273,25 @@ export default function Challenges({ activeAccount, accounts, champions = [], DR
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // Instante do último erro. Serve só para as casas do código voltarem a
+  // abanar quando o MESMO erro acontece duas vezes seguidas (ver
+  // ChallengeCodeInput): com uma string só, o segundo "código não existe"
+  // não mudava estado nenhum e ficava sem resposta visual.
+  const [errorAt, setErrorAt] = useState(0);
 
   const [room, setRoom] = useState(null);
   const [players, setPlayers] = useState([]);
   const [invites, setInvites] = useState([]);
+  // Desafios já terminados desta conta. Lido uma vez aqui (e não em cada
+  // ecrã) porque três sítios diferentes o usam: o registo pessoal do
+  // cabeçalho, os convites rápidos (ver recentRivals) e a lista do
+  // histórico.
+  const [history, setHistory] = useState([]);
+
+  const showError = useCallback((msg) => {
+    setError(msg);
+    setErrorAt(Date.now());
+  }, []);
 
   // Identidade Riot da conta ativa — copiada para a sala ao entrar, para o
   // placar continuar a fazer sentido se a pessoa mudar de Riot ID depois.
@@ -306,12 +311,14 @@ export default function Challenges({ activeAccount, accounts, champions = [], DR
     }
 
     setLoading(true);
-    const [mine, pending] = await Promise.all([
+    const [mine, pending, past] = await Promise.all([
       getMyActiveRoom(activeAccount),
       getPendingInvites(activeAccount),
+      getChallengeHistory(activeAccount),
     ]);
 
     setInvites(pending);
+    setHistory(past);
     if (mine) {
       setRoom(mine);
       await refreshRoom(mine.id);
@@ -374,17 +381,17 @@ export default function Challenges({ activeAccount, accounts, champions = [], DR
   const handleJoinByCode = async (code) => {
     setError("");
     const found = await getRoomByCode(code);
-    if (!found) return setError(t("chal_room_not_found"));
-    if (found.status !== "lobby") return setError(t("chal_room_started"));
+    if (!found) return showError(t("chal_room_not_found"));
+    if (found.status !== "lobby") return showError(t("chal_room_started"));
 
     const current = await getRoomPlayers(found.id);
     const alreadyIn = current.some((p) => p.username === activeAccount);
-    if (!alreadyIn && current.length >= found.max_players) return setError(t("chal_room_full"));
+    if (!alreadyIn && current.length >= found.max_players) return showError(t("chal_room_full"));
 
     setBusy(true);
     const res = await joinRoom(found.id, activeAccount, identity);
     setBusy(false);
-    if (!res.success) return setError(res.error);
+    if (!res.success) return showError(res.error);
 
     setRoom(found);
     await refreshRoom(found.id);
@@ -414,6 +421,10 @@ export default function Challenges({ activeAccount, accounts, champions = [], DR
     setRoom(null);
     setPlayers([]);
     setScreen("idle");
+    // O desafio que acabou de terminar é novo no histórico — sem isto, o
+    // registo pessoal e os convites rápidos do ecrã inicial ficavam a mostrar
+    // a lista de antes de ele existir.
+    setHistory(await getChallengeHistory(activeAccount));
   };
 
   const handleClose = async () => {
@@ -443,18 +454,22 @@ export default function Challenges({ activeAccount, accounts, champions = [], DR
           onJoin={handleJoinByCode}
           onHistory={() => setScreen("history")}
           error={error}
+          errorAt={errorAt}
           busy={busy}
+          history={history}
+          activeAccount={activeAccount}
         />
       )}
 
       {screen === "history" && (
-        <ChallengeHistory activeAccount={activeAccount} onBack={() => setScreen("idle")} />
+        <ChallengeHistory rooms={history} activeAccount={activeAccount} onBack={() => setScreen("idle")} />
       )}
 
       {screen === "creating" && (
         <CreateForm
           hostUsername={activeAccount}
           identity={identity}
+          history={history}
           onCancel={() => setScreen("idle")}
           onCreated={async (created) => {
             setRoom(created);
@@ -476,29 +491,81 @@ export default function Challenges({ activeAccount, accounts, champions = [], DR
           onChallengeWon={onChallengeWon}
           onSyncAccount={onSyncAccount}
           onRoomUpdate={setRoom}
+          history={history}
         />
       )}
     </div>
   );
 }
 
+// ================= REGISTO PESSOAL (peça do cabeçalho) =================
+// Um número do que já fizeste em desafios, a subir até ao valor. A aba abria
+// com uma folha de instruções e duas caixas: isto é a primeira coisa que diz
+// que a aba é SOBRE ti, e não um formulário de criação de salas.
+function RecordTile({ icon: Icon, value, label, suffix = "", gold = false, delay = 0 }) {
+  const shown = useCountUpInt(value, 700);
+  return (
+    <div
+      className="riseIn at-panel-sm"
+      style={{ ...styles.recordTile, animationDelay: `${delay}ms` }}
+    >
+      <Icon
+        size={13}
+        strokeWidth={2.25}
+        style={{ ...styles.recordIcon, ...(gold ? { color: "#f5c451" } : null) }}
+      />
+      <div style={{ ...styles.recordValue, ...(gold ? { color: "#f5c451" } : null) }}>
+        {shown}
+        {suffix}
+      </div>
+      <div style={styles.recordLabel}>{label}</div>
+    </div>
+  );
+}
+
 // ================= ECRÃ INICIAL =================
-function IdleScreen({ onCreate, onJoin, onHistory, error, busy }) {
+function IdleScreen({ onCreate, onJoin, onHistory, error, errorAt, busy, history, activeAccount }) {
   const { t } = useLanguage();
   const [code, setCode] = useState("");
 
+  const record = useMemo(() => challengeRecord(history, activeAccount), [history, activeAccount]);
+
   return (
     <>
-      <div className="riseIn at-panel" style={styles.card}>
+      <div className="riseIn at-panel at-panel-hero" style={styles.card}>
         <div style={styles.idleHeaderRow}>
           <div>
-            <h2 style={styles.title}>{t("chal_page_title")}</h2>
+            <div style={styles.kicker}>{t("chal_hero_kicker")}</div>
+            <h2 style={styles.heroTitle}>
+              <Swords size={18} strokeWidth={2.25} />
+              {t("chal_page_title")}
+            </h2>
             <p style={styles.intro}>{t("chal_intro")}</p>
           </div>
           <button onClick={onHistory} style={styles.ghostBtn}>
             <History size={13} strokeWidth={2.25} /> {t("chal_history")}
           </button>
         </div>
+
+        {/* O registo só aparece depois de haver um desafio terminado: quatro
+            zeros a seguir ao texto de introdução não dizem nada a quem chega
+            agora, e tiravam o lugar às duas ações que é o que essa pessoa
+            precisa de ver. */}
+        {record.played > 0 && (
+          <div style={styles.recordRow}>
+            <RecordTile icon={Swords} value={record.played} label={t("chal_record_played")} />
+            <RecordTile icon={Crown} value={record.won} label={t("chal_record_won")} gold delay={40} />
+            <RecordTile
+              icon={Percent}
+              value={record.winRate}
+              suffix="%"
+              label={t("chal_record_winrate")}
+              delay={80}
+            />
+            <RecordTile icon={Trophy} value={record.bestScore} label={t("chal_record_best")} delay={120} />
+          </div>
+        )}
+
         <KeepAppOpenNotice />
         <ScoringRulesInfo />
       </div>
@@ -506,33 +573,51 @@ function IdleScreen({ onCreate, onJoin, onHistory, error, busy }) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <button
           onClick={onCreate}
-          style={{ ...styles.bigChoice, animationDelay: "30ms" }}
-          className="clickableCard riseIn"
+          style={{ ...styles.actionCard, animationDelay: "30ms" }}
+          className="at-chal-action riseIn"
         >
-          <Plus size={22} strokeWidth={2.25} color="var(--accent-text)" />
-          <span style={styles.bigChoiceTitle}>{t("chal_create_room")}</span>
+          <span className="at-chal-action-icon" style={styles.actionIcon}>
+            <Plus size={22} strokeWidth={2.25} />
+          </span>
+          <span style={styles.actionBody}>
+            <span style={styles.actionTitle}>{t("chal_create_room")}</span>
+            <span style={styles.actionDesc}>{t("chal_create_desc")}</span>
+          </span>
+          <ChevronRight size={18} strokeWidth={2.25} style={styles.actionArrow} />
         </button>
 
         <div className="riseIn at-panel" style={{ ...styles.card, animationDelay: "60ms" }}>
-          <div style={styles.bigChoiceHeader}>
-            <LogIn size={18} strokeWidth={2.25} color="var(--accent-text)" />
-            <span style={styles.bigChoiceTitle}>{t("chal_join_room")}</span>
+          <div style={styles.actionHeaderRow}>
+            <span className="at-chal-action-icon" style={styles.actionIconSmall}>
+              <LogIn size={16} strokeWidth={2.25} />
+            </span>
+            <span style={styles.actionBody}>
+              <span style={styles.actionTitle}>{t("chal_join_room")}</span>
+              <span style={styles.actionDesc}>{t("chal_join_desc")}</span>
+            </span>
           </div>
+
           <div style={styles.joinRow}>
-            <input
-              value={code}
-              onChange={(e) => setCode(e.target.value.toUpperCase())}
-              onKeyDown={(e) => e.key === "Enter" && code.trim() && onJoin(code)}
-              placeholder={t("chal_code_placeholder")}
-              style={{ ...styles.input, letterSpacing: 3, fontWeight: 800 }}
-              maxLength={5}
-            />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <ChallengeCodeInput
+                value={code}
+                onChange={(next) => setCode(next)}
+                onSubmit={() => code.trim() && onJoin(code)}
+                invalid={!!error}
+                shakeOn={errorAt}
+                label={t("chal_code_label")}
+              />
+            </div>
             <button
               onClick={() => onJoin(code)}
               disabled={!code.trim() || busy}
-              style={styles.primaryBtn}
+              style={{ ...styles.primaryBtn, alignSelf: "flex-end" }}
             >
-              {t("chal_join_btn")}
+              {busy ? (
+                <Loader2 size={14} strokeWidth={2.25} style={styles.spinIcon} />
+              ) : (
+                t("chal_join_btn")
+              )}
             </button>
           </div>
           {error && <div style={styles.error}>{error}</div>}
@@ -543,35 +628,24 @@ function IdleScreen({ onCreate, onJoin, onHistory, error, busy }) {
 }
 
 // ================= HISTÓRICO DE DESAFIOS =================
-function ChallengeHistory({ activeAccount, onBack }) {
+// Os desafios terminados já vêm lidos de cima (ver "history" no Challenges):
+// eram lidos outra vez aqui, e à chegada ao ecrã mostrava-se um "a carregar"
+// para dados que a aba já tinha em mão desde que abriu.
+function ChallengeHistory({ rooms, activeAccount, onBack }) {
   const { t } = useLanguage();
-  const [rooms, setRooms] = useState(null); // null = a carregar
-
-  useEffect(() => {
-    let cancelled = false;
-    getChallengeHistory(activeAccount).then((data) => {
-      if (!cancelled) setRooms(data);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [activeAccount]);
 
   return (
     <>
       <div className="riseIn at-panel" style={styles.card}>
         <div style={styles.idleHeaderRow}>
-          <h2 style={styles.title}>{t("chal_history")}</h2>
+          <h2 style={styles.heroTitle}>
+            <History size={18} strokeWidth={2.25} />
+            {t("chal_history")}
+          </h2>
           <button onClick={onBack} style={styles.ghostBtn}>
             <ArrowLeft size={13} strokeWidth={2.25} /> {t("chal_back")}
           </button>
         </div>
-
-        {rooms === null && (
-          <div style={styles.scoreboardLoading}>
-            <Loader2 size={16} strokeWidth={2.25} style={styles.spinIcon} /> {t("loading_generic")}
-          </div>
-        )}
 
         {rooms !== null && rooms.length === 0 && (
           <div style={styles.hint}>{t("chal_history_empty")}</div>
@@ -614,7 +688,7 @@ function HistoryEntry({ room, activeAccount, t, delay = 0 }) {
       <div style={styles.idleHeaderRow}>
         <div>
           <div style={styles.kicker}>
-            {new Date(room.finished_at).toLocaleDateString()} · {room.target_games} {t("chal_games").toLowerCase()}
+            {new Date(room.finished_at).toLocaleDateString()} · {room.target_games} {t("chal_games_short")}
           </div>
           <h3 style={{ ...styles.sectionTitle, margin: "2px 0 0" }}>{room.name}</h3>
         </div>
@@ -680,23 +754,25 @@ function Stepper({ value, onChange, min, max }) {
   );
 }
 
-// ================= INTERRUPTOR DE UMA REGRA (regras específicas) =================
-function RuleToggle({ checked, onChange, label, hint }) {
-  return (
-    <label style={styles.ruleToggleRow}>
-      <input type="checkbox" checked={checked} onChange={onChange} style={styles.ruleToggleBox} />
-      <span>
-        <span style={styles.ruleToggleLabel}>{label}</span>
-        <span style={styles.ruleToggleHint}>{hint}</span>
-      </span>
-    </label>
-  );
-}
-
 // ================= FORMULÁRIO DE CRIAÇÃO =================
-function CreateForm({ hostUsername, identity, onCancel, onCreated }) {
+// Era um formulário único com seis decisões em fila (nome, modo, jogadores,
+// jogos, regras, tempo) e um botão no fim — tudo de uma vez, sem dizer o que
+// era importante nem o que é que aquelas escolhas iam produzir.
+//
+// Agora são três passos com um propósito cada (a sala · as regras · quem
+// joga) e, a acompanhar, um resumo em pastilhas que se vai preenchendo. Duas
+// coisas mudam de forma mais funda do que o aspeto:
+//
+//  - o nome vem PRÉ-PREENCHIDO com uma sugestão (ver randomRoomName), e o
+//    dado volta a rolar: o campo obrigatório vazio era o primeiro travão da
+//    criação, e ninguém quer inventar um nome antes de ver as opções;
+//  - os convites passam a caber AQUI (ver ChallengeInvitePicker). Os convites
+//    precisam do id da sala, por isso saem só depois de o createRoom voltar —
+//    mas escolhem-se antes, que é quando se está a pensar em com quem jogar.
+function CreateForm({ hostUsername, identity, onCancel, onCreated, history }) {
   const { t } = useLanguage();
-  const [name, setName] = useState("");
+  const [step, setStep] = useState(0);
+  const [name, setName] = useState(() => randomRoomName(t));
   const [maxPlayers, setMaxPlayers] = useState(2);
   const [targetGames, setTargetGames] = useState(5);
   const [rules, setRules] = useState("basic");
@@ -707,18 +783,46 @@ function CreateForm({ hostUsername, identity, onCancel, onCreated }) {
   // Afinações das regras "específicas" — partem sempre das por omissão (ver
   // DEFAULT_RULES) e só são guardadas se "custom" estiver escolhido.
   const [rulesConfig, setRulesConfig] = useState({ ...DEFAULT_RULES });
+  // Quem vai receber convite assim que a sala existir (usernames).
+  const [invitees, setInvitees] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  const toggleRule = (key) => setRulesConfig((prev) => ({ ...prev, [key]: !prev[key] }));
+  // Lugares para convidar: a sala toda menos o próprio anfitrião.
+  const inviteSlots = Math.max(0, maxPlayers - 1);
+
+  // Mudar o tamanho da sala pode deixar mais convites escolhidos do que
+  // lugares — os que já não cabem saem aqui, no mesmo gesto que encolheu a
+  // sala. Sem isto saíam convites a mais e a sala rejeitava quem chegasse em
+  // último (ver joinRoom), o que é pior do que não ter sido convidado.
+  const changePlayers = (n) => {
+    setMaxPlayers(n);
+    setInvitees((prev) => prev.slice(0, Math.max(0, n - 1)));
+  };
 
   // Trocar de modo pode invalidar o nº de jogadores escolhido (ex: 2 jogadores
   // não dá para equipas de 2) — nesse caso salta para a primeira opção válida.
   const setMode = (ts) => {
     setTeamSize(ts);
     const opts = playerOptionsForTeam(ts);
-    setMaxPlayers((cur) => (opts.includes(cur) ? cur : opts[0]));
+    if (!opts.includes(maxPlayers)) changePlayers(opts[0]);
   };
+
+  const toggleInvitee = (username) =>
+    setInvitees((prev) =>
+      prev.includes(username) ? prev.filter((u) => u !== username) : [...prev, username]
+    );
+
+  const steps = [
+    { key: "room", label: t("chal_step_room"), icon: Users },
+    { key: "rules", label: t("chal_step_rules"), icon: Sliders },
+    { key: "invite", label: t("chal_step_invite"), icon: UserPlus },
+  ];
+
+  // O nome é o único campo obrigatório, e vive no primeiro passo: sem ele não
+  // se avança (e o botão de criar, no último passo, também fica travado).
+  const canAdvance = step !== 0 || !!name.trim();
+  const isLast = step === steps.length - 1;
 
   const submit = async () => {
     if (!name.trim()) return;
@@ -726,145 +830,256 @@ function CreateForm({ hostUsername, identity, onCancel, onCreated }) {
     setError("");
 
     const res = await createRoom({ name, hostUsername, maxPlayers, targetGames, rules, rulesConfig, timeLimitHours, teamSize, identity });
+    if (!res.success) {
+      setBusy(false);
+      return setError(res.error);
+    }
+
+    // Os convites escolhidos no assistente só podem sair agora: um convite
+    // aponta para um room_id (ver inviteToRoom). Um convite que falhe não
+    // desfaz a sala — ela já existe e o código continua a servir; quem ficou
+    // de fora volta a ser convidado no lobby.
+    for (const username of invitees) {
+      await inviteToRoom(res.room.id, hostUsername, username);
+    }
+
     setBusy(false);
-    if (!res.success) return setError(res.error);
     onCreated(res.room);
   };
 
+  // Pastilhas de resumo: o que esta sala vai ser, atualizadas a cada escolha.
+  // É o que substitui ter de voltar atrás para confirmar o que se escolheu.
+  const summary = [
+    { icon: Users, label: `${maxPlayers} ${t("chal_players_short")}` },
+    {
+      icon: Swords,
+      label: teamSize ? t(teamSize === 2 ? "chal_mode_teams_2" : "chal_mode_teams_3") : t("chal_mode_individual"),
+    },
+    { icon: Target, label: `${targetGames} ${t("chal_games_short")}` },
+    { icon: Clock, label: formatTimeLimit(timeLimitHours, t) },
+    { icon: Sliders, label: rules === "basic" ? t("chal_preset_classic") : t("chal_rules_custom") },
+    ...(invitees.length
+      ? [{ icon: UserPlus, label: `${invitees.length} ${t("chal_invites_short")}` }]
+      : []),
+  ];
+
   return (
     <div className="riseIn at-panel" style={styles.card}>
-      <h2 style={styles.title}>{t("chal_create_room")}</h2>
-
-      <label style={styles.label}>{t("chal_room_name")}</label>
-      <input
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder={t("chal_room_name_placeholder")}
-        style={styles.input}
-        autoFocus
-      />
-
-      <div style={{ marginTop: 14 }}>
-        <label style={styles.label}>{t("chal_mode")}</label>
-        <div style={styles.segRow}>
-          {[
-            { ts: null, label: t("chal_mode_individual") },
-            { ts: 2, label: t("chal_mode_teams_2") },
-            { ts: 3, label: t("chal_mode_teams_3") },
-          ].map((opt) => (
-            <button
-              key={opt.ts ?? "solo"}
-              onClick={() => setMode(opt.ts)}
-              style={{ ...styles.seg, flex: 1, ...(teamSize === opt.ts ? styles.segActive : null) }}
-            >
-              {opt.label}
-            </button>
-          ))}
+      <div style={styles.idleHeaderRow}>
+        <div>
+          <div style={styles.kicker}>
+            {t("chal_step_of").replace("{n}", step + 1).replace("{total}", steps.length)}
+          </div>
+          <h2 style={styles.heroTitle}>
+            <Plus size={18} strokeWidth={2.25} />
+            {t("chal_create_room")}
+          </h2>
         </div>
-        {teamSize && <div style={styles.fieldHint}>{t("chal_mode_teams_hint")}</div>}
+        <button onClick={onCancel} style={styles.ghostBtn}>
+          {t("cancel_btn")}
+        </button>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4" style={{ marginTop: 14 }}>
-        <div>
-          <label style={styles.label}>{t("chal_players")}</label>
-          <div style={styles.segRow}>
-            {playerOptionsForTeam(teamSize).map((n) => (
-              <button
-                key={n}
-                onClick={() => setMaxPlayers(n)}
-                style={{ ...styles.seg, ...(maxPlayers === n ? styles.segActive : null) }}
-              >
-                {n}
-              </button>
-            ))}
+      {/* Trilho dos passos. Clicável para TRÁS apenas: voltar a ver o que se
+          escolheu é inofensivo, saltar à frente passava por cima do único
+          campo obrigatório. */}
+      <div style={styles.stepTrack}>
+        {steps.map((s, i) => {
+          const done = i < step;
+          const active = i === step;
+          return (
+            <button
+              key={s.key}
+              type="button"
+              onClick={() => i < step && setStep(i)}
+              disabled={i > step}
+              style={{
+                ...styles.stepPill,
+                ...(active ? styles.stepPillActive : null),
+                ...(done ? styles.stepPillDone : null),
+                cursor: i < step ? "pointer" : "default",
+              }}
+            >
+              <span style={styles.stepIcon}>
+                {done ? <Check size={11} strokeWidth={3} /> : <s.icon size={11} strokeWidth={2.25} />}
+              </span>
+              {s.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ===== PASSO 1: a sala ===== */}
+      {step === 0 && (
+        <div className="at-chal-reveal">
+          <label style={styles.label}>{t("chal_room_name")}</label>
+          <div style={styles.nameRow}>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={t("chal_room_name_placeholder")}
+              style={styles.input}
+              autoFocus
+            />
+            <button
+              type="button"
+              onClick={() => setName((cur) => randomRoomName(t, { avoid: cur }))}
+              title={t("chal_random_name")}
+              aria-label={t("chal_random_name")}
+              style={styles.iconBtn}
+            >
+              <Dices size={15} strokeWidth={2.25} />
+            </button>
+          </div>
+
+          <div style={{ marginTop: 14 }}>
+            <label style={styles.label}>{t("chal_mode")}</label>
+            <div style={styles.segRow}>
+              {[
+                { ts: null, label: t("chal_mode_individual") },
+                { ts: 2, label: t("chal_mode_teams_2") },
+                { ts: 3, label: t("chal_mode_teams_3") },
+              ].map((opt) => (
+                <button
+                  key={opt.ts ?? "solo"}
+                  onClick={() => setMode(opt.ts)}
+                  style={{ ...styles.seg, flex: 1, ...(teamSize === opt.ts ? styles.segActive : null) }}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            {teamSize && <div style={styles.fieldHint}>{t("chal_mode_teams_hint")}</div>}
+          </div>
+
+          <div style={{ marginTop: 14 }}>
+            <label style={styles.label}>{t("chal_players")}</label>
+            <div style={styles.segRow}>
+              {playerOptionsForTeam(teamSize).map((n) => (
+                <button
+                  key={n}
+                  onClick={() => changePlayers(n)}
+                  style={{ ...styles.seg, ...(maxPlayers === n ? styles.segActive : null) }}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
+      )}
 
-        <div>
-          <label style={styles.label}>{t("chal_games")}</label>
-          <Stepper value={targetGames} onChange={setTargetGames} min={MIN_GAMES} max={MAX_GAMES} />
-          <div style={styles.fieldHint}>{t("chal_games_hint")}</div>
-        </div>
-      </div>
+      {/* ===== PASSO 2: regras e formato ===== */}
+      {step === 1 && (
+        <div className="at-chal-reveal">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label style={styles.label}>{t("chal_games")}</label>
+              <Stepper value={targetGames} onChange={setTargetGames} min={MIN_GAMES} max={MAX_GAMES} />
+              <div style={styles.fieldHint}>{t("chal_games_hint")}</div>
+            </div>
 
-      <div style={{ marginTop: 14 }}>
-        <label style={styles.label}>{t("chal_rules")}</label>
-        <div style={styles.segRow}>
-          {[
-            { key: "basic", label: t("chal_rules_basic") },
-            { key: "custom", label: t("chal_rules_custom") },
-          ].map((opt) => (
-            <button
-              key={opt.key}
-              onClick={() => setRules(opt.key)}
-              style={{ ...styles.seg, flex: 1, ...(rules === opt.key ? styles.segActive : null) }}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-        <div style={styles.fieldHint}>
-          {rules === "basic" ? t("chal_rules_basic_desc") : t("chal_rules_custom_desc")}
-        </div>
+            <div>
+              <label style={styles.label}>{t("chal_time_limit")}</label>
+              <div style={{ ...styles.segRow, flexWrap: "wrap" }}>
+                {TIME_LIMIT_OPTIONS.map((h) => (
+                  <button
+                    key={h ?? "none"}
+                    onClick={() => setTimeLimitHours(h)}
+                    style={{ ...styles.seg, ...(timeLimitHours === h ? styles.segActive : null) }}
+                  >
+                    {formatTimeLimit(h, t)}
+                  </button>
+                ))}
+              </div>
+              <div style={styles.fieldHint}>{t("chal_time_limit_hint")}</div>
+            </div>
+          </div>
 
-        {/* As afinações só aparecem (e só são guardadas) em "específicas" —
-            em "básicas" valem sempre as regras por omissão. */}
-        {rules === "custom" && (
-          <div style={styles.rulesConfigBox}>
-            <RuleToggle
-              checked={rulesConfig.classHandicap}
-              onChange={() => toggleRule("classHandicap")}
-              label={t("chal_rule_class_handicap")}
-              hint={t("chal_rule_class_handicap_hint")}
-            />
-            <RuleToggle
-              checked={rulesConfig.onlyKda}
-              onChange={() => toggleRule("onlyKda")}
-              label={t("chal_rule_only_kda")}
-              hint={t("chal_rule_only_kda_hint")}
-            />
-            <RuleToggle
-              checked={rulesConfig.onlySoloGames}
-              onChange={() => toggleRule("onlySoloGames")}
-              label={t("chal_rule_only_solo")}
-              hint={t("chal_rule_only_solo_hint")}
+          <div style={{ marginTop: 16 }}>
+            <label style={styles.label}>{t("chal_rules")}</label>
+            <ChallengeRulesPanel
+              rules={rules}
+              rulesConfig={rulesConfig}
+              onChange={(next) => {
+                setRules(next.rules);
+                setRulesConfig(next.rulesConfig);
+              }}
             />
           </div>
-        )}
-      </div>
-
-      <div style={{ marginTop: 14 }}>
-        <label style={styles.label}>{t("chal_time_limit")}</label>
-        <div style={{ ...styles.segRow, flexWrap: "wrap" }}>
-          {TIME_LIMIT_OPTIONS.map((h) => (
-            <button
-              key={h ?? "none"}
-              onClick={() => setTimeLimitHours(h)}
-              style={{ ...styles.seg, ...(timeLimitHours === h ? styles.segActive : null) }}
-            >
-              {formatTimeLimit(h, t)}
-            </button>
-          ))}
         </div>
-        <div style={styles.fieldHint}>{t("chal_time_limit_hint")}</div>
+      )}
+
+      {/* ===== PASSO 3: quem joga ===== */}
+      {step === 2 && (
+        <div className="at-chal-reveal">
+          <ChallengeInvitePicker
+            activeAccount={hostUsername}
+            history={history}
+            excludeUsernames={[hostUsername]}
+            mode="select"
+            selected={invitees}
+            onToggle={toggleInvitee}
+            slotsLeft={inviteSlots}
+          />
+          <div style={styles.fieldHint}>{t("chal_invite_later")}</div>
+        </div>
+      )}
+
+      <div style={styles.summaryRow}>
+        {summary.map((s) => (
+          <span key={s.label} style={styles.summaryPill}>
+            <s.icon size={11} strokeWidth={2.25} />
+            {s.label}
+          </span>
+        ))}
       </div>
 
       {error && <div style={styles.error}>{error}</div>}
 
-      <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-        <button onClick={submit} disabled={!name.trim() || busy} style={styles.primaryBtn}>
-          {busy ? t("chal_creating") : t("chal_create_btn")}
-        </button>
-        <button onClick={onCancel} style={styles.ghostBtn}>
-          {t("cancel_btn")}
-        </button>
+      <div style={styles.wizardNav}>
+        {step > 0 && (
+          <button onClick={() => setStep((s) => s - 1)} style={styles.ghostBtn}>
+            <ChevronLeft size={14} strokeWidth={2.25} /> {t("chal_back_step")}
+          </button>
+        )}
+        {!isLast ? (
+          <button
+            onClick={() => canAdvance && setStep((s) => s + 1)}
+            disabled={!canAdvance}
+            style={{ ...styles.primaryBtn, display: "inline-flex", alignItems: "center", gap: 6 }}
+          >
+            {t("chal_next")} <ChevronRight size={14} strokeWidth={2.25} />
+          </button>
+        ) : (
+          <button
+            onClick={submit}
+            disabled={!name.trim() || busy}
+            style={{ ...styles.primaryBtn, display: "inline-flex", alignItems: "center", gap: 6 }}
+          >
+            {busy ? (
+              <>
+                <Loader2 size={14} strokeWidth={2.25} style={styles.spinIcon} /> {t("chal_creating")}
+              </>
+            ) : invitees.length ? (
+              <>
+                <Swords size={14} strokeWidth={2.25} />{" "}
+                {t("chal_create_and_invite").replace("{count}", invitees.length)}
+              </>
+            ) : (
+              <>
+                <Swords size={14} strokeWidth={2.25} /> {t("chal_create_btn")}
+              </>
+            )}
+          </button>
+        )}
       </div>
     </div>
   );
 }
 
 // ================= LOBBY (+ convidar) =================
-function Lobby({ room, players, activeAccount, onLeave, onClose, champions, DRAGON, onChallengeWon, onSyncAccount, onRoomUpdate }) {
+function Lobby({ room, players, activeAccount, onLeave, onClose, champions, DRAGON, onChallengeWon, onSyncAccount, onRoomUpdate, history }) {
   const { t } = useLanguage();
   const [confirmClose, setConfirmClose] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -952,23 +1167,34 @@ function Lobby({ room, players, activeAccount, onLeave, onClose, champions, DRAG
 
   return (
     <>
-      <div className="riseIn at-panel" style={styles.card}>
+      <div
+        className={readyToStart ? "riseIn at-panel at-chal-ready" : "riseIn at-panel"}
+        style={styles.card}
+      >
         <div style={styles.lobbyHeader}>
           <div>
             <div style={styles.kicker}>{t("chal_lobby")}</div>
-            <h2 style={styles.title}>{room.name}</h2>
+            <h2 style={styles.heroTitle}>
+              <Users size={18} strokeWidth={2.25} />
+              {room.name}
+            </h2>
           </div>
-          <div style={styles.lobbyMeta}>
-            <span>
-              <b>{players.length}</b>/{room.max_players} {t("chal_players").toLowerCase()}
+          <div style={styles.metaPills}>
+            <span style={styles.metaPill}>
+              <Users size={12} strokeWidth={2.25} />
+              <b>{players.length}</b>/{room.max_players}
             </span>
-            <span>
-              <b>{room.target_games}</b> {t("chal_games").toLowerCase()}
+            <span style={styles.metaPill}>
+              <Target size={12} strokeWidth={2.25} />
+              <b>{room.target_games}</b> {t("chal_games_short")}
             </span>
-            <span>{room.rules === "basic" ? t("chal_rules_basic") : t("chal_rules_custom")}</span>
+            <span style={styles.metaPill}>
+              <Sliders size={12} strokeWidth={2.25} />
+              {room.rules === "basic" ? t("chal_preset_classic") : t("chal_rules_custom")}
+            </span>
             {room.time_limit_hours && (
-              <span>
-                <Clock size={12} strokeWidth={2.25} style={{ verticalAlign: "-2px" }} />{" "}
+              <span style={styles.metaPill}>
+                <Clock size={12} strokeWidth={2.25} />
                 {formatTimeLimit(room.time_limit_hours, t)}
               </span>
             )}
@@ -985,15 +1211,19 @@ function Lobby({ room, players, activeAccount, onLeave, onClose, champions, DRAG
                 key={p.username}
                 player={p}
                 isHost={p.username === room.host_username}
+                isSelf={p.username === activeAccount}
                 hostText={t("chal_host")}
+                youText={t("chal_you")}
                 delay={Math.min(idx, 8) * 30}
                 teamName={isTeams && p.team ? teamLabel(p.team, t) : null}
                 teamColor={isTeams && p.team ? PLAYER_COLORS[(p.team - 1) % PLAYER_COLORS.length] : null}
               />
             ))}
-            {/* Slots vazios */}
+            {/* Lugares vazios: cada um diz que está à espera e tem a luz a
+                varrê-lo (ver .at-chal-slot-waiting), em vez de ser um
+                retângulo tracejado parado. */}
             {Array.from({ length: emptySlots }).map((_, i) => (
-              <PlayerCard key={`empty-${i}`} player={null} />
+              <PlayerCard key={`empty-${i}`} player={null} waitingText={t("chal_waiting_slot")} />
             ))}
             {/* Divider "VS" só para 2 players (não em modo equipas) */}
             {!isTeams && players.length + emptySlots === 2 && (
@@ -1007,22 +1237,45 @@ function Lobby({ room, players, activeAccount, onLeave, onClose, champions, DRAG
         {isTeams && (
           <div style={{ marginTop: 10 }}>
             <div style={styles.label}>{t("chal_pick_team")}</div>
-            <div style={{ ...styles.segRow, flexWrap: "wrap" }}>
+            <div style={styles.teamPickRow}>
               {Array.from({ length: numTeams }, (_, i) => i + 1).map((tm) => {
                 const cnt = teamCounts[tm] || 0;
                 const mine = myTeam === tm;
+                const color = PLAYER_COLORS[(tm - 1) % PLAYER_COLORS.length];
                 return (
                   <button
                     key={tm}
                     onClick={() => switchTeam(tm)}
                     disabled={mine || cnt >= teamSize}
+                    className="at-chal-preset"
                     style={{
-                      ...styles.seg,
-                      ...(mine ? styles.segActive : null),
-                      borderLeft: `3px solid ${PLAYER_COLORS[(tm - 1) % PLAYER_COLORS.length]}`,
+                      ...styles.teamPickCard,
+                      borderColor: mine ? color : "rgba(var(--border-rgb),0.45)",
+                      background: mine
+                        ? `linear-gradient(135deg, ${color}26, rgba(var(--panel-deep-rgb),0.9))`
+                        : "rgba(var(--panel-deep-rgb),0.7)",
                     }}
                   >
-                    {teamLabel(tm, t)} ({cnt}/{teamSize})
+                    <span style={{ ...styles.teamDot, background: color }} />
+                    <span style={styles.teamPickText}>
+                      <span style={styles.teamPickName}>{teamLabel(tm, t)}</span>
+                      <span style={styles.teamPickSlots}>
+                        {cnt}/{teamSize} {mine ? `· ${t("chal_your_team")}` : ""}
+                      </span>
+                    </span>
+                    {/* Pontos vazios/cheios: quantos lugares faltam nesta
+                        equipa, sem obrigar a ler a fração. */}
+                    <span style={styles.teamSlotDots}>
+                      {Array.from({ length: teamSize }).map((_, i) => (
+                        <span
+                          key={i}
+                          style={{
+                            ...styles.teamSlotDot,
+                            background: i < cnt ? color : "rgba(var(--soft-rgb),0.15)",
+                          }}
+                        />
+                      ))}
+                    </span>
                   </button>
                 );
               })}
@@ -1059,7 +1312,9 @@ function Lobby({ room, players, activeAccount, onLeave, onClose, champions, DRAG
         </div>
       </div>
 
-      {!full && <InvitePanel room={room} activeAccount={activeAccount} players={players} />}
+      {!full && (
+        <InvitePanel room={room} activeAccount={activeAccount} players={players} history={history} />
+      )}
 
       {confirmClose && (
         <ConfirmDialog
@@ -1079,43 +1334,73 @@ function Lobby({ room, players, activeAccount, onLeave, onClose, champions, DRAG
 }
 
 // ================= CARD DE PLAYER =================
-function PlayerCard({ player, isHost, hostText, delay = 0, teamName = null, teamColor = null }) {
+// Um lugar da sala: ocupado (avatar com as iniciais da pessoa, nome,
+// distintivos) ou à espera de alguém. O avatar passou a ser as iniciais e não
+// o mesmo ícone de "pessoa" para todos — numa sala de 8, oito ícones iguais
+// não distinguem ninguém.
+function PlayerCard({
+  player,
+  isHost,
+  isSelf,
+  hostText,
+  youText,
+  waitingText,
+  delay = 0,
+  teamName = null,
+  teamColor = null,
+}) {
   const name = player
     ? player.riot_game_name && player.riot_tag_line
       ? `${player.riot_game_name}#${player.riot_tag_line}`
       : player.username
     : "—";
 
+  if (!player) {
+    return (
+      <div className="at-chal-slot-waiting riseIn" style={styles.playerCardEmpty}>
+        <div style={styles.playerAvatarEmpty}>
+          <UserPlus size={20} strokeWidth={2.25} />
+        </div>
+        <div style={styles.waitingLabel}>{waitingText}</div>
+      </div>
+    );
+  }
+
   return (
     <div
       className="riseIn"
       style={{
-        ...(player ? styles.playerCard : styles.playerCardEmpty),
+        ...styles.playerCard,
         animationDelay: `${delay}ms`,
         // Em modo equipas, uma barra da cor da equipa à esquerda do card.
         ...(teamColor ? { borderLeft: `3px solid ${teamColor}` } : null),
+        ...(isSelf ? { borderColor: "rgba(var(--accent-rgb),0.6)" } : null),
       }}
     >
-      {player && (
-        <>
-          <div style={styles.playerAvatar}>
-            <Users size={24} strokeWidth={2.25} color="var(--accent-text)" />
-          </div>
-          <div style={styles.playerInfo}>
-            <div style={styles.playerCardName}>{name}</div>
-            {teamName && (
-              <div style={{ ...styles.playerCardBadge, color: teamColor || "var(--text-secondary)" }}>
-                <Users size={10} strokeWidth={2.25} /> {teamName}
-              </div>
-            )}
-            {isHost && (
-              <div style={styles.playerCardBadge}>
-                <Crown size={10} strokeWidth={2.25} /> {hostText}
-              </div>
-            )}
-          </div>
-        </>
-      )}
+      <div
+        style={{
+          ...styles.playerAvatar,
+          ...(teamColor ? { background: `${teamColor}2e`, color: teamColor } : null),
+        }}
+      >
+        {rivalInitials({ riotGameName: player.riot_game_name, username: player.username })}
+      </div>
+      <div style={styles.playerInfo}>
+        <div style={styles.playerCardName}>{name}</div>
+        <div style={styles.playerBadgeRow}>
+          {teamName && (
+            <span style={{ ...styles.playerCardBadge, color: teamColor || "var(--text-secondary)" }}>
+              <Users size={10} strokeWidth={2.25} /> {teamName}
+            </span>
+          )}
+          {isHost && (
+            <span style={styles.playerCardBadge}>
+              <Crown size={10} strokeWidth={2.25} /> {hostText}
+            </span>
+          )}
+          {isSelf && <span style={styles.playerCardBadge}>{youText}</span>}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1409,6 +1694,38 @@ function ScoreBoard({ room, players, activeAccount, onLeave, champions = [], DRA
     : null;
   const teamColor = (tm) => PLAYER_COLORS[(tm - 1) % PLAYER_COLORS.length];
 
+  // Fileiras da barra de corrida (ver ChallengeStandings): em individual uma
+  // por jogador, em equipas uma por equipa — a mesma peça serve os dois
+  // porque o que ela desenha é "nome, cor, pontos, jogos", e isso existe nos
+  // dois formatos. Em equipas o alvo de jogos é o do desafio multiplicado
+  // pelos membros: uma equipa de 2 num desafio de 5 joga 10 partidas.
+  const standingsEntries = isTeams
+    ? teamStandings.map((tm) => ({
+        key: `team-${tm.team}`,
+        name: teamLabel(tm.team, t),
+        color: teamColor(tm.team),
+        points: tm.total,
+        games: tm.games,
+        targetGames: targetGames * Math.max(1, tm.members.length),
+        live: tm.members.some((m) => isGameLive(liveByUsername[m.username])),
+        forfeited: tm.allForfeited,
+        isSelf: tm.members.some((m) => m.username === activeAccount),
+      }))
+    : sortedPlayers.map((p) => ({
+        key: p.username,
+        name:
+          p.riot_game_name && p.riot_tag_line
+            ? `${p.riot_game_name}#${p.riot_tag_line}`
+            : p.username,
+        color: colorByUsername[p.username],
+        points: scored[p.username]?.total || 0,
+        games: scored[p.username]?.games?.length || 0,
+        targetGames,
+        live: isGameLive(liveByUsername[p.username]),
+        forfeited: !!p.forfeited,
+        isSelf: p.username === activeAccount,
+      }));
+
   // "Posição dourada" (medalhas, brilho, banner de vencedor) só faz sentido
   // depois de o desafio acabar de vez — enquanto decorre, ninguém "já
   // ganhou", por isso os jogadores distinguem-se só pela cor.
@@ -1580,7 +1897,7 @@ function ScoreBoard({ room, players, activeAccount, onLeave, champions = [], DRA
             </span>
             <span style={styles.metaPill}>
               <Target size={12} strokeWidth={2.25} />
-              <b>{room.target_games}</b> {t("chal_games").toLowerCase()}
+              <b>{room.target_games}</b> {t("chal_games_short")}
             </span>
             <span style={styles.metaPill}>
               {room.rules === "basic" ? t("chal_rules_basic") : t("chal_rules_custom")}
@@ -1597,8 +1914,10 @@ function ScoreBoard({ room, players, activeAccount, onLeave, champions = [], DRA
         </div>
 
         {loaded && challengeFinished && (isTeams ? winningTeam : leader) && (
-          <div style={styles.leaderBanner}>
-            <Crown size={15} strokeWidth={2.25} />
+          <div className="at-chal-winner" style={styles.leaderBanner}>
+            <span className="at-chal-crown">
+              <Crown size={15} strokeWidth={2.25} />
+            </span>
             <span>
               <b>
                 {isTeams
@@ -1612,37 +1931,17 @@ function ScoreBoard({ room, players, activeAccount, onLeave, champions = [], DRA
           </div>
         )}
 
-        {/* Classificação por equipa (modo equipas): soma dos membros, a
-            vencedora em destaque quando o desafio fecha. */}
-        {loaded && isTeams && teamStandings.length > 0 && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)", margin: "var(--space-3) 0" }}>
-            <div style={{ fontSize: "var(--fs-sm)", fontWeight: "var(--fw-semibold)", color: "var(--text-secondary)" }}>
-              {t("chal_teams_heading")}
-            </div>
-            {teamStandings.map((tm) => {
-              const isWinner = challengeFinished && winningTeam && tm.team === winningTeam.team;
-              return (
-                <div
-                  key={tm.team}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    padding: "var(--space-2) var(--space-3)",
-                    borderRadius: "var(--radius-md)",
-                    borderLeft: `3px solid ${teamColor(tm.team)}`,
-                    background: isWinner ? "rgba(245,196,81,0.12)" : "rgba(var(--panel-deep-rgb),0.6)",
-                  }}
-                >
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--space-2)", fontWeight: "var(--fw-medium)" }}>
-                    {isWinner && <Crown size={12} strokeWidth={2.25} />}
-                    {teamLabel(tm.team, t)}
-                  </span>
-                  <b>{Math.round(tm.total)}</b>
-                </div>
-              );
-            })}
-          </div>
+        {/* Barra de corrida: uma fileira por jogador (ou por equipa, em modo
+            equipas), ordenada pelos pontos e com a barra proporcional a quem
+            lidera. É a leitura de "quem vai à frente e por quanto" que o
+            placar não tinha — os cards de combate ao lado continuam a ser o
+            detalhe de cada um. Ver ChallengeStandings. */}
+        {loaded && standingsEntries.length > 0 && (
+          <ChallengeStandings
+            entries={standingsEntries}
+            finished={challengeFinished}
+            title={isTeams ? t("chal_teams_heading") : t("chal_standings")}
+          />
         )}
 
         {/* Todos acabaram os jogos, mas o desafio não fecha enquanto faltarem
@@ -1828,6 +2127,11 @@ function PlayerCombatCard({
   t,
 }) {
   const [expandedIdx, setExpandedIdx] = useState(null);
+  // A pontuação do card sobe até ao valor em vez de aparecer feita — num
+  // placar ao vivo é este o número que muda, e vê-lo mexer é metade da graça
+  // de estar a acompanhar. Quando o valor muda a meio, parte de onde está
+  // (ver useCountUp) em vez de voltar ao zero.
+  const shownTotal = useCountUpInt(Math.round(total), 520);
 
   const name =
     player.riot_game_name && player.riot_tag_line
@@ -1990,15 +2294,18 @@ function PlayerCombatCard({
             )}
           </div>
           <div style={styles.combatProgressTrack}>
-            <div style={{ ...styles.combatProgressFill, width: `${progressPct}%`, background: color }} />
+            <div
+              className={isLive ? "at-chal-bar at-chal-bar-live" : "at-chal-bar"}
+              style={{ ...styles.combatProgressFill, width: `${progressPct}%`, background: color }}
+            />
           </div>
           <div style={styles.combatProgressLabel}>
-            {games.length}/{targetGames} {t("chal_games").toLowerCase()}
+            {games.length}/{targetGames} {t("chal_games_short")}
           </div>
         </div>
         <div style={styles.combatScoreBlock}>
           <div style={{ ...styles.combatScoreValue, color: finished ? "var(--accent-text)" : color }}>
-            {Math.round(total)}
+            {shownTotal}
           </div>
           <div style={styles.combatScoreLabel}>pts</div>
         </div>
@@ -2181,14 +2488,14 @@ function PlayerColorBadge({ color }) {
 }
 
 // ================= PAINEL DE CONVITE =================
-// Aparece depois de a sala existir (não no formulário): é aqui que se
-// partilha o código ou se convida gente diretamente.
-function InvitePanel({ room, activeAccount, players }) {
+// Aparece depois de a sala existir (no lobby): é aqui que se partilha o
+// código ou se convida gente diretamente. A pesquisa e os convites rápidos
+// são o mesmo componente que o assistente de criação usa (ver
+// ChallengeInvitePicker) — só muda o modo: aqui a sala já tem id, por isso
+// cada clique envia o convite logo.
+function InvitePanel({ room, activeAccount, players, history }) {
   const { t } = useLanguage();
   const [copied, setCopied] = useState(false);
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState([]);
-  const [invited, setInvited] = useState([]);
   const copyTimer = useRef(null);
 
   useEffect(() => () => clearTimeout(copyTimer.current), []);
@@ -2200,42 +2507,32 @@ function InvitePanel({ room, activeAccount, players }) {
     copyTimer.current = setTimeout(() => setCopied(false), 1800);
   };
 
-  // Mesma pesquisa da tab Comparar (contas que já sincronizaram), com
-  // debounce para não disparar um pedido por tecla.
-  useEffect(() => {
-    const q = query.trim();
-    if (q.length < 2) {
-      setResults([]);
-      return;
-    }
-
-    let cancelled = false;
-    const timer = setTimeout(async () => {
-      const rows = await searchAccountsByGameName(q);
-      if (cancelled) return;
-      // Quem já está na sala não precisa de convite.
-      const inRoom = new Set(players.map((p) => p.username));
-      setResults(dedupeByIdentity(rows).filter((r) => !inRoom.has(r.username)));
-    }, 250);
-
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [query, players]);
-
-  const invite = async (username) => {
-    await inviteToRoom(room.id, activeAccount, username);
-    setInvited((prev) => [...prev, username]);
-  };
+  const slotsLeft = Math.max(0, room.max_players - players.length);
 
   return (
     <div className="riseIn at-panel" style={styles.card}>
-      <h3 style={styles.sectionTitle}>{t("chal_invite_title")}</h3>
+      <div style={styles.idleHeaderRow}>
+        <h3 style={styles.sectionTitle}>{t("chal_invite_title")}</h3>
+        <span style={styles.metaPill}>
+          <UserPlus size={12} strokeWidth={2.25} />
+          {slotsLeft === 1
+            ? t("chal_slots_left_one")
+            : t("chal_slots_left").replace("{count}", slotsLeft)}
+        </span>
+      </div>
 
+      {/* O código inteiro como peça de destaque: é o que se dita em voz alta
+          ou se cola numa mensagem, e cada letra fica numa casa igual às da
+          entrada do ecrã inicial — o mesmo objeto nos dois lados. */}
       <div style={styles.codeRow}>
-        <div style={styles.code}>{room.code}</div>
-        <button onClick={copy} style={styles.ghostBtn}>
+        <div style={styles.codeSlots}>
+          {room.code.split("").map((ch, i) => (
+            <span key={i} style={styles.codeSlot}>
+              {ch}
+            </span>
+          ))}
+        </div>
+        <button onClick={copy} style={copied ? styles.smallBtn : styles.ghostBtn}>
           {copied ? (
             <>
               <Check size={13} strokeWidth={2.25} /> {t("chal_copied")}
@@ -2249,73 +2546,389 @@ function InvitePanel({ room, activeAccount, players }) {
       </div>
       <div style={styles.fieldHint}>{t("chal_invite_code_hint")}</div>
 
-      <label style={{ ...styles.label, marginTop: 16 }}>{t("chal_invite_direct")}</label>
-      <input
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder={t("chal_invite_search_placeholder")}
-        style={styles.input}
-        autoComplete="off"
-      />
-
-      {results.length > 0 && (
-        <div style={styles.results}>
-          {results.map((r) => {
-            const done = invited.includes(r.username);
-            return (
-              <div key={r.username} style={styles.resultRow}>
-                <span style={styles.playerName}>
-                  {r.riot_game_name && r.riot_tag_line
-                    ? `${r.riot_game_name}#${r.riot_tag_line}`
-                    : r.username}
-                </span>
-                <button
-                  onClick={() => invite(r.username)}
-                  disabled={done}
-                  style={done ? styles.ghostBtnSmall : styles.smallBtn}
-                >
-                  {done ? t("chal_invited") : t("chal_invite_btn")}
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      )}
+      <div style={{ marginTop: 16 }}>
+        <ChallengeInvitePicker
+          activeAccount={activeAccount}
+          history={history}
+          excludeUsernames={players.map((p) => p.username)}
+          mode="send"
+          onInvite={(username) => inviteToRoom(room.id, activeAccount, username)}
+          slotsLeft={slotsLeft}
+        />
+      </div>
     </div>
   );
 }
 
 // ================= CONVITES RECEBIDOS =================
+// O cartão que interrompe o ecrã inicial quando alguém te chama para uma
+// sala: quem convidou, para que desafio e com que formato — e as duas
+// respostas possíveis, lado a lado.
 function InvitesPanel({ invites, onAccept, onDecline }) {
   const { t } = useLanguage();
 
   return (
-    <div className="riseIn at-panel" style={{ ...styles.card, borderColor: "rgba(var(--accent-rgb),0.5)" }}>
-      <h3 style={styles.sectionTitle}>{t("chal_invites_received")}</h3>
-      {invites.map((inv) => (
-        <div key={inv.id} style={styles.inviteRow}>
-          <div style={styles.inviteText}>
-            <b>{inv.from_username}</b> {t("chal_invite_from")} — <b>{inv.challenge_rooms.name}</b>
-            <div style={styles.fieldHint}>
-              {inv.challenge_rooms.max_players} {t("chal_players").toLowerCase()} ·{" "}
-              {inv.challenge_rooms.target_games} {t("chal_games").toLowerCase()}
+    <div
+      className="riseIn at-panel"
+      style={{ ...styles.card, borderColor: "rgba(var(--accent-rgb),0.5)" }}
+    >
+      <h3 style={styles.sectionTitle}>
+        <span style={styles.inviteCount}>{invites.length}</span>
+        {t("chal_invites_received")}
+      </h3>
+      <div style={styles.inviteList}>
+        {invites.map((inv, i) => (
+          <div
+            key={inv.id}
+            className="riseIn"
+            style={{ ...styles.inviteRow, animationDelay: `${Math.min(i, 6) * 40}ms` }}
+          >
+            <span style={styles.inviteAvatar}>{rivalInitials({ username: inv.from_username })}</span>
+            <div style={styles.inviteText}>
+              <div>
+                <b>{inv.from_username}</b> {t("chal_invite_from")}
+              </div>
+              <div style={styles.inviteRoomName}>{inv.challenge_rooms.name}</div>
+              <div style={styles.inviteMetaRow}>
+                <span style={styles.inviteMeta}>
+                  <Users size={10} strokeWidth={2.25} /> {inv.challenge_rooms.max_players}
+                </span>
+                <span style={styles.inviteMeta}>
+                  <Target size={10} strokeWidth={2.25} /> {inv.challenge_rooms.target_games}{" "}
+                  {t("chal_games_short")}
+                </span>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+              <button onClick={() => onAccept(inv)} style={styles.acceptBtn}>
+                <Swords size={12} strokeWidth={2.25} /> {t("chal_accept")}
+              </button>
+              <button onClick={() => onDecline(inv)} style={styles.ghostBtnSmall}>
+                {t("chal_decline")}
+              </button>
             </div>
           </div>
-          <div style={{ display: "flex", gap: 6 }}>
-            <button onClick={() => onAccept(inv)} style={styles.smallBtn}>
-              {t("chal_accept")}
-            </button>
-            <button onClick={() => onDecline(inv)} style={styles.ghostBtnSmall}>
-              {t("chal_decline")}
-            </button>
-          </div>
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }
 
 const styles = {
+  // ===== PEÇAS NOVAS DA ABA (ver IdleScreen/CreateForm/Lobby) =====
+  heroTitle: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    color: "var(--accent-text)",
+    margin: "2px 0 4px",
+    fontSize: 17,
+    fontWeight: 800,
+  },
+
+  recordRow: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(88px, 1fr))",
+    gap: 8,
+    margin: "12px 0 4px",
+  },
+
+  recordTile: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 2,
+    padding: "10px 6px",
+    background: "rgba(var(--panel-deep-rgb),0.7)",
+  },
+
+  recordIcon: { color: "var(--accent-text)" },
+
+  recordValue: {
+    fontSize: 19,
+    fontWeight: 900,
+    color: "var(--text-body)",
+    fontFamily: "Cinzel, serif",
+    lineHeight: 1.1,
+  },
+
+  recordLabel: {
+    fontSize: 9,
+    fontWeight: 700,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+    color: "var(--text-muted)",
+    textAlign: "center",
+  },
+
+  // O cartão de "Criar sala": a ação principal da página, por isso é o único
+  // elemento com peso de botão de menu de jogo (ver .at-chal-action).
+  actionCard: {
+    display: "flex",
+    alignItems: "center",
+    gap: 14,
+    minHeight: 118,
+    padding: "18px 20px",
+    textAlign: "left",
+    borderRadius: "var(--radius-2xl)",
+    border: "1px solid rgba(var(--accent-rgb),0.4)",
+    background: "linear-gradient(135deg, rgba(var(--accent-rgb),0.14), rgba(var(--panel-deep-rgb),0.92))",
+    color: "var(--text-body)",
+    cursor: "pointer",
+  },
+
+  actionHeaderRow: { display: "flex", alignItems: "center", gap: 12, marginBottom: 14 },
+
+  actionIcon: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 48,
+    height: 48,
+    flexShrink: 0,
+    borderRadius: "var(--radius-xl)",
+    background: "rgba(var(--accent-rgb),0.18)",
+    color: "var(--accent-text)",
+  },
+
+  actionIconSmall: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 34,
+    height: 34,
+    flexShrink: 0,
+    borderRadius: "var(--radius-lg)",
+    background: "rgba(var(--accent-rgb),0.15)",
+    color: "var(--accent-text)",
+  },
+
+  actionBody: { display: "flex", flexDirection: "column", gap: 3, minWidth: 0 },
+
+  actionTitle: { fontSize: 14.5, fontWeight: 800, color: "var(--text-body)" },
+
+  actionDesc: { fontSize: 11, lineHeight: 1.4, color: "var(--text-muted)" },
+
+  actionArrow: { marginLeft: "auto", flexShrink: 0, color: "var(--accent-text)" },
+
+  // ===== ASSISTENTE DE CRIAÇÃO =====
+  stepTrack: {
+    display: "flex",
+    gap: 6,
+    flexWrap: "wrap",
+    margin: "4px 0 16px",
+  },
+
+  stepPill: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    padding: "6px 11px",
+    borderRadius: "var(--radius-pill)",
+    border: "1px solid rgba(var(--border-rgb),0.45)",
+    background: "rgba(var(--panel-deep-rgb),0.7)",
+    color: "var(--text-muted)",
+    fontSize: 11,
+    fontWeight: 700,
+  },
+
+  stepPillActive: {
+    borderColor: "transparent",
+    background: "var(--accent-gradient)",
+    color: "var(--accent-solid-text)",
+  },
+
+  stepPillDone: {
+    borderColor: "rgba(var(--accent-rgb),0.45)",
+    background: "rgba(var(--accent-rgb),0.1)",
+    color: "var(--accent-text)",
+  },
+
+  stepIcon: { display: "inline-flex" },
+
+  nameRow: { display: "flex", gap: 8, alignItems: "center" },
+
+  iconBtn: {
+    width: 40,
+    height: 40,
+    flexShrink: 0,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: "var(--radius-lg)",
+    border: "1px solid rgba(var(--accent-rgb),0.35)",
+    background: "rgba(var(--accent-rgb),0.1)",
+    color: "var(--accent-text)",
+    cursor: "pointer",
+  },
+
+  summaryRow: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 16,
+    paddingTop: 14,
+    borderTop: "1px solid rgba(var(--border-rgb),0.4)",
+  },
+
+  summaryPill: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+    padding: "4px 9px",
+    borderRadius: "var(--radius-pill)",
+    background: "rgba(var(--panel-deep-rgb),0.8)",
+    border: "1px solid rgba(var(--border-rgb),0.4)",
+    color: "var(--text-secondary)",
+    fontSize: 10.5,
+    fontWeight: 700,
+  },
+
+  wizardNav: {
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: 8,
+    marginTop: 16,
+  },
+
+  // ===== LOBBY =====
+  teamPickRow: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+    gap: 8,
+  },
+
+  teamPickCard: {
+    display: "flex",
+    alignItems: "center",
+    gap: 9,
+    padding: "9px 11px",
+    borderRadius: "var(--radius-lg)",
+    border: "1px solid",
+    color: "var(--text-body)",
+    cursor: "pointer",
+    textAlign: "left",
+  },
+
+  teamDot: { width: 10, height: 10, borderRadius: "50%", flexShrink: 0 },
+
+  teamPickText: { display: "flex", flexDirection: "column", minWidth: 0 },
+
+  teamPickName: { fontSize: 12, fontWeight: 800 },
+
+  teamPickSlots: { fontSize: 9.5, fontWeight: 600, color: "var(--text-muted)" },
+
+  teamSlotDots: { display: "inline-flex", gap: 3, marginLeft: "auto", flexShrink: 0 },
+
+  teamSlotDot: { width: 6, height: 6, borderRadius: "50%" },
+
+  playerBadgeRow: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 4,
+    justifyContent: "center",
+  },
+
+  playerAvatarEmpty: {
+    width: 56,
+    height: 56,
+    borderRadius: "var(--radius-lg)",
+    background: "rgba(var(--soft-rgb),0.05)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "var(--text-muted)",
+  },
+
+  waitingLabel: {
+    fontSize: 10.5,
+    fontWeight: 700,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    color: "var(--text-muted)",
+  },
+
+  // ===== CONVITES =====
+  codeSlots: { display: "flex", gap: 5, flex: 1, minWidth: 0 },
+
+  codeSlot: {
+    flex: 1,
+    minWidth: 0,
+    padding: "10px 0",
+    borderRadius: "var(--radius-lg)",
+    background: "rgba(var(--panel-deep-rgb),0.9)",
+    border: "1px solid rgba(var(--accent-rgb),0.35)",
+    color: "var(--accent-text)",
+    fontSize: 20,
+    fontWeight: 900,
+    textAlign: "center",
+    fontFamily: "Cinzel, serif",
+  },
+
+  inviteCount: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 17,
+    height: 17,
+    marginRight: 7,
+    padding: "0 5px",
+    borderRadius: "var(--radius-pill)",
+    background: "var(--accent-gradient)",
+    color: "var(--accent-solid-text)",
+    fontSize: 10,
+    fontWeight: 900,
+  },
+
+  inviteList: { display: "flex", flexDirection: "column", gap: 8 },
+
+  inviteAvatar: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 34,
+    height: 34,
+    flexShrink: 0,
+    borderRadius: "50%",
+    background: "rgba(var(--accent-rgb),0.15)",
+    color: "var(--accent-text)",
+    fontSize: 12,
+    fontWeight: 800,
+  },
+
+  inviteRoomName: {
+    fontSize: 13,
+    fontWeight: 800,
+    color: "var(--accent-text)",
+    marginTop: 1,
+  },
+
+  inviteMetaRow: { display: "flex", gap: 8, marginTop: 3, flexWrap: "wrap" },
+
+  inviteMeta: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 3,
+    fontSize: 10,
+    fontWeight: 700,
+    color: "var(--text-muted)",
+  },
+
+  acceptBtn: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+    padding: "7px 12px",
+    borderRadius: "var(--radius-md)",
+    border: "none",
+    background: "var(--accent-gradient)",
+    color: "var(--accent-solid-text)",
+    cursor: "pointer",
+    fontSize: 11.5,
+    fontWeight: 800,
+    whiteSpace: "nowrap",
+  },
+
   wrap: { display: "flex", flexDirection: "column", gap: 16, marginTop: 12 },
 
   empty: {
