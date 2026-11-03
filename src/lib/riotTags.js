@@ -34,36 +34,51 @@ export const FALLBACK_REGIONS = [
   { value: "sea", labelKey: "region_sea" },
 ];
 
+// A comparação é feita sem ligar a maiúsculas: as tags da Riot não distinguem
+// caixa ("euw" e "EUW" são a mesma conta), e quem escreve a sua à mão
+// escreve-a como lhe apetece. Antes disto um "na1" em minúsculas não era
+// reconhecido e a conta ficava no servidor por omissão (Europa) — errado, e
+// sem nada no ecrã a dizer porquê.
 export function regionForTag(tag) {
-  return TAG_OPTIONS.find((o) => o.value === tag)?.region || null;
+  const wanted = (tag ?? "").trim().toLowerCase();
+  if (!wanted) return null;
+  return TAG_OPTIONS.find((o) => o.value.toLowerCase() === wanted)?.region || null;
 }
 
-// Limpa o que o utilizador escreveu nos campos de nome e tag antes de virar
-// uma conta. O "#" é o separador do Riot ID e NUNCA faz parte de nenhum dos
-// dois lados — mas é assim que toda a gente vê e copia o seu ID ("Nome#EUW"),
-// por isso é natural escrevê-lo.
+// Lê um Riot ID escrito num campo único ("Nome#EUW") e devolve tudo o que se
+// percebe dele — incluindo o que FALTA. É com isto que o formulário de contas
+// mostra, enquanto se escreve, o que é que entendeu.
 //
-// Antes disto não havia limpeza nenhuma: escrever "#EUW" na tag guardava
-// literalmente "#EUW", o pedido à Riot saía como ".../Nome/%23EUW" e falhava
-// sem explicação nenhuma — parecia que a conta não existia. Colar o ID
-// completo no campo do nome dava o mesmo resultado.
+// O formulário de contas passou a ter um campo em vez de três (nome + menu de
+// tag + servidor): a pessoa copia o ID inteiro do cliente do jogo, cola, e não
+// tem de o desmontar à mão. Para isso o formulário precisa de saber, a cada
+// letra, se já há tag e se essa tag chega para decidir o servidor.
 //
-// Duas correções:
-//   - a tag perde qualquer "#" e espaços;
-//   - se o NOME trouxer um "#", parte-se ali: o que vem antes é o nome, o que
-//     vem depois é a tag (e essa ganha à tag escrita à parte, porque colar o
-//     ID completo é um gesto mais deliberado do que deixar o menu no valor
-//     por omissão).
-export function normalizeRiotId(rawName, rawTag) {
-  const name = (rawName ?? "").trim();
-  const tag = (rawTag ?? "").trim().replace(/#/g, "").trim();
+// O "#" é o separador do Riot ID e nunca faz parte de nenhum dos dois lados,
+// mas é com ele que todos vemos e copiamos o nosso ID — por isso é escrito, e
+// por isso é aqui que desaparece. Antes de haver esta limpeza, um "#EUW"
+// guardado tal e qual saía no pedido à Riot como ".../Nome/%23EUW" e falhava
+// sem explicação: parecia que a conta não existia.
+export function parseRiotId(raw) {
+  // Espaços repetidos viram um só (acontece ao colar de sítios que formatam o
+  // ID), mas o espaço no meio do nome fica: "Sr Sousa#EUW" é um ID válido.
+  const value = (raw ?? "").replace(/\s+/g, " ").trim();
+  const hashIndex = value.indexOf("#");
 
-  const hashIndex = name.indexOf("#");
-  if (hashIndex === -1) return { gameName: name, tagLine: tag };
+  const gameName = (hashIndex === -1 ? value : value.slice(0, hashIndex)).trim();
+  const rawTag = hashIndex === -1 ? "" : value.slice(hashIndex + 1).replace(/#/g, "").trim();
 
-  const fromName = name.slice(hashIndex + 1).replace(/#/g, "").trim();
+  // Tag conhecida volta na caixa oficial da lista ("euw" → "EUW"), para o
+  // cartão da conta não ficar a mostrar a versão torta do que foi escrito.
+  const known = TAG_OPTIONS.find((o) => o.value.toLowerCase() === rawTag.toLowerCase());
+  const tagLine = known ? known.value : rawTag;
+
   return {
-    gameName: name.slice(0, hashIndex).trim(),
-    tagLine: fromName || tag,
+    gameName,
+    tagLine,
+    // null quando não há tag, ou quando ela não está na lista: aí o servidor
+    // tem de ser perguntado, não adivinhado.
+    region: known ? known.region : null,
+    knownTag: Boolean(known),
   };
 }

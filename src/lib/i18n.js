@@ -1178,30 +1178,107 @@ const DICTIONARY = {
   active_pill: { pt: "ativa", en: "active" },
   riot_label: { pt: "Riot:", en: "Riot:" },
   no_tag: { pt: "(sem tag)", en: "(no tag)" },
-  riot_name_placeholder: { pt: "Nome Riot (antes do #)", en: "Riot name (before the #)" },
-  tag_placeholder: { pt: "Tag (ex: EUW, sem #)", en: "Tag (e.g. EUW, no #)" },
-  tag_no_hash_hint: {
-    pt: "Não escrevas o # — a app junta-o sozinha. Se colares o Riot ID completo (Nome#EUW) no campo do nome, também é separado automaticamente.",
-    en: "No need to type the # — the app adds it for you. If you paste the full Riot ID (Name#EUW) into the name field, it gets split automatically too.",
-  },
-  tag_custom_option: { pt: "Outra (introduzir manualmente)", en: "Other (enter manually)" },
   region_europe: { pt: "Europa (EUW, EUNE, TR, RU)", en: "Europe (EUW, EUNE, TR, RU)" },
   region_americas: { pt: "Américas (NA, BR, LAN, LAS, OCE)", en: "Americas (NA, BR, LAN, LAS, OCE)" },
   region_asia: { pt: "Ásia (KR, JP)", en: "Asia (KR, JP)" },
   region_sea: { pt: "Sudeste Asiático (PH, SG, TH, TW, VN)", en: "SEA (PH, SG, TH, TW, VN)" },
+  // Versões curtas para a leitura em tempo real do Riot ID, onde só interessa
+  // dizer que servidor é que saiu da tag (ver REGION_SHORT, AccountManager).
+  region_short_europe: { pt: "Europa", en: "Europe" },
+  region_short_americas: { pt: "Américas", en: "Americas" },
+  region_short_asia: { pt: "Ásia", en: "Asia" },
+  region_short_sea: { pt: "Sudeste Asiático", en: "SEA" },
   save_btn: { pt: "Guardar", en: "Save" },
   cancel_btn: { pt: "Cancelar", en: "Cancel" },
   use_btn: { pt: "Usar", en: "Use" },
   edit_riot_account_tooltip: { pt: "Editar conta Riot", en: "Edit Riot account" },
   remove_btn: { pt: "Remover", en: "Remove" },
-  new_account_btn: { pt: "+ Nova conta", en: "+ New account" },
-  app_name_placeholder: { pt: "Nome na app (etiqueta)", en: "Name in the app (label)" },
-  riot_account_sync_placeholder: { pt: "Conta Riot p/ sincronizar (opcional)", en: "Riot account to sync (optional)" },
-  tag_hint: {
-    pt: 'A tag é necessária só para sincronizar o histórico via Riot API (botão "Sincronizar" no ecrã principal).',
-    en: 'The tag is only needed to sync history via the Riot API (the "Sync" button on the main screen).',
+  new_account_btn: { pt: "Nova conta", en: "New account" },
+
+  // ---- formulário de ligar conta (um campo: o Riot ID) ----
+  account_create_title: { pt: "Ligar a tua conta", en: "Connect your account" },
+  account_create_sub: {
+    pt: "Só precisas do teu Riot ID. A app descobre o servidor a partir da tag e vai buscar o teu histórico de Arena.",
+    en: "All you need is your Riot ID. The app works out your server from the tag and fetches your Arena history.",
   },
-  create_btn: { pt: "Criar", en: "Create" },
+  riotid_label: { pt: "O teu Riot ID", en: "Your Riot ID" },
+  riotid_placeholder: { pt: "Nome#EUW", en: "Name#EUW" },
+  riotid_field_hint: {
+    pt: "Cola o ID completo, com o # incluído — o nome e a tag separam-se sozinhos.",
+    en: "Paste the full ID, # included — the name and tag are split for you.",
+  },
+  riotid_ok_name: { pt: "Nome", en: "Name" },
+  riotid_ok_tag: { pt: "Tag", en: "Tag" },
+  riotid_ok_server: { pt: "Servidor", en: "Server" },
+  riotid_missing_name: {
+    pt: "Falta o nome antes do # — escreve-o como aparece no jogo.",
+    en: "The name before the # is missing — type it as it appears in game.",
+  },
+  riotid_missing_tag: {
+    pt: "Falta a tag: escreve o # e o que vem depois (ex: {example}). Sem ela não é possível sincronizar.",
+    en: "The tag is missing: type the # and what follows (e.g. {example}). Without it syncing is not possible.",
+  },
+  riotid_unknown_tag: {
+    pt: "Esta tag não é a de nenhum servidor conhecido (podes tê-la mudado) — diz-nos onde jogas:",
+    en: "This tag isn't one of the known servers (you may have changed yours) — tell us where you play:",
+  },
+  create_account_btn: { pt: "Ligar conta", en: "Connect account" },
+  create_without_sync_btn: { pt: "Criar sem sincronizar", en: "Create without syncing" },
+  create_err_empty: {
+    pt: "Escreve o teu Riot ID para continuar.",
+    en: "Type your Riot ID to continue.",
+  },
+  create_err_duplicate: {
+    pt: 'Já tens uma conta chamada "{name}". Em "Mais opções" podes dar-lhe outro nome na app.',
+    en: 'You already have an account called "{name}". Under "More options" you can give it a different in-app name.',
+  },
+  create_more_options: { pt: "Mais opções", en: "More options" },
+  create_label_label: { pt: "Nome na app", en: "Name in the app" },
+  create_label_placeholder: { pt: "igual ao nome Riot", en: "same as the Riot name" },
+  create_label_hint: {
+    pt: "Só a etiqueta que aparece nesta lista. Em branco, fica igual ao nome Riot — útil se tiveres duas contas com o mesmo nome.",
+    en: "Just the label shown in this list. Left blank it matches the Riot name — useful if you have two accounts with the same name.",
+  },
+
+  // ---- tutorial "onde encontro o meu Riot ID?" (ver RiotIdGuide.jsx) ----
+  riotid_guide_open: { pt: "Onde encontro o meu Riot ID?", en: "Where do I find my Riot ID?" },
+  riotid_mock_name: { pt: "OTeuNome", en: "YourName" },
+  riotid_mock_caption: {
+    pt: "No cliente do League, o teu Riot ID está sempre no canto superior direito, ao lado do ícone de perfil.",
+    en: "In the League client your Riot ID sits in the top-right corner, next to your profile icon.",
+  },
+  riotid_guide_step1_title: {
+    pt: "Abre o cliente do League of Legends",
+    en: "Open the League of Legends client",
+  },
+  riotid_guide_step1_body: {
+    pt: "O lançador onde escolhes jogar. Não precisas de entrar numa partida.",
+    en: "The launcher where you press play. You don't need to be in a match.",
+  },
+  riotid_guide_step2_title: {
+    pt: "Olha para o canto superior direito",
+    en: "Look at the top-right corner",
+  },
+  riotid_guide_step2_body: {
+    pt: "Lá está o teu Riot ID: o nome e, a seguir ao #, a tag (por exemplo EUW, NA1, BR1). São as duas partes que a app precisa — o nome sozinho não chega, porque há vários jogadores com o mesmo nome em servidores diferentes.",
+    en: "There is your Riot ID: the name and, after the #, the tag (EUW, NA1, BR1 and so on). Those are the two parts the app needs — the name alone isn't enough, because several players share the same name across servers.",
+  },
+  riotid_guide_step3_title: { pt: "Escreve-o aqui tal e qual", en: "Type it here exactly" },
+  riotid_guide_step3_body: {
+    pt: "Nome#Tag, como está no jogo. Se o colares inteiro, a app separa as duas partes e escolhe o servidor sozinha — confirma na linha que aparece abaixo do campo.",
+    en: "Name#Tag, just as in game. Paste it whole and the app splits the two parts and picks the server itself — check the line that appears under the field.",
+  },
+  riotid_guide_web_title: { pt: "Sem o jogo instalado?", en: "Game not installed?" },
+  riotid_guide_web_body: {
+    pt: "Entra em account.riotgames.com com a tua conta Riot: o Riot ID completo está na página de informação da conta. Também aparece na lista de amigos de quem joga contigo.",
+    en: "Sign in at account.riotgames.com with your Riot account: the full Riot ID is on the account information page. It also shows up in the friends list of anyone who plays with you.",
+  },
+  riotid_guide_privacy_title: { pt: "É o único dado pedido.", en: "That's the only data asked for." },
+  riotid_guide_privacy_body: {
+    pt: "Nunca te é pedida a password nem acesso à tua conta Riot. O Riot ID serve só para consultar o teu histórico público de Arena pela API oficial da Riot — o mesmo que qualquer site de estatísticas faz.",
+    en: "You are never asked for your password or access to your Riot account. The Riot ID is used only to look up your public Arena history through Riot's official API — the same thing any stats site does.",
+  },
+
   confirm_remove_account: {
     pt: 'Remover "{name}" da lista? O histórico guardado não é apagado.',
     en: 'Remove "{name}" from the list? Saved history is not deleted.',
