@@ -548,6 +548,59 @@ export default function App() {
     return wins.filter(bySearch).sort(byName);
   }, [wins, champions, championsById, owned, collectionFilter, searchTerms]);
 
+  // Campeões em que já se pegou, com ou sem vitória. Não dá para usar o
+  // "champStats" para isto: esse só soma partidas GANHAS (ver o filtro
+  // m.win lá em cima), por isso para um campeão jogado dez vezes sem nunca
+  // ganhar está vazio — que é precisamente o caso que aqui interessa marcar.
+  const playedChampions = useMemo(() => {
+    const set = new Set();
+    matches.forEach((m) => set.add(normalizeChampionId(m.champion, champions)));
+    return set;
+  }, [matches, champions]);
+
+  // A Coleção agrupada por classe. Era uma grelha única e alfabética: com o
+  // filtro em "sem vitória" são 162 ícones iguais em fila, onde não se
+  // encontra nada nem se percebe o que falta. Por classe passam a ser seis
+  // prateleiras curtas, cada uma a dizer quanto falta nela — e "falta-me
+  // meio roster de suportes" é uma informação que a lista alfabética não
+  // dava de todo.
+  //
+  // A classe é a PRIMEIRA tag do Data Dragon (ver useStaticData.js). Muitos
+  // campeões têm duas (ex: Fighter+Tank) e usar todas punha o mesmo campeão
+  // em duas prateleiras, o que estragava as contagens e fazia a grelha
+  // parecer ter mais campeões do que o jogo tem.
+  const collectionGroups = useMemo(() => {
+    const ordem = [
+      ["Assassin", "collection_class_assassin"],
+      ["Fighter", "collection_class_fighter"],
+      ["Mage", "collection_class_mage"],
+      ["Marksman", "collection_class_marksman"],
+      ["Support", "collection_class_support"],
+      ["Tank", "collection_class_tank"],
+      ["", "collection_class_other"],
+    ];
+
+    const classeDe = new Map(champions.map((c) => [c.id, c.tags?.[0] || ""]));
+    const visiveis = new Set(filteredCollection);
+
+    return ordem
+      .map(([classe, chave]) => {
+        // Os totais contam o roster inteiro dessa classe, não só o que o
+        // filtro deixa ver: "3 / 24" só quer dizer alguma coisa contra o
+        // total real da classe.
+        const doRoster = champions.filter((c) => (c.tags?.[0] || "") === classe);
+        return {
+          classe,
+          titulo: t(chave),
+          campeoes: filteredCollection.filter((id) => classeDe.get(id) === classe && visiveis.has(id)),
+          ganhos: doRoster.filter((c) => owned.has(c.id)).length,
+          total: doRoster.length,
+        };
+      })
+      .filter((g) => g.campeoes.length > 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredCollection, champions, owned, lang]);
+
   // ================= RESUMO FILTRADO POR FORMATO =================
   const statsMatches = useMemo(() => {
     if (teamSizeFilter === "all") return matches;
@@ -1261,61 +1314,122 @@ export default function App() {
                       {filteredCollection.length} / {champions.length}
                     </span>
                   </div>
+
+                  {/* Barra de conclusão. A contagem ali ao lado muda com o
+                      filtro e por isso não serve de progresso — "162 / 173"
+                      em "sem vitória" é quanto FALTA, não quanto se tem. A
+                      barra mede sempre a mesma coisa: campeões com vitória
+                      sobre o roster inteiro. Numa aba cujo propósito é
+                      completar uma coleção, isso tem de estar à vista. */}
+                  {champions.length > 0 && (
+                    <div style={styles.collectionProgress}>
+                      <div style={styles.collectionProgressHead}>
+                        <span style={styles.collectionProgressLabel}>
+                          {t("collection_progress")}
+                        </span>
+                        <span style={styles.collectionProgressValue}>
+                          {Math.round((owned.size / champions.length) * 100)}%
+                          <span style={styles.collectionProgressSub}>
+                            {" "}
+                            · {owned.size} / {champions.length}
+                          </span>
+                        </span>
+                      </div>
+                      <div style={styles.collectionProgressTrack}>
+                        <motion.div
+                          style={styles.collectionProgressFill}
+                          initial={{ width: 0 }}
+                          animate={{ width: `${(owned.size / champions.length) * 100}%` }}
+                          transition={{ duration: 0.5, ease: "easeOut" }}
+                        />
+                      </div>
+                    </div>
+                  )}
                   {/* Sem scroll/altura próprios de propósito — antes a grelha
                       tinha um maxHeight fixo de 26vh e ficava minúscula em
                       monitores grandes, com uma barra de scroll aninhada
                       dentro da área principal (que já é a única zona com
                       scroll da app). Agora cresce livremente e usa o espaço
                       todo disponível. */}
-                  <div style={styles.grid}>
-                    <AnimatePresence>
-                      {filteredCollection.map((champ) => {
-                        const stat = champStats[champ];
-                        const hasWin = owned.has(champ);
-                        const name = championsById[champ] || champ;
-                        const status = stat
-                          ? `${stat.games} ${t("wins_count_kda")} ${(stat.kills / stat.games).toFixed(1)}/${(stat.deaths / stat.games).toFixed(1)}/${(stat.assists / stat.games).toFixed(1)}`
-                          : hasWin
-                          ? t("no_kda_data_yet")
-                          : t("no_win_yet");
-                        // Sem legenda visível no cartão (só o ícone, para
-                        // caber mais por linha) — o nome vive só no tooltip
-                        // agora, à frente do estado/KDA.
-                        const tooltip = `${name} — ${status}`;
+                  {collectionGroups.map((grupo) => (
+                    <div key={grupo.classe || "outros"} style={styles.collectionGroup}>
+                      <div style={styles.collectionGroupHead}>
+                        <span style={styles.collectionGroupTitle}>{grupo.titulo}</span>
+                        <span style={styles.collectionGroupCount}>
+                          {grupo.ganhos} / {grupo.total}
+                        </span>
+                      </div>
 
-                        return (
-                          <Tooltip key={champ} label={tooltip}>
-                            <motion.div
-                              initial={{ opacity: 0, scale: 0.7 }}
-                              // O opacity final vem daqui (não do "style"): o
-                              // framer-motion controla opacity via animate,
-                              // por isso um opacity posto só no style de
-                              // winCardEmpty seria sempre substituído por
-                              // este e nunca se via o esbatimento.
-                              animate={{ opacity: hasWin ? 1 : 0.55, scale: 1 }}
-                              exit={{ opacity: 0, scale: 0.7 }}
-                              transition={{ duration: 0.08 }}
-                              // Clicável só quando já há vitória (só aí existem
-                              // dados para mostrar nas Estatísticas) — salta
-                              // logo para lá com esse campeão em foco, em vez
-                              // de teres de o procurar manualmente na lista.
-                              onClick={hasWin ? () => goToChampionStats(champ) : undefined}
-                              className={hasWin ? "clickableCard" : undefined}
-                              style={{
-                                ...(hasWin ? styles.winCard : styles.winCardEmpty),
-                                cursor: hasWin ? "pointer" : "default",
-                              }}
-                            >
-                              <div style={styles.winIconWrap}>
-                                <img src={`${DRAGON}/img/champion/${champ}.png`} style={styles.winIcon} />
-                                {hasWin && <div style={styles.winBadge}>✓</div>}
-                              </div>
-                            </motion.div>
-                          </Tooltip>
-                        );
-                      })}
-                    </AnimatePresence>
-                  </div>
+                      <div style={styles.grid}>
+                        <AnimatePresence>
+                          {grupo.campeoes.map((champ) => {
+                            const stat = champStats[champ];
+                            const hasWin = owned.has(champ);
+                            // Três estados e não dois. O meio — já jogado,
+                            // ainda sem vitória — é o mais útil de todos:
+                            // são os campeões a um bom jogo de entrarem na
+                            // coleção, e antes liam-se exatamente como os
+                            // que nunca se tocaram.
+                            const tried = !hasWin && playedChampions.has(champ);
+                            const name = championsById[champ] || champ;
+                            const status = stat
+                              ? `${stat.games} ${t("wins_count_kda")} ${(stat.kills / stat.games).toFixed(1)}/${(stat.deaths / stat.games).toFixed(1)}/${(stat.assists / stat.games).toFixed(1)}`
+                              : tried
+                              ? t("collection_tried")
+                              : hasWin
+                              ? t("no_kda_data_yet")
+                              : t("no_win_yet");
+                            // Sem legenda visível no cartão (só o ícone, para
+                            // caber mais por linha) — o nome vive só no tooltip
+                            // agora, à frente do estado/KDA.
+                            const tooltip = `${name} — ${status}`;
+
+                            return (
+                              <Tooltip key={champ} label={tooltip}>
+                                <motion.div
+                                  initial={{ opacity: 0, scale: 0.7 }}
+                                  // O esbatimento dos que faltam vem daqui e
+                                  // não do "style": o framer-motion controla
+                                  // a opacidade via "animate" e sobrepunha-se
+                                  // a qualquer opacity posta no estilo.
+                                  // Quem nunca foi jogado desce um pouco — e
+                                  // perde a cor, ver .at-champ-locked. Não
+                                  // desce mais do que isto de propósito: com
+                                  // a dessaturação a marcar o bloqueado, uma
+                                  // opacidade baixa só servia para os apagar
+                                  // contra o painel branco do tema claro.
+                                  animate={{ opacity: hasWin ? 1 : tried ? 0.92 : 0.65, scale: 1 }}
+                                  exit={{ opacity: 0, scale: 0.7 }}
+                                  transition={{ duration: 0.08 }}
+                                  // Clicável só quando já há vitória (só aí existem
+                                  // dados para mostrar nas Estatísticas) — salta
+                                  // logo para lá com esse campeão em foco, em vez
+                                  // de teres de o procurar manualmente na lista.
+                                  onClick={hasWin ? () => goToChampionStats(champ) : undefined}
+                                  className={`at-champ${hasWin ? " clickableCard" : ""}${
+                                    !hasWin && !tried ? " at-champ-locked" : ""
+                                  }`}
+                                  style={{
+                                    ...(hasWin
+                                      ? styles.winCard
+                                      : tried
+                                      ? styles.winCardTried
+                                      : styles.winCardEmpty),
+                                    cursor: hasWin ? "pointer" : "default",
+                                  }}
+                                >
+                                  <div style={styles.winIconWrap}>
+                                    <img src={`${DRAGON}/img/champion/${champ}.png`} style={styles.winIcon} />
+                                    {hasWin && <div style={styles.winBadge}>✓</div>}
+                                  </div>
+                                </motion.div>
+                              </Tooltip>
+                            );
+                          })}
+                        </AnimatePresence>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </>
             )}
@@ -2129,7 +2243,94 @@ const styles = {
     borderRadius: "var(--radius-md)",
     padding: 4,
     border: "1px solid rgba(var(--border-rgb),0.3)",
-    background: "rgba(var(--panel-deep-rgb),0.5)",
+    background: "rgba(var(--soft-rgb),0.04)",
+  },
+
+  // Já jogado, ainda sem vitória: moldura em laranja de "meio da tabela" (a
+  // mesma cor que o resto da app usa para o que está a caminho). Fica entre
+  // os dois extremos de propósito — tem cor, ao contrário dos bloqueados,
+  // mas não tem a moldura de areia de quem já lá chegou.
+  winCardTried: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: "var(--radius-md)",
+    padding: 4,
+    border: "1px solid color-mix(in srgb, var(--place-mid) 45%, transparent)",
+    background: "color-mix(in srgb, var(--place-mid) 10%, transparent)",
+  },
+
+  // Prateleira por classe.
+  collectionGroup: {
+    marginTop: 14,
+  },
+
+  collectionGroupHead: {
+    display: "flex",
+    alignItems: "baseline",
+    gap: 8,
+    marginBottom: 6,
+  },
+
+  collectionGroupTitle: {
+    fontSize: 11,
+    fontWeight: 700,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    color: "var(--text-secondary)",
+  },
+
+  collectionGroupCount: {
+    fontSize: 11,
+    fontWeight: 600,
+    color: "var(--text-muted)",
+  },
+
+  collectionProgress: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 5,
+    marginTop: 10,
+  },
+
+  collectionProgressHead: {
+    display: "flex",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+
+  collectionProgressLabel: {
+    fontSize: 10,
+    fontWeight: 700,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+    color: "var(--text-muted)",
+  },
+
+  collectionProgressValue: {
+    fontSize: 13,
+    fontWeight: 800,
+    color: "var(--accent-text)",
+  },
+
+  collectionProgressSub: {
+    fontSize: 11,
+    fontWeight: 600,
+    color: "var(--text-muted)",
+  },
+
+  collectionProgressTrack: {
+    height: 6,
+    borderRadius: "var(--radius-pill)",
+    background: "rgba(var(--soft-rgb),0.1)",
+    overflow: "hidden",
+  },
+
+  collectionProgressFill: {
+    height: "100%",
+    borderRadius: "var(--radius-pill)",
+    background: "var(--accent-gradient)",
   },
 
   winIconWrap: {

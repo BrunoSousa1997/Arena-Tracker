@@ -793,6 +793,26 @@ select:hover {
   box-shadow: inset 0 0 0 1px rgba(var(--border-rgb), 0.45);
 }
 
+/* ================= AZULEJOS DA COLEÇÃO =================
+   Os campeões que ainda não têm vitória perdem a cor, não só o brilho. Antes
+   a diferença entre ter e não ter era opacidade — com 173 retratos coloridos
+   lado a lado, distinguir 100% de 55% de opacidade obriga a comparar dois
+   azulejos vizinhos, e a pergunta desta aba é justamente "o que é que me
+   falta". A dessaturação responde-a de relance, e é a linguagem que qualquer
+   coleção de jogo usa para o que está por desbloquear.
+
+   Só para quem nunca foi jogado: os que já foram jogados sem vitória ficam a
+   cores (ver winCardTried em App.jsx), porque esses são os que estão a um
+   bom jogo de entrar e não merecem ler-se como intocados. */
+.at-champ-locked img {
+  filter: grayscale(1);
+  transition: filter 0.15s ease;
+}
+
+.at-champ-locked:hover img {
+  filter: grayscale(0.35);
+}
+
 /* ================= CARTÕES DE DESTAQUE =================
    Os cartões da grelha de Destaques da Visão Geral. A forma (cantos
    cortados), o fundo e a moldura vêm dos estilos inline do Overview.jsx; o

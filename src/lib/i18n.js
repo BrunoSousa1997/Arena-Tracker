@@ -1088,6 +1088,18 @@ const DICTIONARY = {
   quick_check_clear: { pt: "Limpar tudo", en: "Clear all" },
   quick_check_short_won: { pt: "tens", en: "have it" },
   quick_check_short_missing: { pt: "falta", en: "missing" },
+  // Nomes de classe para os grupos da Coleção. À parte das chaves
+  // "achv_cat_*", que dizem "Partidas com assassinos" e servem outra coisa:
+  // aqui é o cabeçalho de uma prateleira, não o título de uma conquista.
+  collection_class_assassin: { pt: "Assassinos", en: "Assassins" },
+  collection_class_fighter: { pt: "Lutadores", en: "Fighters" },
+  collection_class_mage: { pt: "Magos", en: "Mages" },
+  collection_class_marksman: { pt: "Atiradores", en: "Marksmen" },
+  collection_class_support: { pt: "Suportes", en: "Supports" },
+  collection_class_tank: { pt: "Tanques", en: "Tanks" },
+  collection_class_other: { pt: "Outros", en: "Other" },
+  collection_progress: { pt: "Coleção completa", en: "Collection complete" },
+  collection_tried: { pt: "já jogado, ainda sem vitória", en: "played, no win yet" },
   collection_filter_won: { pt: "Com vitória", en: "With a win" },
   collection_filter_unowned: { pt: "Sem vitória", en: "No win yet" },
   collection_filter_all: { pt: "Todos", en: "All" },
