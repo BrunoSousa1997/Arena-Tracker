@@ -494,13 +494,21 @@ const DICTIONARY = {
   },
 
   ingame_sample_games: { pt: "partidas na amostra", en: "games in sample" },
+  ingame_pop_all_hint: {
+    pt: "As escolhas de todos os jogadores que te calharam nas partidas, com este campeão. É a amostra grande e o ponto de partida de tudo.",
+    en: "The picks of every player you met in your matches, on this champion. The big sample, and the starting point for everything.",
+  },
+  ingame_pop_mine_hint: {
+    pt: "Acrescenta as tuas partidas por cima dessa base, com o peso que a tua amostra merecer: com poucos jogos quase não muda nada, com muitos manda. Não é uma amostra separada — é a mesma, ajustada a ti.",
+    en: "Adds your own games on top of that base, weighted by how much your sample supports: with few games it barely moves, with many it takes over. Not a separate sample — the same one, tuned to you.",
+  },
   ingame_low_sample_all: {
     pt: "Amostra pequena — trata isto como indício, não como estatística.",
     en: "Small sample — treat this as a hint, not a statistic.",
   },
   ingame_low_sample_mine: {
-    pt: "Amostra pequena — experimenta “Todos os jogadores” para dados a sério.",
-    en: "Small sample — try “All players” for real data.",
+    pt: "Amostra pequena — as tuas partidas pesam pouco e o que vês vem quase todo dos dados gerais.",
+    en: "Small sample — your own games carry little weight here, so most of this comes from the overall data.",
   },
 
   rarity_silver: { pt: "Prata", en: "Silver" },
@@ -529,26 +537,61 @@ const DICTIONARY = {
     en: "Sorted from most to least trouble, by where you tend to place when this champion is in the match. Not the champion's overall strength — yours against it.",
   },
 
+  // ================= BUILD SUGERIDA E PORQUÊS (Em Jogo) =================
+  ingame_plan_title: { pt: "Build sugerida", en: "Suggested build" },
+  ingame_plan_hint: {
+    pt: "peça a peça, a contar com o que já tens",
+    en: "piece by piece, counting what you already have",
+  },
+  ingame_plan_note: {
+    pt: "Montada por esta ordem — primeiro o prismático, depois o corpo da build, as botas no fim — e cada peça escolhida já a saber quais são as outras: não é a lista dos itens com melhor número, é o conjunto que encaixa melhor. Os itens que já tens ocupam a sua posição e as que faltam são escolhidas para combinar com eles.",
+    en: "Assembled in this order — prismatic first, then the body of the build, boots last — with each piece chosen knowing what the others are: not a list of the best individual numbers, but the set that fits together best. Items you already own take their place, and the rest are picked to go with them.",
+  },
+  ingame_plan_next: { pt: "Próxima compra", en: "Next buy" },
+  ingame_plan_next_short: { pt: "próxima", en: "next" },
+  ingame_plan_in_build: { pt: "na build", en: "in build" },
+  ingame_plan_games: { pt: "jogos", en: "games" },
+  ingame_plan_confidence: { pt: "confiança", en: "confidence" },
+  ingame_plan_confidence_hint: {
+    pt: "A confiança do conjunto é a da sua peça mais fraca: uma build com cinco peças sólidas e uma adivinhada não é uma build sólida.",
+    en: "A set is only as confident as its weakest piece: a build with five solid picks and one guess is not a solid build.",
+  },
+  ingame_conf_high: { pt: "alta", en: "high" },
+  ingame_conf_medium: { pt: "média", en: "medium" },
+  ingame_conf_low: { pt: "baixa", en: "low" },
+  ingame_evidence_mine: { pt: "pelas tuas partidas", en: "from your games" },
+  ingame_evidence_champion: { pt: "com este campeão", en: "on this champion" },
+  ingame_evidence_global: { pt: "pelos dados gerais", en: "from overall data" },
+  ingame_reason_synergy_hint: {
+    pt: "Rende mais ao lado desta peça do que as duas rendem separadas, em pontos percentuais de pódio:",
+    en: "Pays off more next to this piece than the two do apart, in podium percentage points:",
+  },
+  ingame_taken_label: { pt: "Já levei", en: "Taken" },
+  ingame_taken_search: { pt: "marcar augment…", en: "mark augment…" },
+  ingame_taken_add: { pt: "Marcar como já levado nesta partida", en: "Mark as taken this game" },
+  ingame_taken_hint: {
+    pt: "A Riot não expõe os augments durante a partida, por isso é preciso marcá-los à mão — e vale a pena: com eles marcados, saem das sugestões das rondas seguintes e a build passa a ser escolhida para os acompanhar.",
+    en: "Riot doesn't expose augments during a game, so they have to be marked by hand — and it is worth it: once marked, they drop out of the next rounds' suggestions and the build gets picked to go with them.",
+  },
+
   ingame_augments_title: { pt: "Augments", en: "Augments" },
   ingame_augments_hint: { pt: "por raridade", en: "by rarity" },
   ingame_augments_empty: {
-    pt: "Ainda não há augments com jogos suficientes para este campeão.",
-    en: "No augment has enough games for this champion yet.",
+    pt: "Ainda não há partidas sincronizadas com augments — nem tuas, nem dos jogadores que te calharam.",
+    en: "No synced matches with augments yet — neither yours nor those of the players you met.",
   },
 
-  ingame_build_title: { pt: "Build", en: "Build" },
-  ingame_build_hint: { pt: "por prateleira", en: "by shelf" },
+  ingame_build_title: { pt: "Prateleiras", en: "Shelves" },
+  ingame_build_hint: { pt: "a lista toda, ordenada", en: "the full ranked list" },
   ingame_build_owned: { pt: "tens", en: "owned" },
-  ingame_build_top_pick: { pt: "1ª escolha", en: "top pick" },
-  ingame_prismatic_pick: { pt: "Prismático a escolher", en: "Prismatic to pick" },
   ingame_prismatic_pick_unit: { pt: "pp", en: "pp" },
   ingame_build_empty: {
-    pt: "Ainda não há itens com jogos suficientes para este campeão.",
-    en: "No item has enough games for this champion yet.",
+    pt: "Ainda não há partidas sincronizadas com itens para dizer nada sobre builds.",
+    en: "No synced matches with items yet, so there is nothing to say about builds.",
   },
   ingame_build_none_above: {
-    pt: "Há jogos que cheguem, mas nenhum item está acima da média de pódio deste campeão — não há nada de honesto para recomendar aqui.",
-    en: "There are enough games, but no item sits above this champion's average podium rate — there is nothing honest to recommend here.",
+    pt: "Há dados, mas nenhum item está acima da média da sua prateleira — não há nada de honesto para recomendar aqui.",
+    en: "There is data, but no item sits above its shelf average — there is nothing honest to recommend here.",
   },
   ingame_build_note: {
     pt: "Conjunto, não ordem de compra: o que fica guardado de cada partida é o inventário final, sem ordem nem tempos.",
@@ -556,8 +599,8 @@ const DICTIONARY = {
   },
 
   ingame_footnote: {
-    pt: "Os desvios são em pontos percentuais face à média da PRÓPRIA prateleira, com este campeão: um augment prismático é comparado com prismáticos e um item Legendary com Legendary. É essa a comparação que decide, porque a Arena oferece sempre opções da mesma raridade ao mesmo tempo — medir tudo contra uma média única só dizia que os prismáticos são mais fortes, o que já se sabe. Os augments não aparecem durante a partida (a Riot não os expõe ao vivo), por isso as recomendações vêm sempre do histórico já sincronizado.",
-    en: "Gaps are in percentage points against the average of the SAME shelf, on this champion: a prismatic augment is compared with prismatics, a Legendary item with Legendaries. That is the comparison that decides, because Arena always offers options of the same rarity at once — measuring everything against a single average only said that prismatics are stronger, which is already known. Augments are not visible during a game (Riot does not expose them live), so recommendations always come from already-synced history.",
+    pt: "Os desvios são em pontos percentuais face à média da PRÓPRIA prateleira: um augment prismático é comparado com prismáticos e um item Legendary com Legendary — é essa a comparação que decide, porque a Arena oferece sempre opções da mesma raridade ao mesmo tempo. Não são percentagens cruas: cada número é encolhido para o tamanho da amostra que o sustenta e encadeado em três níveis (dados gerais → este campeão → as tuas partidas), por isso dois jogos com sorte não chegam ao topo da lista e um campeão que nunca jogaste ainda assim tem recomendações, vindas do nível de cima. O ponto colorido de cada linha diz a confiança e o tooltip diz de onde vem o número.",
+    en: "Gaps are in percentage points against the average of the SAME shelf: a prismatic augment is compared with prismatics, a Legendary item with Legendaries — that is the comparison that decides, because Arena always offers options of the same rarity at once. These are not raw percentages: every number is shrunk towards the sample size behind it and chained across three levels (overall data → this champion → your own games), so two lucky games never reach the top of the list and a champion you have never played still gets recommendations, drawn from the level above. The coloured dot on each row is the confidence, and the tooltip says where the number came from.",
   },
 
   settings_tab_sync: { pt: "Sincronização", en: "Sync" },

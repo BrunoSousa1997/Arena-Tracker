@@ -1,17 +1,20 @@
 import { useMemo, useState, useEffect } from "react";
-import { Sparkles, Star } from "lucide-react";
+import { Star, Plus, X, Link2, ShoppingCart, Check } from "lucide-react";
 import { useLanguage } from "../lib/i18n";
 import { normalizeChampionId } from "../lib/champions";
 import {
   augmentRarityColor,
   augmentRarityStyle,
-  AUGMENT_RARITY_ORDER,
   AUGMENT_RARITY_LABEL_KEYS,
 } from "../lib/augments";
-import { computeAugmentStats, AUGMENT_SORTS } from "../lib/augmentStats";
-import { computeItemStats, recommendCore, coreProgress, DEFAULT_MIN_GAMES } from "../lib/itemStats";
-import { ITEM_TIER_ORDER, ITEM_TIER } from "../lib/itemTiers";
-import { groupWithBaseline } from "../lib/statGroups";
+import { ITEM_TIER } from "../lib/itemTiers";
+import {
+  buildGlobalContext,
+  buildAdvisor,
+  suggestBuild,
+  suggestAugments,
+  CONFIDENCE,
+} from "../lib/recommend";
 import { normalizedPlacement } from "../lib/sessionCurve";
 import { placementColor } from "../lib/placement";
 import { scoreLiveGame, resolveRoomRules } from "../lib/challengeScoring";
@@ -84,6 +87,39 @@ const ITEM_TIER_COLORS = {
   [ITEM_TIER.LEGENDARY]: "#ffa94d",
   [ITEM_TIER.BOOTS]: "#9aa0ab",
 };
+
+// A confiança de cada linha (ver lib/recommend.js) mostra-se como cor, não
+// como texto: num painel onde cada linha já tem um nome, uma amostra e um
+// desvio, uma quarta coluna de palavras tirava-lhe a leitura de relance. A
+// cor diz logo se o número abaixo é para levar a sério, e o texto completo
+// fica no tooltip.
+const CONFIDENCE_COLORS = {
+  [CONFIDENCE.HIGH]: "var(--place-good)",
+  [CONFIDENCE.MEDIUM]: "var(--place-mid)",
+  [CONFIDENCE.LOW]: "var(--text-muted)",
+};
+
+const CONFIDENCE_LABEL_KEYS = {
+  [CONFIDENCE.HIGH]: "ingame_conf_high",
+  [CONFIDENCE.MEDIUM]: "ingame_conf_medium",
+  [CONFIDENCE.LOW]: "ingame_conf_low",
+};
+
+const EVIDENCE_LABEL_KEYS = {
+  mine: "ingame_evidence_mine",
+  champion: "ingame_evidence_champion",
+  global: "ingame_evidence_global",
+};
+
+// Uma partida de Arena dá quatro augments. Marcar mais do que isso não é
+// possível a jogar, e o limite evita que a lista de marcados cresça sem fim
+// se alguém andar a clicar à toa.
+const MAX_TAKEN_AUGMENTS = 4;
+
+// Constante e não um [] novo em cada render: esta lista entra nas dependências
+// dos useMemo que recalculam a build, e um array novo a cada render fazia-os
+// recalcular sempre.
+const NO_AUGMENTS = [];
 
 export default function InGame({
   matches,
@@ -233,99 +269,116 @@ export default function InGame({
     ).length;
   }, [matches, champions, championId, allPlayers]);
 
-  const statsOpts = { allPlayers, championId, champions };
+  // ================= AUGMENTS JÁ LEVADOS =================
+  // A Riot não expõe os augments durante a partida (ver o comentário na Live
+  // Client Data em hooks/useLiveGame.js), por isso a app não tem como os
+  // saber. Mas a informação existe — está no ecrã de quem joga — e vale
+  // demasiado para se deixar de fora: com os augments desta partida na mão, a
+  // build passa a ser escolhida para os acompanhar e os augments das rondas
+  // seguintes deixam de repetir o que já está levado. Dois cliques pagam-se.
+  //
+  // A lista é guardada JUNTO com o contexto a que pertence (campeão + estar
+  // ou não em partida) e lida como vazia quando o contexto muda. Trocar de
+  // campeão tem de limpar a lista — são augments de uma partida concreta, não
+  // uma preferência — e guardar o contexto evita o efeito que o faria a
+  // seguir à renderização, com o render intermédio a mostrar os augments da
+  // partida anterior já ao lado do campeão novo.
+  const takenContext = `${championId}|${isLive}`;
+  const [taken, setTaken] = useState({ context: null, ids: [] });
+  const takenAugments = taken.context === takenContext ? taken.ids : NO_AUGMENTS;
 
-  const { rows: augmentRows } = useMemo(
-    () => computeAugmentStats(matches, statsOpts),
-    [matches, allPlayers, championId, champions]
+  const toggleTaken = (id) => {
+    const key = String(id);
+    const ids = takenAugments.includes(key)
+      ? takenAugments.filter((a) => a !== key)
+      : takenAugments.length >= MAX_TAKEN_AUGMENTS
+        ? takenAugments
+        : [...takenAugments, key];
+
+    setTaken({ context: takenContext, ids });
+  };
+
+  // ================= O CONSELHEIRO =================
+  // Toda a inteligência vive em lib/recommend.js — encolhimento por tamanho
+  // de amostra, encadeamento dos níveis (geral -> campeão -> eu) e sinergia
+  // entre peças. Esta view só desenha o que ele devolve.
+  //
+  // O contexto geral está separado de propósito: é a parte que percorre todos
+  // os participantes de todas as partidas e não depende do campeão nem da
+  // população, por isso só se recalcula quando as partidas mudam.
+  const globalContext = useMemo(
+    () => buildGlobalContext({ matches, itemsMap, itemTiersMap }),
+    [matches, itemsMap, itemTiersMap]
   );
 
-  const { rows: itemRows } = useMemo(
-    () => computeItemStats(matches, { ...statsOpts, itemsMap }),
-    [matches, allPlayers, championId, champions, itemsMap]
-  );
-
-  // O mínimo de jogos acompanha o tamanho da amostra: exigir 8 jogos por
-  // item numa amostra de 15 partidas não devolvia linha nenhuma e a tab
-  // aparecia vazia sem explicação. Com amostra pequena baixa-se o mínimo e
-  // é o aviso de amostra que passa a fazer o trabalho de dizer o que valem.
-  const minGames = sampleGames < LOW_SAMPLE_GAMES ? 2 : DEFAULT_MIN_GAMES;
-
-  // ================= PRATELEIRAS =================
-  // Os augments partem-se por raridade e os itens por tier, com a média
-  // recalculada dentro de cada prateleira (ver lib/statGroups.js para o
-  // porquê). Sem isto, a lista de augments era só os prismáticos todos
-  // seguidos e a de itens só prismáticos também — a comparação que interessa
-  // é entre o que te vai ser oferecido ao mesmo tempo, não entre prateleiras.
-  const augmentGroups = useMemo(
+  const advisor = useMemo(
     () =>
-      groupWithBaseline(
-        augmentRows.filter((r) => r.games >= minGames),
-        (r) => augmentsMap?.[r.augmentId]?.rarity ?? null,
-        { order: AUGMENT_RARITY_ORDER, sort: AUGMENT_SORTS.delta }
-      )
-        .map((g) => ({ ...g, rows: g.rows.slice(0, PER_AUGMENT_RARITY) }))
-        .filter((g) => g.rows.length > 0),
-    [augmentRows, augmentsMap, minGames]
-  );
-
-  // Ao contrário dos augments, aqui exige-se desvio positivo (é o que o
-  // recommendCore faz): um augment tem de se escolher à força entre os três
-  // oferecidos, mesmo que os três sejam maus, mas um item ninguém é obrigado
-  // a comprar — recomendar um que está abaixo da média era conselho a mais.
-  const itemGroups = useMemo(
-    () =>
-      groupWithBaseline(itemRows, (r) => itemTiersMap?.[r.itemId] ?? null, {
-        order: ITEM_TIER_ORDER,
-      })
-        .map((g) => ({
-          ...g,
-          rows: recommendCore(g.rows, { size: PER_ITEM_TIER[g.key] ?? 4, minGames }),
-        }))
-        .filter((g) => g.rows.length > 0),
-    [itemRows, itemTiersMap, minGames]
-  );
-
-  // Havia itens que cheguem, tenham ou não desvio positivo? Serve só para a
-  // mensagem de lista vazia: "não há jogos suficientes" e "há jogos, mas
-  // nenhum item está acima da média" são coisas diferentes, e mostrar a
-  // primeira quando é a segunda manda o utilizador jogar mais para resolver
-  // um problema que não é de amostra.
-  const hasEligibleItems = useMemo(
-    () => itemRows.some((r) => r.games >= minGames && itemTiersMap?.[r.itemId]),
-    [itemRows, minGames, itemTiersMap]
-  );
-
-  // O diff da build, agora prateleira a prateleira: dentro de cada uma, o que
-  // ainda não compraste vem primeiro. Só faz sentido com partida a decorrer —
-  // fora dela o inventário é sempre vazio e "falta-te tudo" não informa nada.
-  const itemGroupsWithProgress = useMemo(
-    () =>
-      itemGroups.map((g) => {
-        if (!isLive) return { ...g, ordered: g.rows.map((row) => ({ row, owned: false })) };
-
-        const { have, missing } = coreProgress(g.rows, liveChampionAlert?.items);
-        return {
-          ...g,
-          ordered: [
-            ...missing.map((row) => ({ row, owned: false })),
-            ...have.map((row) => ({ row, owned: true })),
-          ],
-        };
+      buildAdvisor({
+        matches,
+        championId,
+        champions,
+        itemsMap,
+        itemTiersMap,
+        augmentsMap,
+        // "Só eu" não troca de amostra: acrescenta as minhas partidas como
+        // mais um nível por cima das de todos, com o peso que a sua amostra
+        // merecer. Ver o cabeçalho do recommend.js.
+        includeMine: !allPlayers,
+        context: globalContext,
       }),
-    [itemGroups, isLive, liveChampionAlert?.items]
+    [matches, championId, champions, itemsMap, itemTiersMap, augmentsMap, allPlayers, globalContext]
   );
 
-  // O melhor prismático a escolher — a escolha única e cara que mais muda a
-  // partida, por isso vale um destaque próprio no topo da build em vez de se
-  // perder no meio da lista. É a primeira linha da prateleira dos prismáticos
-  // (recommendCore já a ordena por desvio e só deixa passar acima da média),
-  // ou null quando nenhum prismático está acima da média deste campeão — nesse
-  // caso não se inventa uma recomendação.
-  const topPrismatic = useMemo(() => {
-    const g = itemGroups.find((grp) => grp.key === ITEM_TIER.PRISMATIC);
-    return g?.rows?.[0] || null;
-  }, [itemGroups]);
+  // O inventário ao vivo. Fora de partida é vazio, e é isso que faz a build
+  // sugerida aparecer completa em vez de marcada como meio comprada.
+  const liveItems = useMemo(
+    () => (isLive ? normalizeItems(liveChampionAlert?.items) : []),
+    [isLive, liveChampionAlert?.items]
+  );
+
+  const build = useMemo(
+    () => suggestBuild(advisor, { owned: liveItems, takenAugments }),
+    [advisor, liveItems, takenAugments]
+  );
+
+  const augmentShelves = useMemo(
+    () =>
+      suggestAugments(advisor, {
+        taken: takenAugments,
+        owned: liveItems,
+        perRarity: PER_AUGMENT_RARITY,
+      }),
+    [advisor, takenAugments, liveItems]
+  );
+
+  // As prateleiras completas, por baixo da build sugerida: a build responde a
+  // "o que compro", isto responde a "e se o que me calhou não for nada disso".
+  // Continua a exigir desvio positivo — um augment tem de se escolher à força
+  // entre os oferecidos, um item ninguém é obrigado a comprar.
+  const itemShelves = useMemo(() => {
+    const owned = new Set(liveItems.map((it) => String(it.itemID)));
+    const inBuild = new Set(build.slots.filter((s) => !s.owned).map((s) => s.row.id));
+
+    return advisor.items.shelves
+      .map((shelf) => ({
+        ...shelf,
+        ordered: shelf.rows
+          .filter((r) => r.effect > 0)
+          .slice(0, PER_ITEM_TIER[shelf.key] ?? 4)
+          .map((row) => ({ row, owned: owned.has(row.id), inBuild: inBuild.has(row.id) }))
+          // O que ainda falta comprar primeiro: com partida a decorrer é a
+          // única ordem que ajuda a decidir.
+          .sort((a, b) => Number(a.owned) - Number(b.owned)),
+      }))
+      .filter((shelf) => shelf.ordered.length > 0);
+  }, [advisor, liveItems, build]);
+
+  // Havia itens de que falar, tenham ou não desvio positivo? Serve só para a
+  // mensagem de lista vazia: "não há dados" e "há dados, mas nada está acima
+  // da média" são coisas diferentes, e mostrar a primeira quando é a segunda
+  // manda o utilizador jogar mais para resolver um problema que não é de
+  // amostra.
+  const hasEligibleItems = advisor.items.rows.length > 0;
 
   const liveScore = useMemo(() => {
     if (!isLive || !liveChampionAlert?.challengeRoom) return null;
@@ -555,19 +608,27 @@ export default function InGame({
 
       {/* ================= CONTROLO DA POPULAÇÃO + AMOSTRA ================= */}
       <div style={styles.sampleBar}>
+        {/* Os dois botões já não são duas amostras sem relação: "Só eu"
+            acrescenta as minhas partidas por cima das de todos, com o peso
+            que a amostra merecer (ver includeMine em lib/recommend.js). Como
+            isso não se adivinha a olhar para o botão, está nos tooltips. */}
         <div style={styles.segGroup}>
-          <button
-            onClick={() => setPopulation("all")}
-            style={{ ...styles.segBtn, ...(allPlayers ? styles.segBtnActive : null) }}
-          >
-            {t("aug_pop_all")}
-          </button>
-          <button
-            onClick={() => setPopulation("mine")}
-            style={{ ...styles.segBtn, ...(!allPlayers ? styles.segBtnActive : null) }}
-          >
-            {t("aug_pop_mine")}
-          </button>
+          <Tooltip label={t("ingame_pop_all_hint")}>
+            <button
+              onClick={() => setPopulation("all")}
+              style={{ ...styles.segBtn, ...(allPlayers ? styles.segBtnActive : null) }}
+            >
+              {t("aug_pop_all")}
+            </button>
+          </Tooltip>
+          <Tooltip label={t("ingame_pop_mine_hint")}>
+            <button
+              onClick={() => setPopulation("mine")}
+              style={{ ...styles.segBtn, ...(!allPlayers ? styles.segBtnActive : null) }}
+            >
+              {t("aug_pop_mine")}
+            </button>
+          </Tooltip>
         </div>
 
         <span style={styles.sampleCount}>
@@ -582,6 +643,71 @@ export default function InGame({
         )}
       </div>
 
+      {/* ================= A BUILD SUGERIDA ================= */}
+      {/* A resposta direta à pergunta que se faz a jogar — o que comprar, por
+          esta ordem. Não é a lista dos itens com melhor número: é um conjunto
+          montado peça a peça, cada uma escolhida já a saber o que está no
+          resto da build, o que está no inventário e que augments foram
+          levados (ver suggestBuild em lib/recommend.js). Painel próprio e à
+          largura toda porque é a conclusão, e uma conclusão não se lê no meio
+          de uma tabela. */}
+      <div style={styles.panel}>
+        <div style={styles.panelHead}>
+          <span style={styles.panelTitle}>{t("ingame_plan_title")}</span>
+          {build.slots.length > 0 && (
+            <Tooltip label={t("ingame_plan_confidence_hint")}>
+              <span style={{ ...styles.confBadge, color: CONFIDENCE_COLORS[build.confidence] }}>
+                {t("ingame_plan_confidence")} {t(CONFIDENCE_LABEL_KEYS[build.confidence])}
+              </span>
+            </Tooltip>
+          )}
+          <span style={styles.panelHint}>{t("ingame_plan_hint")}</span>
+        </div>
+
+        {build.slots.length === 0 ? (
+          <div style={styles.panelEmpty}>
+            {hasEligibleItems ? t("ingame_build_none_above") : t("ingame_build_empty")}
+          </div>
+        ) : (
+          <>
+            {/* Com partida a decorrer, a próxima compra vai para cima de tudo:
+                é a única linha que ainda dá tempo de usar. */}
+            {isLive && build.nextBuy && (
+              <div style={styles.nextBuy}>
+                <ShoppingCart size={15} strokeWidth={2.25} style={styles.nextBuyIcon} />
+                <span style={styles.nextBuyLabel}>{t("ingame_plan_next")}</span>
+                <b style={styles.nextBuyName}>
+                  {itemsMap?.[build.nextBuy.row.id] || `#${build.nextBuy.row.id}`}
+                </b>
+                <ReasonTags
+                  reasons={build.nextBuy.reasons}
+                  itemsMap={itemsMap}
+                  augmentsMap={augmentsMap}
+                  t={t}
+                />
+              </div>
+            )}
+
+            <div style={styles.planRow}>
+              {build.slots.map((slot) => (
+                <PlanSlot
+                  key={slot.row.id}
+                  slot={slot}
+                  isNext={isLive && build.nextBuy === slot}
+                  name={itemsMap?.[slot.row.id]}
+                  DRAGON={DRAGON}
+                  itemsMap={itemsMap}
+                  augmentsMap={augmentsMap}
+                  t={t}
+                />
+              ))}
+            </div>
+
+            <div style={styles.panelNote}>{t("ingame_plan_note")}</div>
+          </>
+        )}
+      </div>
+
       <div style={styles.columns}>
         {/* ================= AUGMENTS ================= */}
         <div style={styles.panel}>
@@ -590,86 +716,105 @@ export default function InGame({
             <span style={styles.panelHint}>{t("ingame_augments_hint")}</span>
           </div>
 
-          {augmentGroups.length === 0 ? (
+          {/* Os augments desta partida, marcados à mão. Alimentam as duas
+              pontas: saem das sugestões (não voltam a ser oferecidos) e a
+              build passa a ser escolhida para os acompanhar. */}
+          <div style={styles.takenBar}>
+            <span style={styles.takenLabel}>{t("ingame_taken_label")}</span>
+
+            {takenAugments.map((id) => (
+              <button
+                key={id}
+                onClick={() => toggleTaken(id)}
+                style={{
+                  ...styles.takenChip,
+                  borderColor: augmentRarityColor(augmentsMap?.[id]?.rarity) || "var(--text-muted)",
+                }}
+              >
+                {augmentsMap?.[id]?.icon && (
+                  <img src={augmentsMap[id].icon} alt="" style={styles.takenChipIcon} />
+                )}
+                <span style={styles.takenChipName}>{augmentsMap?.[id]?.name || `#${id}`}</span>
+                <X size={10} strokeWidth={2.5} />
+              </button>
+            ))}
+
+            {takenAugments.length < MAX_TAKEN_AUGMENTS && (
+              <AugmentPicker
+                augmentsMap={augmentsMap}
+                exclude={takenAugments}
+                onPick={toggleTaken}
+                t={t}
+              />
+            )}
+          </div>
+
+          {augmentShelves.length === 0 ? (
             <div style={styles.panelEmpty}>{t("ingame_augments_empty")}</div>
           ) : (
-            augmentGroups.map((group) => (
-              <div key={group.key}>
+            augmentShelves.map((shelf) => (
+              <div key={shelf.key}>
                 <ShelfHead
-                  label={t(AUGMENT_RARITY_LABEL_KEYS[group.key] || "rarity_other")}
-                  color={augmentRarityColor(group.key)}
-                  baseline={group.baseline}
+                  label={t(AUGMENT_RARITY_LABEL_KEYS[shelf.key] || "rarity_other")}
+                  color={augmentRarityColor(shelf.key)}
+                  baseline={shelf.baseline}
                   t={t}
                 />
-                {group.rows.map((r) => (
-                  <AugmentLine key={r.augmentId} row={r} info={augmentsMap?.[r.augmentId]} />
+                {shelf.rows.map((r) => (
+                  <AugmentLine
+                    key={r.id}
+                    row={r}
+                    info={augmentsMap?.[r.id]}
+                    itemsMap={itemsMap}
+                    augmentsMap={augmentsMap}
+                    onTake={() => toggleTaken(r.id)}
+                    canTake={takenAugments.length < MAX_TAKEN_AUGMENTS}
+                    t={t}
+                  />
                 ))}
               </div>
             ))
           )}
+
+          <div style={styles.panelNote}>{t("ingame_taken_hint")}</div>
         </div>
 
-        {/* ================= BUILD ================= */}
+        {/* ================= PRATELEIRAS DE ITENS ================= */}
+        {/* A build sugerida responde a "o que compro"; isto responde a "e se o
+            que preciso não for nada disso" — a prateleira inteira, ordenada,
+            para quando a partida não corre como o plano. */}
         <div style={styles.panel}>
           <div style={styles.panelHead}>
             <span style={styles.panelTitle}>{t("ingame_build_title")}</span>
             <span style={styles.panelHint}>{t("ingame_build_hint")}</span>
           </div>
 
-          {/* Destaque do prismático a escolher — a pergunta mais direta ("qual
-              prismático levo?") merece a resposta mais direta, no topo, antes
-              das prateleiras. Só aparece com um prismático mesmo acima da
-              média deste campeão (ver topPrismatic). */}
-          {topPrismatic && (
-            <div style={styles.prismaticPick}>
-              <Sparkles size={16} strokeWidth={2.25} style={styles.prismaticPickSpark} />
-              {DRAGON && (
-                <img
-                  src={`${DRAGON}/img/item/${topPrismatic.itemId}.png`}
-                  alt=""
-                  style={styles.prismaticPickIcon}
-                  loading="lazy"
-                />
-              )}
-              <div style={styles.prismaticPickText}>
-                <div style={styles.prismaticPickLabel}>{t("ingame_prismatic_pick")}</div>
-                <div style={styles.prismaticPickName}>
-                  {itemsMap?.[topPrismatic.itemId] || `#${topPrismatic.itemId}`}
-                </div>
-              </div>
-              <span style={styles.prismaticPickDelta}>
-                +{topPrismatic.delta.toFixed(0)}
-                <span style={styles.prismaticPickDeltaUnit}>{t("ingame_prismatic_pick_unit")}</span>
-              </span>
-            </div>
-          )}
-
-          {itemGroupsWithProgress.length === 0 ? (
+          {itemShelves.length === 0 ? (
             <div style={styles.panelEmpty}>
               {hasEligibleItems ? t("ingame_build_none_above") : t("ingame_build_empty")}
             </div>
           ) : (
-            itemGroupsWithProgress.map((group) => (
-              <div key={group.key}>
+            itemShelves.map((shelf) => (
+              <div key={shelf.key}>
                 <ShelfHead
-                  label={t(ITEM_TIER_LABEL_KEYS[group.key] || "rarity_other")}
-                  color={ITEM_TIER_COLORS[group.key]}
-                  baseline={group.baseline}
+                  label={t(ITEM_TIER_LABEL_KEYS[shelf.key] || "rarity_other")}
+                  color={ITEM_TIER_COLORS[shelf.key]}
+                  baseline={shelf.baseline}
                   t={t}
                 />
-                {group.ordered.map(({ row, owned }) => (
+                {shelf.ordered.map(({ row, owned, inBuild }) => (
                   <ItemLine
-                    key={row.itemId}
+                    key={row.id}
                     row={row}
-                    name={itemsMap?.[row.itemId]}
+                    name={itemsMap?.[row.id]}
                     DRAGON={DRAGON}
                     owned={owned}
                     ownedLabel={t("ingame_build_owned")}
-                    // A 1ª escolha da prateleira = maior desvio (group.rows já
-                    // vem ordenado por recommendCore). Marca só a de topo, para
-                    // o olho pousar logo no que comprar primeiro.
-                    topPick={row.itemId === group.rows[0]?.itemId}
-                    topPickLabel={t("ingame_build_top_pick")}
+                    // Marca as que entraram na build sugerida acima, para as
+                    // duas leituras não parecerem duas opiniões diferentes.
+                    inBuild={inBuild}
+                    inBuildLabel={t("ingame_plan_in_build")}
+                    t={t}
                   />
                 ))}
               </div>
@@ -703,20 +848,184 @@ function ShelfHead({ label, color, baseline, t }) {
   );
 }
 
-// Uma linha de augment: ícone, nome e o desvio face à média do campeão.
-function AugmentLine({ row, info }) {
-  const good = row.delta >= 0;
+// Uma peça da build sugerida. As slots já compradas ficam a meia opacidade
+// em vez de desaparecerem: a build é um plano, e um plano com metade dos
+// passos apagados deixa de se ler como plano.
+function PlanSlot({ slot, isNext, name, DRAGON, itemsMap, augmentsMap, t }) {
+  const { row, owned, tier } = slot;
+  const label = name || `#${row.id}`;
+
+  return (
+    <div
+      style={{
+        ...styles.planSlot,
+        borderColor: isNext
+          ? "rgba(var(--accent-rgb),0.6)"
+          : owned
+            ? "rgba(var(--border-rgb),0.25)"
+            : "rgba(var(--border-rgb),0.4)",
+        opacity: owned ? 0.55 : 1,
+      }}
+    >
+      <span style={{ ...styles.planSlotTier, color: ITEM_TIER_COLORS[tier] }}>
+        {t(ITEM_TIER_LABEL_KEYS[tier] || "rarity_other")}
+      </span>
+
+      <Tooltip
+        label={`${label} — ${t(EVIDENCE_LABEL_KEYS[row.evidence] || "ingame_evidence_global")}, ${row.games} ${t("ingame_plan_games")} · ${t("ingame_plan_confidence")} ${t(CONFIDENCE_LABEL_KEYS[row.confidence])}`}
+      >
+        <span style={styles.planSlotIconWrap}>
+          {DRAGON && (
+            <img
+              src={`${DRAGON}/img/item/${row.id}.png`}
+              alt=""
+              style={styles.planSlotIcon}
+              loading="lazy"
+            />
+          )}
+          <span
+            style={{ ...styles.planSlotDot, background: CONFIDENCE_COLORS[row.confidence] }}
+          />
+        </span>
+      </Tooltip>
+
+      <span style={styles.planSlotName}>{label}</span>
+
+      {owned ? (
+        <span style={styles.planSlotOwned}>
+          <Check size={10} strokeWidth={3} /> {t("ingame_build_owned")}
+        </span>
+      ) : (
+        <span style={styles.planSlotDelta}>
+          {row.effect >= 0 ? "+" : ""}
+          {row.effect.toFixed(1)}
+          <span style={styles.planSlotUnit}>{t("ingame_prismatic_pick_unit")}</span>
+        </span>
+      )}
+
+      {isNext && <span style={styles.planSlotNext}>{t("ingame_plan_next_short")}</span>}
+
+      <ReasonTags
+        reasons={slot.reasons}
+        itemsMap={itemsMap}
+        augmentsMap={augmentsMap}
+        t={t}
+        onlySynergy
+      />
+    </div>
+  );
+}
+
+// O "porquê" de uma recomendação, em etiquetas. Duas no máximo: de onde vêm
+// os dados e com o que é que a peça encaixa (ver reasonsFor em
+// lib/recommend.js). Sem isto a tab é um oráculo — com isto, dá para
+// discordar de uma linha em vez de desconfiar do painel todo.
+function ReasonTags({ reasons, itemsMap, augmentsMap, t, onlySynergy = false }) {
+  const visible = (reasons || []).filter((r) => !onlySynergy || r.kind === "synergy");
+  if (!visible.length) return null;
+
+  return (
+    <span style={styles.reasonRow}>
+      {visible.map((r, i) => {
+        if (r.kind === "evidence") {
+          return (
+            <span key={i} style={styles.reasonTag}>
+              {t(EVIDENCE_LABEL_KEYS[r.level] || "ingame_evidence_global")} · {r.games}
+            </span>
+          );
+        }
+
+        const name =
+          r.type === "item" ? itemsMap?.[r.with] : augmentsMap?.[r.with]?.name;
+
+        return (
+          <Tooltip key={i} label={`${t("ingame_reason_synergy_hint")} +${r.value.toFixed(1)}`}>
+            <span style={{ ...styles.reasonTag, ...styles.reasonTagSynergy }}>
+              <Link2 size={9} strokeWidth={2.5} /> {name || `#${r.with}`}
+            </span>
+          </Tooltip>
+        );
+      })}
+    </span>
+  );
+}
+
+// A caixa de pesquisa que marca um augment como levado. Pesquisa e não uma
+// lista: são 500 e tantos augments e nenhuma grelha os mostra de forma
+// utilizável a meio de uma partida.
+function AugmentPicker({ augmentsMap, exclude, onPick, t }) {
+  const [query, setQuery] = useState("");
+
+  const results = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    // Duas letras é onde a pesquisa começa a ser útil; com uma, qualquer
+    // texto devolvia dezenas de resultados sem relação com o que se procura.
+    if (q.length < 2) return [];
+
+    return Object.values(augmentsMap || {})
+      .filter((a) => !exclude.includes(String(a.id)) && (a.name || "").toLowerCase().includes(q))
+      .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
+      .slice(0, 6);
+  }, [query, augmentsMap, exclude]);
+
+  return (
+    <div style={styles.pickerWrap}>
+      <Plus size={11} strokeWidth={2.5} style={styles.pickerPlus} />
+      <input
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder={t("ingame_taken_search")}
+        style={styles.pickerInput}
+      />
+
+      {results.length > 0 && (
+        <div style={styles.pickerResults}>
+          {results.map((a) => (
+            <button
+              key={a.id}
+              onClick={() => {
+                onPick(a.id);
+                setQuery("");
+              }}
+              style={styles.pickerResult}
+            >
+              {a.icon && <img src={a.icon} alt="" style={styles.takenChipIcon} />}
+              <span style={{ color: augmentRarityColor(a.rarity) || "var(--text-body)" }}>
+                {a.name}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Uma linha de augment: ícone, nome, o porquê, a confiança e o desvio já
+// encolhido. O botão "+" marca-o como levado nesta partida.
+function AugmentLine({ row, info, itemsMap, augmentsMap, onTake, canTake, t }) {
+  const good = row.effect >= 0;
   const rarityColor = augmentRarityColor(info?.rarity);
 
   return (
-    <div style={styles.line}>
+    <div style={{ ...styles.line, ...styles.lineTakeable }}>
       <span style={{ ...styles.lineIconWrap, ...augmentRarityStyle(info?.rarity) }}>
         {info?.icon && <img src={info.icon} alt="" style={styles.lineIcon} loading="lazy" />}
       </span>
 
-      <span style={{ ...styles.lineName, color: rarityColor || "var(--text-body)" }}>
-        {info?.name || `#${row.augmentId}`}
+      <span style={styles.lineBody}>
+        <span style={{ ...styles.lineName, color: rarityColor || "var(--text-body)" }}>
+          {info?.name || `#${row.id}`}
+        </span>
+        <ReasonTags
+          reasons={row.reasons}
+          itemsMap={itemsMap}
+          augmentsMap={augmentsMap}
+          t={t}
+        />
       </span>
+
+      <ConfidenceDot row={row} t={t} />
 
       <span style={styles.lineGames}>{row.games}</span>
 
@@ -727,24 +1036,34 @@ function AugmentLine({ row, info }) {
         }}
       >
         {good ? "+" : ""}
-        {row.delta.toFixed(0)}
+        {row.effect.toFixed(1)}
       </span>
+
+      <Tooltip label={t("ingame_taken_add")}>
+        <button
+          onClick={onTake}
+          disabled={!canTake}
+          style={{ ...styles.takeBtn, opacity: canTake ? 1 : 0.35 }}
+        >
+          <Plus size={11} strokeWidth={2.5} />
+        </button>
+      </Tooltip>
     </div>
   );
 }
 
 // Uma linha de item. "owned" só é passado com partida a decorrer — fora dela
 // o inventário não existe e não faz sentido marcar nada como já comprado.
-// "topPick" marca a melhor escolha da prateleira (ver InGame acima).
-function ItemLine({ row, name, DRAGON, owned, ownedLabel, topPick, topPickLabel }) {
-  const good = row.delta >= 0;
+// "inBuild" marca as que a build sugerida escolheu.
+function ItemLine({ row, name, DRAGON, owned, ownedLabel, inBuild, inBuildLabel, t }) {
+  const good = row.effect >= 0;
 
   return (
     <div style={{ ...styles.line, ...(owned ? styles.lineOwned : null) }}>
       <span style={styles.lineIconWrap}>
         {DRAGON && (
           <img
-            src={`${DRAGON}/img/item/${row.itemId}.png`}
+            src={`${DRAGON}/img/item/${row.id}.png`}
             alt=""
             style={styles.lineIcon}
             loading="lazy"
@@ -752,15 +1071,19 @@ function ItemLine({ row, name, DRAGON, owned, ownedLabel, topPick, topPickLabel 
         )}
       </span>
 
-      <span style={styles.lineName}>
-        {name || `#${row.itemId}`}
-        {topPick && !owned && (
-          <span style={styles.topPickTag}>
-            <Star size={9} strokeWidth={2.25} fill="currentColor" /> {topPickLabel}
-          </span>
-        )}
-        {owned && <span style={styles.ownedTag}>{ownedLabel}</span>}
+      <span style={styles.lineBody}>
+        <span style={styles.lineName}>
+          {name || `#${row.id}`}
+          {inBuild && !owned && (
+            <span style={styles.topPickTag}>
+              <Star size={9} strokeWidth={2.25} fill="currentColor" /> {inBuildLabel}
+            </span>
+          )}
+          {owned && <span style={styles.ownedTag}>{ownedLabel}</span>}
+        </span>
       </span>
+
+      <ConfidenceDot row={row} t={t} />
 
       <span style={styles.lineGames}>{row.games}</span>
 
@@ -771,9 +1094,23 @@ function ItemLine({ row, name, DRAGON, owned, ownedLabel, topPick, topPickLabel 
         }}
       >
         {good ? "+" : ""}
-        {row.delta.toFixed(0)}
+        {row.effect.toFixed(1)}
       </span>
     </div>
+  );
+}
+
+// A confiança da linha, como cor. O texto completo (de onde vêm os dados,
+// quantos jogos, que confiança) fica no tooltip — numa linha que já tem nome,
+// amostra e desvio, uma quarta coluna de palavras tirava-lhe a leitura de
+// relance.
+function ConfidenceDot({ row, t }) {
+  return (
+    <Tooltip
+      label={`${t(EVIDENCE_LABEL_KEYS[row.evidence] || "ingame_evidence_global")}, ${row.games} ${t("ingame_plan_games")} · ${t("ingame_plan_confidence")} ${t(CONFIDENCE_LABEL_KEYS[row.confidence])}`}
+    >
+      <span style={{ ...styles.confDot, background: CONFIDENCE_COLORS[row.confidence] }} />
+    </Tooltip>
   );
 }
 
@@ -969,16 +1306,272 @@ const styles = {
   },
 
   // ---- linhas ----
+  // Cinco colunas: ícone, corpo (nome + razões), ponto de confiança, amostra
+  // e desvio. O corpo é o único elástico — as outras têm largura fixa para os
+  // números ficarem alinhados de linha para linha, que é o que permite
+  // compará-los de relance sem os ler um a um.
   line: {
     display: "grid",
-    gridTemplateColumns: "30px minmax(0,1fr) 38px 42px",
+    gridTemplateColumns: "30px minmax(0,1fr) 8px 32px 42px",
     alignItems: "center",
     gap: 9,
     padding: "7px 14px",
     borderBottom: "1px solid rgba(var(--border-rgb),0.14)",
   },
 
+  // Com o botão de "já levei" no fim, a mesma grelha mais uma coluna.
+  lineTakeable: { gridTemplateColumns: "30px minmax(0,1fr) 8px 32px 42px 22px" },
+
+  lineBody: { display: "flex", flexDirection: "column", gap: 2, minWidth: 0 },
+
   lineOwned: { opacity: 0.5 },
+
+  confDot: { width: 8, height: 8, borderRadius: "50%", flexShrink: 0, display: "block" },
+
+  confBadge: {
+    fontSize: 9.5,
+    fontWeight: 700,
+    letterSpacing: 0.3,
+    textTransform: "uppercase",
+    cursor: "default",
+  },
+
+  // ---- razões ----
+  reasonRow: { display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap", minWidth: 0 },
+
+  reasonTag: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 3,
+    fontSize: 9,
+    lineHeight: 1.4,
+    color: "var(--text-muted)",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    maxWidth: "100%",
+  },
+
+  reasonTagSynergy: {
+    padding: "1px 5px",
+    borderRadius: 999,
+    fontWeight: 700,
+    color: "var(--accent-solid)",
+    background: "rgba(var(--accent-rgb),0.12)",
+    border: "1px solid rgba(var(--accent-rgb),0.25)",
+    cursor: "default",
+  },
+
+  // ---- a build sugerida ----
+  planRow: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(104px, 1fr))",
+    gap: 8,
+    padding: "12px 14px",
+  },
+
+  planSlot: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 5,
+    padding: "9px 7px",
+    borderRadius: "var(--radius-md)",
+    background: "rgba(var(--panel-deep-rgb),0.7)",
+    border: "1px solid",
+    minWidth: 0,
+  },
+
+  planSlotTier: {
+    fontSize: 8.5,
+    fontWeight: 800,
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
+
+  planSlotIconWrap: { position: "relative", display: "block", width: 42, height: 42 },
+
+  planSlotIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: "var(--radius-sm)",
+    border: "1px solid rgba(var(--border-rgb),0.35)",
+  },
+
+  planSlotDot: {
+    position: "absolute",
+    right: -2,
+    bottom: -2,
+    width: 9,
+    height: 9,
+    borderRadius: "50%",
+    border: "1.5px solid rgba(var(--panel-deep-rgb),1)",
+  },
+
+  planSlotName: {
+    fontSize: 10.5,
+    fontWeight: 600,
+    color: "var(--text-body)",
+    textAlign: "center",
+    lineHeight: 1.3,
+    maxWidth: "100%",
+    overflow: "hidden",
+    display: "-webkit-box",
+    WebkitLineClamp: 2,
+    WebkitBoxOrient: "vertical",
+  },
+
+  planSlotDelta: {
+    display: "inline-flex",
+    alignItems: "baseline",
+    gap: 2,
+    fontSize: 12.5,
+    fontWeight: 700,
+    color: "var(--place-good)",
+    fontVariantNumeric: "tabular-nums",
+  },
+
+  planSlotUnit: { fontSize: 8.5, fontWeight: 700, color: "var(--text-muted)" },
+
+  planSlotOwned: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 3,
+    fontSize: 9,
+    fontWeight: 800,
+    letterSpacing: 0.3,
+    textTransform: "uppercase",
+    color: "var(--place-good)",
+  },
+
+  planSlotNext: {
+    fontSize: 8.5,
+    fontWeight: 800,
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+    color: "var(--accent-solid)",
+  },
+
+  nextBuy: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+    margin: "12px 14px 0",
+    padding: "9px 11px",
+    borderRadius: "var(--radius-md)",
+    background: "rgba(var(--accent-rgb),0.12)",
+    border: "1px solid rgba(var(--accent-rgb),0.35)",
+  },
+
+  nextBuyIcon: { color: "var(--accent-solid)", flexShrink: 0 },
+
+  nextBuyLabel: {
+    fontSize: 9.5,
+    fontWeight: 800,
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+    color: "var(--text-muted)",
+  },
+
+  nextBuyName: { fontSize: 13, fontWeight: 700, color: "var(--text-body)" },
+
+  // ---- augments já levados ----
+  takenBar: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    flexWrap: "wrap",
+    padding: "9px 14px",
+    borderBottom: "1px solid rgba(var(--border-rgb),0.18)",
+  },
+
+  takenLabel: {
+    fontSize: 9.5,
+    fontWeight: 700,
+    letterSpacing: 0.3,
+    textTransform: "uppercase",
+    color: "var(--text-muted)",
+  },
+
+  takenChip: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+    maxWidth: 160,
+    padding: "3px 7px",
+    borderRadius: 999,
+    fontSize: 10.5,
+    fontWeight: 600,
+    color: "var(--text-body)",
+    background: "rgba(var(--panel-deep-rgb),0.9)",
+    border: "1px solid",
+    cursor: "pointer",
+  },
+
+  takenChipIcon: { width: 16, height: 16, borderRadius: 4, flexShrink: 0 },
+
+  takenChipName: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+
+  takeBtn: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 20,
+    height: 20,
+    borderRadius: "var(--radius-sm)",
+    color: "var(--text-muted)",
+    background: "rgba(var(--panel-deep-rgb),0.9)",
+    border: "1px solid rgba(var(--border-rgb),0.3)",
+    cursor: "pointer",
+  },
+
+  pickerWrap: { position: "relative", display: "inline-flex", alignItems: "center" },
+
+  pickerPlus: { position: "absolute", left: 6, color: "var(--text-muted)", pointerEvents: "none" },
+
+  pickerInput: {
+    width: 150,
+    padding: "4px 7px 4px 21px",
+    borderRadius: 999,
+    fontSize: 10.5,
+    color: "var(--text-body)",
+    background: "rgba(var(--panel-deep-rgb),0.9)",
+    border: "1px dashed rgba(var(--border-rgb),0.45)",
+    outline: "none",
+  },
+
+  // Os resultados saem por cima do painel (position absolute) em vez de
+  // empurrarem a lista para baixo — a lista é a razão de o painel existir e
+  // não pode saltar a cada letra que se escreve.
+  pickerResults: {
+    position: "absolute",
+    top: "calc(100% + 4px)",
+    left: 0,
+    zIndex: 20,
+    width: 230,
+    display: "flex",
+    flexDirection: "column",
+    borderRadius: "var(--radius-md)",
+    background: "rgba(var(--panel-deep-rgb),0.98)",
+    border: "1px solid rgba(var(--border-rgb),0.35)",
+    boxShadow: "0 10px 24px rgba(0,0,0,0.35)",
+    overflow: "hidden",
+  },
+
+  pickerResult: {
+    display: "flex",
+    alignItems: "center",
+    gap: 7,
+    padding: "6px 9px",
+    fontSize: 11,
+    fontWeight: 600,
+    textAlign: "left",
+    background: "transparent",
+    border: "none",
+    borderBottom: "1px solid rgba(var(--border-rgb),0.14)",
+    cursor: "pointer",
+  },
 
   lineIconWrap: {
     width: 30,
@@ -1022,60 +1615,6 @@ const styles = {
     color: "#ffc754",
     verticalAlign: "middle",
   },
-
-  // ---- destaque do prismático a escolher ----
-  prismaticPick: {
-    display: "flex",
-    alignItems: "center",
-    gap: 11,
-    margin: "10px 14px 4px",
-    padding: "10px 12px",
-    borderRadius: "var(--radius-md)",
-    background: "linear-gradient(90deg, rgba(177,101,255,0.16), rgba(177,101,255,0.03))",
-    border: "1px solid rgba(177,101,255,0.4)",
-  },
-
-  prismaticPickSpark: { color: "#b165ff", flexShrink: 0 },
-
-  prismaticPickIcon: {
-    width: 34,
-    height: 34,
-    flexShrink: 0,
-    borderRadius: "var(--radius-sm)",
-    border: "1px solid rgba(177,101,255,0.5)",
-  },
-
-  prismaticPickText: { display: "flex", flexDirection: "column", gap: 2, minWidth: 0, flex: 1 },
-
-  prismaticPickLabel: {
-    fontSize: 9,
-    fontWeight: 800,
-    letterSpacing: 0.5,
-    textTransform: "uppercase",
-    color: "#c99bff",
-  },
-
-  prismaticPickName: {
-    fontSize: 13.5,
-    fontWeight: 700,
-    color: "var(--text-body)",
-    whiteSpace: "nowrap",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-  },
-
-  prismaticPickDelta: {
-    display: "flex",
-    alignItems: "baseline",
-    gap: 3,
-    flexShrink: 0,
-    fontSize: 17,
-    fontWeight: 800,
-    color: "var(--place-good)",
-    fontVariantNumeric: "tabular-nums",
-  },
-
-  prismaticPickDeltaUnit: { fontSize: 9, fontWeight: 700, color: "var(--text-muted)" },
 
   lineGames: {
     fontSize: 11,
