@@ -679,19 +679,15 @@ select:hover {
   color: var(--accent-text);
 }
 
-/* Bloco da progressão no cartão de destaque da Visão Geral — leva à tab das
-   Conquistas. "outline" e não "border"/"background" pela mesma razão de
-   sempre nesta app: o elemento define o fundo inline e inline ganha à folha
-   de estilo. O offset positivo afasta o realce do conteúdo, para o bloco
-   parecer selecionado sem ganhar uma caixa à volta em repouso. */
-.at-progress:hover {
-  outline-color: rgba(var(--accent-rgb), 0.45);
-}
-
-/* Fileiras das sentadas na Visão Geral — abrem no sítio para mostrar as
-   partidas. Mesma técnica do bloco acima, e pela mesma razão. */
+/* Bloco da progressão (leva às Conquistas) e fileiras das sentadas (abrem no
+   sítio). Ambos chegaram a realçar-se com "outline" — que é o que funciona
+   quando o elemento define o fundo inline. Deixou de servir assim que os
+   painéis passaram a ter cantos cortados: o clip-path corta o outline tal
+   como corta tudo o resto, e com offset positivo ele nem chegava a aparecer.
+   Sombra interior, pela mesma razão dos painéis acima. */
+.at-progress:hover,
 .at-session:hover {
-  outline-color: rgba(var(--accent-rgb), 0.45);
+  box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), 0.5);
 }
 
 /* Os elementos pequenos da Visão Geral que têm informação por trás (o lugar
@@ -716,6 +712,68 @@ select:hover {
 
 .at-day:hover {
   outline-color: rgba(var(--accent-rgb), 0.7);
+}
+
+/* ================= PAINÉIS DA VISÃO GERAL =================
+   A mesma linguagem dos cartões de destaque, alargada ao resto do separador:
+   cantos cortados em vez de arredondados, e a moldura feita com sombra
+   INTERIOR.
+
+   A sombra interior não é preferência, é consequência: o clip-path corta tudo
+   o que o elemento pinta, "border" e sombras exteriores incluídas. Uma borda
+   normal ficava com as pontas decepadas nos cantos cortados.
+
+   É também por isso que estas propriedades vivem aqui e não nos estilos
+   inline do Overview.jsx: um estilo inline ganha a uma folha de estilo, e os
+   painéis que reagem ao rato precisam de mudar a moldura no :hover.
+
+   O que se perde com o recorte é a sombra projetada que as secções tinham
+   ("0 6px 20px"), porque também é exterior. Em troca a moldura interior ficou
+   um pouco mais presente — sobre o mosaico de fundo é o contorno que separa o
+   painel da página, não a sombra. */
+.at-panel {
+  clip-path: polygon(
+    0 0,
+    calc(100% - 16px) 0,
+    100% 16px,
+    100% 100%,
+    16px 100%,
+    0 calc(100% - 16px)
+  );
+  box-shadow: inset 0 0 0 1px rgba(var(--border-rgb), 0.55);
+}
+
+/* Variante do cartão de destaque do topo: moldura na cor de acento, como já
+   tinha, e um fio de areia no topo a fechar o painel. */
+.at-panel-hero {
+  position: relative;
+  box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), 0.35);
+}
+
+.at-panel-hero::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--accent-gradient);
+  opacity: 0.75;
+}
+
+/* Corte mais pequeno para os elementos pequenos (fileiras de sentadas,
+   cartões do "quase lá", caixas de número): com 16px de chanfro, uma fileira
+   de 40px de altura ficava com os cantos a comer-lhe metade da altura. */
+.at-panel-sm {
+  clip-path: polygon(
+    0 0,
+    calc(100% - 9px) 0,
+    100% 9px,
+    100% 100%,
+    9px 100%,
+    0 calc(100% - 9px)
+  );
+  box-shadow: inset 0 0 0 1px rgba(var(--border-rgb), 0.45);
 }
 
 /* ================= CARTÕES DE DESTAQUE =================

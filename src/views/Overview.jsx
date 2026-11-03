@@ -532,7 +532,7 @@ export default function Overview({
     <div style={styles.wrap}>
       {/* HERO — progresso do roster + estatísticas rápidas de carreira,
           tudo num único cartão de destaque em vez de uma barra isolada. */}
-      <div style={styles.hero}>
+      <div className="at-panel at-panel-hero" style={styles.hero}>
         <div style={styles.heroTop}>
           <div>
             <div style={styles.heroKicker}>{t("overview_roster_progress")}</div>
@@ -604,7 +604,7 @@ export default function Overview({
             números nunca discordam (ver buildNextUp). */}
         {progression.totalBadges > 0 && (
           <div
-            className="at-progress"
+            className="at-progress at-panel-sm"
             style={styles.heroProgress}
             onClick={onOpenAchievements}
             role={onOpenAchievements ? "button" : undefined}
@@ -631,7 +631,7 @@ export default function Overview({
                     label={`${cat.title} — ${formatAchievementValue(cat.value, cat.unit)} / ${formatAchievementValue(cat.nextTier, cat.unit)} · ${t(cat.rank.labelKey)}`}
                     style={styles.nextUpWrap}
                   >
-                    <div style={styles.nextUpCard}>
+                    <div className="at-panel-sm" style={styles.nextUpCard}>
                       <div style={styles.nextUpTop}>
                         <span style={styles.nextUpTitle}>{cat.title}</span>
                         {/* Os dois números, e não só o alvo: sozinho, "50" ao
@@ -736,7 +736,7 @@ export default function Overview({
               sempre uma aproximação. */}
           {sessions.length > 0 && (
             <div
-              className={`riseIn ${
+              className={`riseIn at-panel ${
                 matches.length > 0 || duoSynergy.length > 0 ? "lg:col-span-7" : "lg:col-span-12"
               }`}
               style={styles.section}
@@ -748,7 +748,7 @@ export default function Overview({
                   return (
                   <div
                     key={i}
-                    className="at-session"
+                    className="at-session at-panel-sm"
                     style={styles.sessionRow}
                     onClick={() => setOpenSession(isOpen ? null : i)}
                     role="button"
@@ -891,7 +891,7 @@ export default function Overview({
               por dia das últimas ~18 semanas, cor mais forte quanto mais
               partidas jogadas nesse dia. */}
           {matches.length > 0 && (
-            <div className="riseIn" style={styles.section}>
+            <div className="riseIn at-panel" style={styles.section}>
               <h2 style={styles.sectionTitle}>📅 {t("overview_activity")}</h2>
               {/* O gráfico ocupa muito menos altura que as listas de Sessões/
                   Premade ao lado — em vez de deixar um vazio estranho por
@@ -950,11 +950,11 @@ export default function Overview({
           {/* PREMADE — conta qualquer colega de equipa repetido, seja em
               2v2 ou 3v3. */}
           {duoSynergy.length > 0 && (
-            <div className="riseIn" style={styles.section}>
+            <div className="riseIn at-panel" style={styles.section}>
               <h2 style={styles.sectionTitle}>🤝 {t("overview_duo_synergy")}</h2>
               <div style={styles.duoList}>
                 {duoSynergy.map((d) => (
-                  <div key={d.name} style={styles.duoRow}>
+                  <div key={d.name} className="at-panel-sm" style={styles.duoRow}>
                     <span style={styles.duoName}>{d.name}</span>
                     <span style={styles.duoGames}>
                       {d.games} {lang === "en" ? "games" : "jogos"}
@@ -986,17 +986,17 @@ export default function Overview({
           ninguém faz ao abrir a app. Isto responde à que se faz: onde é que
           costumo acabar. */}
       {placementSpread.total > 0 && (
-        <div className="riseIn" style={styles.section}>
+        <div className="riseIn at-panel" style={styles.section}>
           <h2 style={styles.sectionTitle}>🎯 {t("overview_placement_spread")}</h2>
 
           <div style={styles.spreadTop}>
-            <div style={styles.spreadAvgBox}>
+            <div className="at-panel-sm" style={styles.spreadAvgBox}>
               <div style={{ ...styles.spreadAvgValue, color: placementColor(Math.round(placementSpread.average)) }}>
                 {placementSpread.average.toFixed(1)}º
               </div>
               <div style={styles.spreadAvgLabel}>{t("overview_avg_placement")}</div>
             </div>
-            <div style={styles.spreadAvgBox}>
+            <div className="at-panel-sm" style={styles.spreadAvgBox}>
               <div style={styles.spreadAvgValue}>{placementSpread.total}</div>
               <div style={styles.spreadAvgLabel}>{t("overview_placement_counted")}</div>
             </div>
@@ -1097,7 +1097,7 @@ export default function Overview({
       )}
 
       {!matches.length && (
-        <div style={styles.empty}>{t("overview_empty")}</div>
+        <div className="at-panel" style={styles.empty}>{t("overview_empty")}</div>
       )}
     </div>
   );
@@ -1116,18 +1116,13 @@ const styles = {
     textAlign: "center",
     color: "var(--text-secondary)",
     background: "rgba(var(--panel-deep-rgb),0.85)",
-    border: "1px solid rgba(var(--border-rgb),0.5)",
-    borderRadius: "var(--radius-xl)",
   },
 
 
   section: {
     background: "var(--panel-bg)",
     backdropFilter: "var(--panel-blur)",
-    border: "1px solid rgba(var(--border-rgb),0.5)",
-    borderRadius: "var(--radius-2xl)",
     padding: 16,
-    boxShadow: "0 6px 20px rgba(0,0,0,0.16)",
   },
 
   // 18px (--fs-lg) e não os 22 que o <h2> traz do index.css: estes são
@@ -1149,10 +1144,7 @@ const styles = {
     flexDirection: "column",
     gap: 14,
     background: "linear-gradient(135deg, rgba(var(--accent-rgb),0.14), rgba(var(--panel-deep-rgb),0.97))",
-    border: "1px solid rgba(var(--accent-rgb),0.3)",
-    borderRadius: 18,
     padding: 20,
-    boxShadow: "0 10px 28px rgba(0,0,0,0.22)",
   },
 
   heroTop: {
@@ -1247,13 +1239,14 @@ const styles = {
     flexDirection: "column",
     gap: 10,
     marginTop: 12,
-    paddingTop: 12,
-    borderTop: "1px solid rgba(var(--border-rgb),0.3)",
+    // Passou de "bloco separado por um fio" a painel próprio dentro do
+    // cartão de destaque: é a única coisa clicável lá dentro, e um painel
+    // diz isso melhor do que uma linha a separar. A moldura e o chanfro vêm
+    // de ".at-panel-sm"; o realce do hover, de ".at-progress".
+    padding: "10px 12px",
+    background: "rgba(var(--soft-rgb),0.04)",
     cursor: "pointer",
-    outline: "1px solid transparent",
-    outlineOffset: 3,
-    borderRadius: "var(--radius-md)",
-    transition: "outline-color 0.15s ease",
+    transition: "box-shadow 0.15s ease",
   },
 
   heroProgressHead: {
@@ -1296,9 +1289,7 @@ const styles = {
     flexDirection: "column",
     gap: 5,
     padding: "7px 10px",
-    borderRadius: "var(--radius-md)",
     background: "rgba(var(--soft-rgb),0.05)",
-    border: "1px solid rgba(var(--border-rgb),0.3)",
   },
 
   nextUpTop: {
@@ -1404,13 +1395,8 @@ const styles = {
     flexDirection: "column",
     gap: 4,
     padding: "8px 10px",
-    borderRadius: "var(--radius-lg)",
     background: "rgba(var(--soft-rgb),0.05)",
-    border: "1px solid rgba(var(--border-rgb),0.4)",
     cursor: "pointer",
-    outline: "1px solid transparent",
-    outlineOffset: -1,
-    transition: "outline-color 0.15s ease",
   },
 
   // "alignSelf" porque a fileira alinha pela linha de base do texto, e um
@@ -1532,9 +1518,11 @@ const styles = {
     flexWrap: "wrap",
     gap: 10,
     padding: "8px 10px",
-    borderRadius: "var(--radius-lg)",
-    background: "rgba(var(--panel-deep-rgb),0.7)",
-    border: "1px solid rgba(var(--border-rgb),0.4)",
+    // Era rgba(var(--panel-deep-rgb),0.7), que no tema claro é 240,246,245
+    // por cima de um cartão branco — as fileiras não se separavam umas das
+    // outras. Mesma troca para --soft-rgb que a calha da navegação e as
+    // fileiras das sentadas já levaram.
+    background: "rgba(var(--soft-rgb),0.05)",
   },
 
   duoName: {
@@ -1588,9 +1576,7 @@ const styles = {
     flexDirection: "column",
     gap: 2,
     padding: "8px 14px",
-    borderRadius: "var(--radius-lg)",
     background: "rgba(var(--soft-rgb),0.05)",
-    border: "1px solid rgba(var(--border-rgb),0.4)",
   },
 
   spreadAvgValue: {
