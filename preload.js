@@ -90,6 +90,10 @@ contextBridge.exposeInMainWorld("electron", {
   // Enche a cache de ícones em disco em segundo plano — ver electron/iconCache.js.
   prefetchIcons: (payload) => ipcRenderer.invoke("icons:prefetch", payload),
 
+  // Nomes de campeões/itens/augments e o patch, da cache em disco quando a
+  // rede não responde — ver electron/staticData.js.
+  getStaticData: () => ipcRenderer.invoke("staticdata:get"),
+
   listMatchIds: (payload) => ipcRenderer.invoke("riotapi:listMatchIds", payload),
   fetchMatchDetails: (payload) => ipcRenderer.invoke("riotapi:fetchMatchDetails", payload),
   backfillMatchDetails: (payload) => ipcRenderer.invoke("riotapi:backfillMatchDetails", payload),

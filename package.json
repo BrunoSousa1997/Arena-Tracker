@@ -19,7 +19,8 @@
     "test:watch": "vitest",
     "lint": "eslint .",
     "verify:platform": ".\\node_modules\\electron\\dist\\electron.exe scripts/verify-platform.js",
-    "verify:icons": ".\\node_modules\\electron\\dist\\electron.exe scripts/verify-icons.js"
+    "verify:icons": ".\\node_modules\\electron\\dist\\electron.exe scripts/verify-icons.js",
+    "verify:static": ".\\node_modules\\electron\\dist\\electron.exe scripts/verify-static-data.js --phase=online && .\\node_modules\\electron\\dist\\electron.exe scripts/verify-static-data.js --phase=offline"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.0",

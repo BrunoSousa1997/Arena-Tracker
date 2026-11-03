@@ -12,6 +12,7 @@ const {
 const { registerOverlayHandlers } = require("./electron/overlay");
 const { registerExportHandlers } = require("./electron/exportData");
 const { registerIconScheme, registerIconCacheHandlers } = require("./electron/iconCache");
+const { registerStaticDataHandlers } = require("./electron/staticData");
 
 // Ponto de entrada — cada módulo em ./electron trata só da sua área
 // (janela, auto-update, deteção ao vivo, cliente da Riot API) e regista os
@@ -44,6 +45,7 @@ app.whenReady().then(() => {
   registerBackgroundHandlers();
   registerOverlayHandlers();
   registerIconCacheHandlers();
+  registerStaticDataHandlers();
   registerExportHandlers();
   createWindow();
   startLiveGameWatcher();

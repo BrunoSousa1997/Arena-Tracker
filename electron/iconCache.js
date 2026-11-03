@@ -1,8 +1,9 @@
-const { app, ipcMain, net, protocol } = require("electron");
+const { ipcMain, net, protocol } = require("electron");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 
-const { getCurrentPatch } = require("./dataDragon");
+const { getCurrentPatch, DDRAGON_ORIGIN } = require("./dataDragon");
+const { cacheDir: userDataDir, writeFileAtomic } = require("./diskCache");
 
 // ================= CACHE DE ÍCONES (Data Dragon) =================
 // Os ícones de item/campeão/feitiço vinham todos diretos do CDN, um pedido
@@ -38,7 +39,7 @@ const KINDS = {
 // Nada de barras, pontos ou ".." — o nome entra num path.join e num URL.
 const SAFE_FILE = /^[A-Za-z0-9_-]{1,64}\.png$/;
 
-const CDN = "https://ddragon.leagueoflegends.com/cdn";
+const CDN = `${DDRAGON_ORIGIN}/cdn`;
 
 // Quantos downloads em paralelo no pré-aquecimento. Seis é o mesmo limite por
 // host que o Chromium usa, e o pré-aquecimento corre em segundo plano — não
@@ -76,8 +77,7 @@ async function loadManifest() {
 async function saveManifest() {
   if (!manifest) return;
   try {
-    await fs.mkdir(cacheDir, { recursive: true });
-    await fs.writeFile(path.join(cacheDir, "manifest.json"), JSON.stringify(manifest));
+    await writeFileAtomic(path.join(cacheDir, "manifest.json"), JSON.stringify(manifest));
   } catch (err) {
     // Perder o manifesto custa uma revalidação a mais no próximo patch, nada
     // mais — não vale uma falha visível ao utilizador.
@@ -99,16 +99,7 @@ async function downloadIcon(kind, file, { etag } = {}) {
   if (!res.ok) throw new Error(`${url} -> ${res.status}`);
 
   const buf = Buffer.from(await res.arrayBuffer());
-  const target = iconPath(kind, file);
-  await fs.mkdir(path.dirname(target), { recursive: true });
-
-  // Escrita em dois passos: um PNG truncado por um corte de energia ou por um
-  // "quit" a meio ficaria em disco para sempre, e a cache nunca mais o ia
-  // buscar ao CDN (o ficheiro existe). O rename é atómico, logo o que fica
-  // visível no caminho final é sempre um ficheiro completo.
-  const tmp = `${target}.${process.pid}.tmp`;
-  await fs.writeFile(tmp, buf);
-  await fs.rename(tmp, target);
+  await writeFileAtomic(iconPath(kind, file), buf);
 
   (await loadManifest()).etags[`${kind}/${file}`] = res.headers.get("etag") || null;
   return buf;
@@ -234,7 +225,7 @@ function registerIconScheme() {
 }
 
 function registerIconCacheHandlers() {
-  cacheDir = path.join(app.getPath("userData"), "icon-cache");
+  cacheDir = userDataDir("icon-cache");
 
   protocol.handle(SCHEME, async (request) => {
     let parsed;

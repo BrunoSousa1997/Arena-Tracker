@@ -11,7 +11,9 @@
 // que a antiga trazia.
 const CDRAGON_BASE =
   "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default";
-const AUGMENTS_URL = `${CDRAGON_BASE}/v1/cherry-augments.json`;
+// Público porque quem corre fora do Electron vai lá buscar a lista (ver
+// lib/staticData.js); lá dentro a lista chega pela cache em disco.
+export const AUGMENTS_URL = `${CDRAGON_BASE}/v1/cherry-augments.json`;
 
 // Os caminhos vêm como "/lol-game-data/assets/ASSETS/UX/..." e resolvem-se
 // contra a mesma árvore, sem esse prefixo e em minúsculas.
@@ -126,50 +128,28 @@ export function augmentRarityColor(rarity) {
   return null;
 }
 
-let cache = null;
-let inflight = null;
+// Constrói o mapa { [augmentId]: { id, name, icon, rarity, tierLabel } } a
+// partir da lista crua. Está à parte do loadAugments porque quem traz a lista
+// já não é sempre o fetch aqui em baixo: dentro do Electron ela vem da cache
+// em disco, pelo processo principal (ver electron/staticData.js).
+export function buildAugmentMap(data) {
+  // A lista canónica é um array à cabeça; a antiga vinha embrulhada em
+  // { augments: [...] }. Aceitar as duas formas evita que uma mudança de
+  // formato do lado do Community Dragon deixe a app sem nome nenhum.
+  const list = Array.isArray(data) ? data : data?.augments || [];
 
-// Devolve (e cacheia em memória) um mapa
-// { [augmentId]: { id, name, icon, rarity, tierLabel } }.
-export function loadAugments() {
-  if (cache) return Promise.resolve(cache);
-  if (inflight) return inflight;
-
-  inflight = fetch(AUGMENTS_URL)
-    .then((r) => r.json())
-    .then((data) => {
-      // A lista canónica é um array à cabeça; a antiga vinha embrulhada em
-      // { augments: [...] }. Aceitar as duas formas evita que uma mudança de
-      // formato do lado do Community Dragon deixe a app sem nome nenhum.
-      const list = Array.isArray(data) ? data : data?.augments || [];
-
-      const map = {};
-      list.forEach((a) => {
-        if (!isArenaAugment(a)) return;
-        const rarity = RARITY_BY_NAME[a.rarity] ?? (typeof a.rarity === "number" ? a.rarity : null);
-        map[a.id] = {
-          id: a.id,
-          // "nameTRA" na lista canónica, "name" na antiga.
-          name: a.nameTRA || a.name || `Augment #${a.id}`,
-          icon: iconUrl(a.augmentSmallIconPath || a.iconSmall || a.iconLarge),
-          rarity,
-          tierLabel: AUGMENT_TIER_LABELS[rarity] || null,
-        };
-      });
-      cache = map;
-      return map;
-    })
-    .catch((err) => {
-      console.warn(
-        "[augments] não foi possível carregar os nomes da Community Dragon:",
-        err?.message || err
-      );
-      cache = {};
-      return cache;
-    })
-    .finally(() => {
-      inflight = null;
-    });
-
-  return inflight;
+  const map = {};
+  list.forEach((a) => {
+    if (!isArenaAugment(a)) return;
+    const rarity = RARITY_BY_NAME[a.rarity] ?? (typeof a.rarity === "number" ? a.rarity : null);
+    map[a.id] = {
+      id: a.id,
+      // "nameTRA" na lista canónica, "name" na antiga.
+      name: a.nameTRA || a.name || `Augment #${a.id}`,
+      icon: iconUrl(a.augmentSmallIconPath || a.iconSmall || a.iconLarge),
+      rarity,
+      tierLabel: AUGMENT_TIER_LABELS[rarity] || null,
+    };
+  });
+  return map;
 }

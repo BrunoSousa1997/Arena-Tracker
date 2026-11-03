@@ -1,4 +1,18 @@
-const https = require("https");
+const { net } = require("electron");
+
+// ================= DE ONDE VEM TUDO =================
+// As duas origens dos dados estáticos, num sítio só — são lidas aqui, pela
+// cache de ícones (iconCache) e pela cache de dados (staticData).
+//
+// Podem ser trocadas pelo ambiente por uma razão concreta: nada no Electron
+// consegue cortar a rede ao net.fetch do processo principal. O setProxy do
+// session, o --proxy-server e o --host-resolver-rules foram todos testados e
+// os pedidos saem na mesma, por isso "funciona sem internet" não era
+// verificável sem isto — os scripts de verificação apontam estas origens para
+// um endereço morto e a falha passa a ser real, no cliente HTTP a sério. Serve
+// também para apontar a app a um espelho, se um dia for preciso.
+const DDRAGON_ORIGIN = process.env.AT_DDRAGON_ORIGIN || "https://ddragon.leagueoflegends.com";
+const CDRAGON_ORIGIN = process.env.AT_CDRAGON_ORIGIN || "https://raw.communitydragon.org";
 
 // ================= DATA DRAGON (só para mapear id -> nome de spell) =================
 // A Riot API (match-v5) devolve os feitiços de invocador como ids numéricos
@@ -13,34 +27,26 @@ let summonerSpellNameCache = null;
 // muda enquanto a app está aberta — fica em memória à primeira.
 let patchPromise = null;
 
+// O net do Electron e não o https do Node: é o cliente do Chromium, por isso
+// segue as definições de proxy do sistema — quem está atrás do proxy de uma
+// empresa não ficava a ver ids em vez de nomes sem ninguém saber porquê. É
+// também o mesmo cliente que as duas caches em disco usam (iconCache,
+// staticData), portanto o processo principal fala com a rede de uma só
+// maneira. Só pode ser chamado depois do "ready" do app.
 function httpsGetJson(url) {
-  return new Promise((resolve, reject) => {
-    const req = https.get(url, { timeout: 8000 }, (res) => {
-      let body = "";
-      res.on("data", (chunk) => (body += chunk));
-      res.on("end", () => {
-        if (res.statusCode !== 200) {
-          reject(new Error(`GET ${url} -> status ${res.statusCode}`));
-          return;
-        }
-        try {
-          resolve(JSON.parse(body));
-        } catch (err) {
-          reject(err);
-        }
-      });
+  return net
+    .fetch(url, { signal: AbortSignal.timeout(8000) })
+    .then((res) => {
+      if (!res.ok) throw new Error(`GET ${url} -> status ${res.status}`);
+      return res.json();
     });
-
-    req.on("timeout", () => req.destroy(new Error("timeout")));
-    req.on("error", reject);
-  });
 }
 
 // Devolve null (em vez de rejeitar) quando não há rede: quem chama decide o
 // que fazer sem ficar obrigado a um try/catch só para isso.
 function getCurrentPatch() {
   if (!patchPromise) {
-    patchPromise = httpsGetJson("https://ddragon.leagueoflegends.com/api/versions.json")
+    patchPromise = httpsGetJson(`${DDRAGON_ORIGIN}/api/versions.json`)
       .then((versions) => versions[0] || null)
       .catch((err) => {
         console.warn("[ddragon] falhou a lista de versões", err?.message || err);
@@ -60,7 +66,7 @@ async function getSummonerSpellNameMap() {
     const patch = await getCurrentPatch();
     if (!patch) return {};
     const data = await httpsGetJson(
-      `https://ddragon.leagueoflegends.com/cdn/${patch}/data/en_US/summoner.json`
+      `${DDRAGON_ORIGIN}/cdn/${patch}/data/en_US/summoner.json`
     );
 
     const map = {};
@@ -76,4 +82,4 @@ async function getSummonerSpellNameMap() {
   }
 }
 
-module.exports = { getSummonerSpellNameMap, getCurrentPatch };
+module.exports = { getSummonerSpellNameMap, getCurrentPatch, DDRAGON_ORIGIN, CDRAGON_ORIGIN };
