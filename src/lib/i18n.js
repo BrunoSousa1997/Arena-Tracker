@@ -1224,13 +1224,21 @@ const DICTIONARY = {
   collection_progress: { pt: "Coleção completa", en: "Collection complete" },
   collection_tried: { pt: "já jogado, ainda sem vitória", en: "played, no win yet" },
   collection_filter_won: { pt: "Com vitória", en: "With a win" },
-  // O filtro do meio da escada: jogados, ainda sem vitória, do mais perto
-  // para o mais longe. O rótulo é o do jogador ("quase lá"), não o da base de
-  // dados ("jogados sem vitória") — é uma fila de alvos, não uma categoria.
-  collection_filter_close: { pt: "Quase lá", en: "Almost there" },
-  collection_close_empty: {
-    pt: "Nada a meio caminho: ou ganhaste com todos os campeões em que pegaste, ou ainda não jogaste com nenhum dos que te faltam.",
-    en: "Nothing in between: either you have won with every champion you have played, or you have not played any of the ones you are missing.",
+  collection_unowned_empty: {
+    pt: "Coleção completa. Já tens pelo menos um 1º lugar com todos os campeões do jogo.",
+    en: "Collection complete. You have at least one 1st place with every champion in the game.",
+  },
+  // Rótulo ao lado da contagem da grelha. Muda com o filtro porque o número
+  // também muda de significado: o mesmo "96" é a coleção, o que falta, ou o
+  // roster todo, consoante o que está escolhido.
+  collection_count_all: { pt: "campeões", en: "champions" },
+  collection_count_won: { pt: "na coleção", en: "collected" },
+  collection_count_unowned: { pt: "por ganhar", en: "to win" },
+  // Faixa no topo da Coleção quando o histórico tem 1ºs lugares que a lista
+  // de vitórias não tem. Começa com o número, daí a frase arrancar em minúscula.
+  collection_drift_banner: {
+    pt: "campeões têm 1ºs lugares por registar — a coleção está atrasada em relação ao histórico.",
+    en: "champions have unrecorded 1st places — the collection is behind your match history.",
   },
   collection_filter_unowned: { pt: "Sem vitória", en: "No win yet" },
   collection_filter_all: { pt: "Todos", en: "All" },

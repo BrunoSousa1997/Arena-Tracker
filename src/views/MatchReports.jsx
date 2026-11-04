@@ -678,9 +678,16 @@ export default function MatchReports({ matches, champions, DRAGON, augmentsMap, 
   // "highlightChampion" é sempre um objeto NOVO { champion, key } mesmo
   // clicando duas vezes seguidas no mesmo campeão, para este efeito disparar
   // de novo mesmo sem o campeão mudar.
+  //
+  // Já os azulejos da Coleção mandam também um "search": aí o pedido é sobre
+  // UM campeão (o que se tem na mão), e a lista aqui mostra vinte por
+  // ordem de partidas — sem isto, quem viesse de um campeão pouco jogado
+  // caía numa lista onde ele nem aparecia. Preenche a busca em vez de
+  // deslocar o scroll: fica à vista o que se foi ver, e vê-se porquê.
   useEffect(() => {
     if (!highlightChampion?.champion) return;
     if (highlightChampion.sortKey) setSortBy(highlightChampion.sortKey);
+    if (highlightChampion.search) setChampSearch(highlightChampion.search);
   }, [highlightChampion]);
 
   const compareA = useMemo(

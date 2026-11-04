@@ -805,6 +805,14 @@ select:hover {
    da vitória e nada mais a dá. O que separa um já-jogado de um intocado é a
    moldura acesa (ver winCardTried em App.jsx) e um pouco mais de opacidade,
    não o retrato. */
+/* Os azulejos são focáveis por teclado (tabIndex no App.jsx) — e um alvo que
+   recebe foco tem de o mostrar. O anel vem por fora da moldura para não se
+   confundir com a do próprio azulejo, que já é a cor do estado. */
+.at-champ:focus-visible {
+  outline: 2px solid rgba(var(--accent-rgb), 0.95);
+  outline-offset: 2px;
+}
+
 .at-champ-nowin img {
   filter: grayscale(1);
   transition: filter 0.15s ease;

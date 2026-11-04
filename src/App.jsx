@@ -66,6 +66,25 @@ function haQuantoTempo(ms, lang) {
   return lang === "en" ? `${meses}mo ago` : `há ${meses}m`;
 }
 
+// A cor do distintivo de melhor colocação na grelha "sem vitória". É a régua
+// que torna a fila legível de longe: antes de se ler o número já se vê se
+// aquele azulejo é um quase-troféu ou um "ainda vai longe".
+//
+//   2º        verde   — faltou um lugar
+//   3º        lima    — pódio, ainda assim
+//   4º e 5º   laranja — meio da tabela, o mesmo laranja do resto da app
+//   6º ou pior cinza  — jogado, longe
+//
+// Os tokens são os --place-* que a app já usa para colocações em todo o lado
+// (ver index.css), por isso isto não inventa cores novas: diz a mesma coisa
+// que o resto da app diz com as mesmas cores.
+function corDoLugar(lugar) {
+  if (lugar <= 2) return "var(--place-good)";
+  if (lugar === 3) return "color-mix(in srgb, var(--place-good) 55%, var(--place-mid))";
+  if (lugar <= 5) return "var(--place-mid)";
+  return "var(--place-unknown)";
+}
+
 // O conteúdo do tooltip de cada campeão da Coleção. Era uma linha de texto
 // ("nome — 3 partidas 7.2/4.1/9.0"); passa a um bloco com o estado em
 // destaque e os números em pares, porque o azulejo não mostra nada e este é
@@ -240,7 +259,11 @@ export default function App() {
   // Filtro da tab Coleção: "won" (só os que já tens vitória, comportamento
   // de sempre), "unowned" (só os que faltam) ou "all" (todos, com um marker
   // nos que já tens).
-  const [collectionFilter, setCollectionFilter] = useState("won");
+  // Arranca em "Todos" e não em "com vitória": com os sem-vitória a preto e
+  // branco, "todos" é a única vista onde a aba se lê como uma coleção — a cor
+  // a ganhar terreno ao cinzento. Filtrada só pelos ganhos, era uma grelha
+  // inteira a cores onde não há nada para ler.
+  const [collectionFilter, setCollectionFilter] = useState("all");
   // Como a Coleção se organiza: por classe (prateleiras) ou tudo em fila por
   // ordem alfabética, como era antes. Não é persistido, de propósito — fica
   // igual ao filtro aqui ao lado, que também volta ao normal a cada arranque;
@@ -501,12 +524,20 @@ export default function App() {
   // campeão, cada clique tem de disparar o efeito de novo em MatchReports,
   // e comparar só pela string não fazia isso na 2ª vez (o valor não mudava,
   // logo o efeito nem corria).
-  const goToChampionStats = (championId, sortKey) => {
+  // "search" é o que faz o salto terminar no campeão e não apenas na aba: a
+  // lista das Estatísticas mostra vinte de cada vez, ordenadas por partidas,
+  // por isso um campeão pouco jogado — precisamente o caso de quem vem da
+  // Coleção perguntar "o que correu mal aqui?" — nem sequer estava desenhado
+  // ao chegar lá. Quem passa o nome fica com a lista já filtrada por ele.
+  // Os atalhos da Visão Geral não passam nada e continuam como estavam: lá o
+  // que interessa é a métrica do cartão (sortKey), não um campeão só.
+  const goToChampionStats = (championId, sortKey, search) => {
     setView("stats");
     setStatsHighlightChampion({
       champion: normalizeChampionId(championId, champions),
       key: Date.now(),
       sortKey,
+      search,
     });
     mainScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
   };
@@ -701,33 +732,42 @@ export default function App() {
     const byName = (a, b) =>
       (championsById[a] || a).localeCompare(championsById[b] || b);
 
-    // "Quase lá": só os que já se jogaram e ainda não deram vitória, do mais
-    // perto para o mais longe. É o terceiro estado que a grelha já conhecia
-    // mas que até aqui só se via azulejo a azulejo, no tooltip — e é o único
-    // dos três que responde a "qual é o próximo que consigo fechar hoje".
+    // "Sem vitória" é UMA lista, não duas: tudo o que falta, do mais perto do
+    // próximo troféu ao que ainda não se tocou. Houve aqui um filtro "Quase
+    // lá" à parte durante pouco tempo e era um tópico a mais — dois botões
+    // para a mesma pergunta ("o que me falta?"), e quem queria a fila tinha
+    // de saber que ela vivia noutro sítio. Agora é a ordem que a conta:
     //
-    // Perto quer dizer melhor colocação, não mais tentativas: um 2º lugar
-    // numa partida está mais perto de uma vitória do que dez 6ºs. Empate
-    // desfaz-se pelos top 3 (quem lá chega muitas vezes está a um bom jogo),
-    // depois pelas partidas, e por fim pelo nome para a ordem ser estável.
-    // Quem nunca pontuou ("best" nulo) vai para o fim: não há sinal nenhum
-    // de proximidade, só de que se tentou.
-    if (collectionFilter === "close") {
-      const perto = (id) => {
-        const st = champCollectionStats[id];
-        return {
-          best: st?.best ?? 99,
-          top3: st?.top3 ?? 0,
-          games: st?.games ?? 0,
-        };
-      };
+    //   1. quem já pontuou, pela MELHOR colocação (um 2º lugar está mais
+    //      perto de uma vitória do que dez 6ºs — perto é colocação, não
+    //      tentativas). Empate desfaz-se pelos top 3, depois pelas partidas,
+    //      e pelo nome no fim para a ordem ser estável;
+    //   2. quem jogou mas nunca pontuou (sem sinal de proximidade, só de que
+    //      se tentou);
+    //   3. quem nunca foi jogado, por nome — aí não há nada para ordenar
+    //      senão o alfabeto.
+    //
+    // A cor do distintivo de cada azulejo diz a que degrau se chegou, por
+    // isso a fila lê-se sem se saber esta regra de ordem.
+    if (collectionFilter === "unowned") {
       const lista = champions
         .map((c) => c.id)
-        .filter((id) => !owned.has(id) && playedChampions.has(id) && bySearch(id));
+        .filter((id) => !owned.has(id) && bySearch(id));
 
       // Com A-Z escolhido, manda a ordem alfabética: quem a escolheu quer ir
       // direto a um campeão, não ver a fila por proximidade.
       if (collectionSort === "name") return lista.sort(byName);
+
+      const perto = (id) => {
+        const st = champCollectionStats[id];
+        return {
+          // 98 para quem jogou sem nunca pontuar, 99 para quem nunca jogou:
+          // ambos vão para o fim, mas pela ordem certa entre si.
+          best: st?.best ?? (playedChampions.has(id) ? 98 : 99),
+          top3: st?.top3 ?? 0,
+          games: st?.games ?? 0,
+        };
+      };
 
       return lista.sort((a, b) => {
         const pa = perto(a);
@@ -737,13 +777,6 @@ export default function App() {
         if (pa.games !== pb.games) return pb.games - pa.games;
         return byName(a, b);
       });
-    }
-
-    if (collectionFilter === "unowned") {
-      return champions
-        .map((c) => c.id)
-        .filter((id) => !owned.has(id) && bySearch(id))
-        .sort(byName);
     }
 
     if (collectionFilter === "all") {
@@ -1505,16 +1538,35 @@ export default function App() {
                       tem esse nome na barra lateral, repeti-lo só empurrava
                       o filtro/grelha para baixo sem acrescentar nada. Filtro
                       e contagem ficam agora na mesma linha. */}
+                  {/* O aviso de coleção atrasada existia só dentro do tooltip
+                      de cada campeão — ou seja, só o via quem já estivesse a
+                      apontar justamente para um dos campeões errados. Se há
+                      cinco assim, é a aba inteira que está errada, e isso tem
+                      de se ver à entrada. O botão faz aqui o mesmo que o das
+                      Definições (ver repairWins): relê o histórico guardado e
+                      volta a marcar as vitórias em falta. */}
+                  {missingWinsChampions.length > 0 && (
+                    <div style={styles.collectionDrift}>
+                      <span style={styles.collectionDriftText}>
+                        <strong>{missingWinsChampions.length}</strong>{" "}
+                        {t("collection_drift_banner")}
+                      </span>
+                      <button
+                        onClick={repairWins}
+                        disabled={syncStatus?.status === "loading"}
+                        style={styles.collectionDriftBtn}
+                      >
+                        {t("repair_wins_btn")}
+                      </button>
+                    </div>
+                  )}
+
                   <div style={styles.collectionHeader}>
                     <div style={styles.segGroup}>
                       {[
-                        { key: "won", label: t("collection_filter_won") },
-                        // Entre "com vitória" e "sem vitória" de propósito:
-                        // os quatro botões leem-se como uma escada de
-                        // progresso, do que já está feito ao que falta todo.
-                        { key: "close", label: t("collection_filter_close") },
-                        { key: "unowned", label: t("collection_filter_unowned") },
                         { key: "all", label: t("collection_filter_all") },
+                        { key: "won", label: t("collection_filter_won") },
+                        { key: "unowned", label: t("collection_filter_unowned") },
                       ].map((opt) => (
                         <button
                           key={opt.key}
@@ -1549,8 +1601,23 @@ export default function App() {
                         </button>
                       ))}
                     </div>
+                    {/* "96 / 173" dizia coisas diferentes consoante o filtro
+                        e nenhuma delas se percebia sem o saber: em "sem
+                        vitória" lia-se como progresso quando é exatamente o
+                        contrário. O progresso é da barra aqui por baixo; esta
+                        contagem diz só quantos azulejos estão à vista e o que
+                        eles são. */}
                     <span style={styles.collectionCount}>
-                      {filteredCollection.length} / {champions.length}
+                      {filteredCollection.length}{" "}
+                      <span style={styles.collectionCountLabel}>
+                        {t(
+                          collectionFilter === "won"
+                            ? "collection_count_won"
+                            : collectionFilter === "unowned"
+                            ? "collection_count_unowned"
+                            : "collection_count_all"
+                        )}
+                      </span>
                     </span>
                   </div>
 
@@ -1584,13 +1651,14 @@ export default function App() {
                       </div>
                     </div>
                   )}
-                  {/* O "Quase lá" é o único filtro que pode não ter nada para
-                      mostrar sem que isso seja um engano: quem ganha com tudo
-                      o que joga não tem fila nenhuma. Sem esta linha, a aba
-                      ficava simplesmente em branco por baixo da barra. */}
-                  {collectionFilter === "close" && filteredCollection.length === 0 && (
-                    <div style={styles.collectionEmpty}>{t("collection_close_empty")}</div>
-                  )}
+                  {/* Sem esta linha, a aba ficava simplesmente em branco por
+                      baixo da barra — e o fim de uma coleção merece melhor do
+                      que um espaço vazio. */}
+                  {collectionFilter === "unowned" &&
+                    filteredCollection.length === 0 &&
+                    searchTerms.length === 0 && (
+                      <div style={styles.collectionEmpty}>{t("collection_unowned_empty")}</div>
+                    )}
 
                   {/* Sem scroll/altura próprios de propósito — antes a grelha
                       tinha um maxHeight fixo de 26vh e ficava minúscula em
@@ -1621,17 +1689,41 @@ export default function App() {
                             // coleção, e antes liam-se exatamente como os
                             // que nunca se tocaram.
                             const tried = !hasWin && playedChampions.has(champ);
-                            // Na fila do "Quase lá" o azulejo diz onde se
+                            // Na grelha do que falta, o azulejo diz onde se
                             // chegou: sem o número, a ordem por proximidade
                             // era uma ordem secreta — via-se a fila, não o
                             // porquê daquela fila. Fora deste filtro não
                             // aparece, que aí a grelha é sobre ter ou não
                             // ter, e um número em 173 azulejos é ruído.
                             const melhor =
-                              collectionFilter === "close"
+                              collectionFilter === "unowned"
                                 ? champCollectionStats[champ]?.best ?? null
                                 : null;
                             const name = championsById[champ] || champ;
+                            // O que um leitor de ecrã diz do azulejo. Sem
+                            // isto era "botão" e mais nada: o nome do campeão
+                            // está na imagem e o estado está na cor, e nem um
+                            // nem outro chegam a quem não vê a grelha.
+                            // Clicável sempre que há partidas, não só quando
+                            // há vitória. A regra antiga ("só com vitória
+                            // existem dados nas Estatísticas") deixou de ser
+                            // verdade quando as Estatísticas passaram a
+                            // construir-se a partir das PARTIDAS (ver
+                            // MatchReports.jsx): um campeão jogado seis vezes
+                            // sem ganhar tem lá ficha completa — e é
+                            // justamente dele que se quer saber o que correu
+                            // mal. Ficavam inertes os azulejos sobre os quais
+                            // há mais que perguntar. Inerte agora só quem
+                            // nunca foi jogado, que aí não há mesmo nada para
+                            // abrir.
+                            const temFicha = hasWin || tried;
+                            const rotulo = `${name} — ${t(
+                              hasWin
+                                ? "collection_tt_in"
+                                : tried
+                                ? "collection_tt_no_win"
+                                : "collection_tt_untouched"
+                            )}${melhor != null ? ` (${t("collection_tt_best")}: ${melhor}º)` : ""}`;
                             // Sem legenda visível no azulejo (só o ícone, para
                             // caber mais por linha) — tudo o que há para dizer
                             // sobre o campeão vive no tooltip.
@@ -1664,12 +1756,35 @@ export default function App() {
                                   animate={{ opacity: hasWin ? 1 : tried ? 0.92 : 0.65, scale: 1 }}
                                   exit={{ opacity: 0, scale: 0.7 }}
                                   transition={{ duration: 0.08 }}
-                                  // Clicável só quando já há vitória (só aí existem
-                                  // dados para mostrar nas Estatísticas) — salta
-                                  // logo para lá com esse campeão em foco, em vez
-                                  // de teres de o procurar manualmente na lista.
-                                  onClick={hasWin ? () => goToChampionStats(champ) : undefined}
-                                  className={`at-champ${hasWin ? " clickableCard" : ""}${
+                                  // Salta para as Estatísticas com esse campeão
+                                  // em foco, em vez de o teres de procurar
+                                  // manualmente na lista.
+                                  onClick={
+                                    temFicha
+                                      ? () => goToChampionStats(champ, undefined, name)
+                                      : undefined
+                                  }
+                                  // Focável SEMPRE, clicável com ficha.
+                                  // O tooltip já abre com o foco (ver
+                                  // Tooltip.jsx) — faltava só o azulejo ser
+                                  // alcançável por teclado para esses números
+                                  // existirem para quem não usa rato. E um alvo
+                                  // de clique que o teclado não alcança é um
+                                  // buraco de acesso, não um extra.
+                                  tabIndex={0}
+                                  role={temFicha ? "button" : "img"}
+                                  aria-label={rotulo}
+                                  onKeyDown={
+                                    temFicha
+                                      ? (e) => {
+                                          if (e.key === "Enter" || e.key === " ") {
+                                            e.preventDefault();
+                                            goToChampionStats(champ, undefined, name);
+                                          }
+                                        }
+                                      : undefined
+                                  }
+                                  className={`at-champ${temFicha ? " clickableCard" : ""}${
                                     !hasWin ? " at-champ-nowin" : ""
                                   }`}
                                   style={{
@@ -1678,14 +1793,21 @@ export default function App() {
                                       : tried
                                       ? styles.winCardTried
                                       : styles.winCardEmpty),
-                                    cursor: hasWin ? "pointer" : "default",
+                                    cursor: temFicha ? "pointer" : "default",
                                   }}
                                 >
                                   <div style={styles.winIconWrap}>
                                     <img src={championIcon(champ, DRAGON)} style={styles.winIcon} />
                                     {hasWin && <div style={styles.winBadge}>✓</div>}
                                     {melhor != null && (
-                                      <div style={styles.winBadgeNear}>{melhor}º</div>
+                                      <div
+                                        style={{
+                                          ...styles.winBadgeNear,
+                                          background: corDoLugar(melhor),
+                                        }}
+                                      >
+                                        {melhor}º
+                                      </div>
                                     )}
                                   </div>
                                 </motion.div>
@@ -2483,9 +2605,11 @@ const styles = {
   // mínima de 60 para 50. São mais campeões por fila e, com 173 deles, menos
   // filas é menos scroll — que é o que mais pesa nesta aba. A moldura de cada
   // azulejo continua a separá-los, e 1px basta para que duas molduras vizinhas
-  // não se leiam como uma só; o espaço a mais só os fazia flutuar. Lado a
-  // lado cada azulejo põe ainda 1px de margem (ver winCard), porque numa fila
-  // cheia é aí que duas molduras encostadas se leem como uma barra contínua.
+  // não se leiam como uma só; o espaço a mais só os fazia flutuar. Cada
+  // azulejo põe ainda 1px de margem a toda a volta (ver winCard): o gap
+  // sozinho deixava as molduras a ler-se como uma barra contínua — de lado
+  // numa fila cheia, e em cima/baixo na grelha A-Z, que são dezenas de filas
+  // seguidas sem cabeçalho nenhum pelo meio a separá-las.
   grid: {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fill, minmax(50px, 1fr))",
@@ -2502,7 +2626,7 @@ const styles = {
     justifyContent: "center",
     borderRadius: "var(--radius-md)",
     padding: 4,
-    marginInline: 1,
+    margin: 1,
     border: "1px solid rgba(var(--accent-rgb),0.4)",
     background: "rgba(var(--accent-rgb),0.12)",
   },
@@ -2516,7 +2640,7 @@ const styles = {
     justifyContent: "center",
     borderRadius: "var(--radius-md)",
     padding: 4,
-    marginInline: 1,
+    margin: 1,
     border: "1px solid rgba(var(--border-rgb),0.3)",
     background: "rgba(var(--soft-rgb),0.04)",
   },
@@ -2533,7 +2657,7 @@ const styles = {
     justifyContent: "center",
     borderRadius: "var(--radius-md)",
     padding: 4,
-    marginInline: 1,
+    margin: 1,
     border: "1px solid color-mix(in srgb, var(--place-mid) 45%, transparent)",
     background: "color-mix(in srgb, var(--place-mid) 10%, transparent)",
   },
@@ -2642,6 +2766,51 @@ const styles = {
     fontWeight: 800,
     border: "1.5px solid var(--bg-mid)",
     lineHeight: 1,
+  },
+
+  // O "campeões"/"por ganhar" ao lado do número: mais pequeno e apagado que
+  // a contagem, porque o número é que é a informação.
+  // A faixa de "coleção atrasada". Usa o laranja de aviso da app, não o
+  // vermelho: não há nada partido, só dados por acertar — e o botão ao lado
+  // resolve-o num clique.
+  collectionDrift: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    flexWrap: "wrap",
+    marginBottom: 10,
+    padding: "9px 12px",
+    borderRadius: "var(--radius-md)",
+    border: "1px solid color-mix(in srgb, var(--place-mid) 45%, transparent)",
+    background: "color-mix(in srgb, var(--place-mid) 10%, transparent)",
+  },
+
+  collectionDriftText: {
+    fontSize: 12,
+    fontWeight: 600,
+    color: "var(--text-body)",
+    lineHeight: 1.4,
+  },
+
+  collectionDriftBtn: {
+    flexShrink: 0,
+    padding: "6px 12px",
+    borderRadius: "var(--radius-pill)",
+    border: "1px solid color-mix(in srgb, var(--place-mid) 60%, transparent)",
+    background: "color-mix(in srgb, var(--place-mid) 18%, transparent)",
+    color: "var(--text-body)",
+    fontSize: 11,
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+
+  collectionCountLabel: {
+    fontSize: 10,
+    fontWeight: 600,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    color: "var(--text-muted)",
   },
 
   collectionEmpty: {
