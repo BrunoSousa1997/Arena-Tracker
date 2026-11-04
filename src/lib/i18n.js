@@ -1458,6 +1458,36 @@ const DICTIONARY = {
   },
   close_btn: { pt: "Fechar", en: "Close" },
 
+  // Procura manual de atualizações (Definições). A app verifica sozinha no
+  // arranque, de 3 em 3 horas e ao voltares à janela — isto é para quem não
+  // quer esperar por nenhum desses momentos.
+  settings_update_check_label: { pt: "Procurar atualizações", en: "Check for updates" },
+  settings_update_check_hint: {
+    pt: "A app verifica sozinha, mas podes perguntar agora.",
+    en: "The app checks on its own, but you can ask right now.",
+  },
+  settings_update_check_btn: { pt: "Procurar", en: "Check" },
+  settings_update_checking: { pt: "A procurar…", en: "Checking…" },
+  settings_update_none: {
+    pt: "Estás na versão mais recente.",
+    en: "You are on the latest version.",
+  },
+  settings_update_found: {
+    pt: "Versão {v} encontrada — a descarregar em segundo plano.",
+    en: "Version {v} found — downloading in the background.",
+  },
+  settings_update_ready: {
+    pt: "Versão {v} pronta. Aplica-se sozinha mal deixes a app de lado.",
+    en: "Version {v} is ready. It applies itself once you step away from the app.",
+  },
+  settings_update_error: {
+    pt: "Não foi possível verificar agora.",
+    en: "Could not check right now.",
+  },
+  settings_update_unavailable: {
+    pt: "Só disponível na app instalada.",
+    en: "Only available in the installed app.",
+  },
   settings_patch_history_label: { pt: "Histórico de atualizações", en: "Update history" },
   settings_patch_history_btn: { pt: "Ver anteriores", en: "View previous" },
   patch_history_title: { pt: "Histórico de patches", en: "Patch history" },

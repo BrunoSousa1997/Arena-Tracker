@@ -18,6 +18,15 @@ autoUpdater.autoInstallOnAppQuit = true;
 // reinício que podia nunca acontecer.
 const CHECK_INTERVAL_MS = 3 * 60 * 60 * 1000;
 
+// De três em três horas serve quem deixa a app ligada dias seguidos, e é
+// lento de mais para quem volta à janela logo depois de sair uma versão: a
+// atualização estava à distância de um pedido e a app só dava por ela horas
+// depois — ou a um reinício, que é como se descobria na prática. Voltar à
+// janela é o momento em que se olha para ela, por isso é aí que vale a pena
+// perguntar outra vez. Com travão, senão cada alt-tab era um pedido novo.
+const FOCUS_CHECK_MIN_GAP_MS = 20 * 60 * 1000;
+let lastCheckAt = 0;
+
 // Com a atualização já descarregada, de quanto em quanto tempo se vê se a app
 // está num momento em que se pode reiniciar sem ninguém dar por isso.
 const IDLE_POLL_MS = 5 * 60 * 1000;
@@ -218,6 +227,7 @@ ipcMain.handle("updater:history", async () => {
 });
 
 function checkNow() {
+  lastCheckAt = Date.now();
   return autoUpdater.checkForUpdates().catch((err) => {
     sendUpdaterStatus("error", { message: err?.message || String(err) });
   });
@@ -234,6 +244,13 @@ function checkForUpdatesOnStartup() {
   setInterval(() => {
     if (!downloadedVersion) checkNow();
   }, CHECK_INTERVAL_MS);
+
+  // Ver FOCUS_CHECK_MIN_GAP_MS.
+  app.on("browser-window-focus", () => {
+    if (downloadedVersion) return;
+    if (Date.now() - lastCheckAt < FOCUS_CHECK_MIN_GAP_MS) return;
+    checkNow();
+  });
 }
 
 function initUpdater() {

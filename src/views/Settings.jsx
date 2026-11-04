@@ -72,6 +72,11 @@ export default function Settings({
   const { t } = useLanguage();
   const [tab, setTab] = useState(initialTab);
   const [showPatchHistory, setShowPatchHistory] = useState(false);
+  // Procura manual de atualizações. O canal já existia no preload
+  // (checkForUpdates, ver preload.js) e não havia ecrã nenhum a chamá-lo:
+  // sem isto, forçar uma verificação era reiniciar a app.
+  const [updateMsg, setUpdateMsg] = useState(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [showQuitConfirm, setShowQuitConfirm] = useState(false);
   const [showHowItWorks, setShowHowItWorks] = useState(false);
   // null | { ok: true, filePath } | { ok: false } — o resultado da última
@@ -192,6 +197,49 @@ export default function Settings({
   // não uma seleção de colunas: metade do valor disto é servir de cópia de
   // segurança do que não se recupera da Riot (sequências ao vivo, HP máximo),
   // e uma exportação que decide por ti o que interessa não serve para isso.
+  // Enquanto as Definições estiverem abertas, esta linha segue o mesmo canal
+  // de estado que alimenta o banner do topo — assim o botão dá resposta em
+  // vez de parecer que não fez nada.
+  useEffect(() => {
+    if (!window.electron?.onUpdaterStatus) return;
+
+    const unsubscribe = window.electron.onUpdaterStatus((payload) => {
+      const estado = payload?.status;
+      const versao = payload?.data?.version || "";
+
+      if (estado === "checking") {
+        setCheckingUpdate(true);
+        setUpdateMsg(t("settings_update_checking"));
+        return;
+      }
+
+      setCheckingUpdate(false);
+
+      if (estado === "not-available") setUpdateMsg(t("settings_update_none"));
+      else if (estado === "available" || estado === "downloading")
+        setUpdateMsg(t("settings_update_found").replace("{v}", versao));
+      else if (estado === "downloaded")
+        setUpdateMsg(t("settings_update_ready").replace("{v}", versao));
+      else if (estado === "error")
+        setUpdateMsg(payload?.data?.message || t("settings_update_error"));
+    });
+
+    return () => unsubscribe && unsubscribe();
+    // "t" muda de identidade a cada render (ver useLanguage) — seguir o
+    // idioma chega para as mensagens saírem na língua certa.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lang]);
+
+  const procurarAtualizacoes = () => {
+    if (!window.electron?.checkForUpdates) {
+      setUpdateMsg(t("settings_update_unavailable"));
+      return;
+    }
+    setCheckingUpdate(true);
+    setUpdateMsg(t("settings_update_checking"));
+    window.electron.checkForUpdates();
+  };
+
   const handleExport = async () => {
     if (!window.electron?.exportData) return;
 
@@ -485,6 +533,25 @@ export default function Settings({
                       {t("settings_on")}
                     </button>
                   </div>
+                </div>
+
+                {/* Fica ao lado do histórico de patches de propósito: são as
+                    duas perguntas sobre versões ("o que vem aí" e "o que já
+                    veio") e davam-se mal separadas. */}
+                <div style={styles.row}>
+                  <div style={styles.rowText}>
+                    <div style={styles.rowLabel}>{t("settings_update_check_label")}</div>
+                    <div style={styles.rowHint}>
+                      {updateMsg || t("settings_update_check_hint")}
+                    </div>
+                  </div>
+                  <button
+                    onClick={procurarAtualizacoes}
+                    disabled={checkingUpdate}
+                    style={styles.linkBtn}
+                  >
+                    {t("settings_update_check_btn")}
+                  </button>
                 </div>
 
                 <div style={styles.row}>
