@@ -1,49 +1,43 @@
 ## Português
 
 ### Novidades
-- Desafios refeitos de alto a baixo: convites num clique a quem já jogou contigo, criação em três passos com resumo à vista, regras com predefinições (Clássico, Duelo puro, Personalizado) e um quadro que mostra o que conta para a pontuação, código da sala casa a casa, e um placar ao vivo onde as posições trocam de lugar à medida que se joga.
-- Coleção organizada por classe, com barra de conclusão e três estados: conquistado, jogado mas ainda sem vitória, e por tocar. Azulejos mais juntos, ordenação por classe ou alfabética, e um tooltip com partidas, 1ºs lugares, top 3, lugar médio e KDA de cada campeão.
-- Consulta rápida de vários campeões ao mesmo tempo, em fichas: escreves três letras, o Enter fixa o campeão e o campo fica livre para o seguinte — feito para o champion select.
-- Ligação da conta num campo só, com o Riot ID inteiro tal como aparece no jogo, e um tutorial ao lado a mostrar onde o encontrar.
-- Build sugerida e recomendações com peso de evidência, para se ver em que é que cada sugestão se apoia.
-- A app passa a funcionar sem internet: nomes de campeões, itens e augments guardados em disco, além dos ícones.
-- Atualizações que se aplicam sozinhas quando a app está de lado, sem esperar por um clique que pode nunca vir.
+
+- Aviso no topo da Coleção quando há 1ºs lugares por registar, com botão para os recuperar sem passar pelas Definições.
+- Meta seguinte na barra de progresso: quantos campeões faltam para o próximo degrau, com um risco a marcá-lo na barra.
+- Barra de progresso própria em cada classe, para se ver de relance onde falta mais.
 
 ### Melhorias
-- Visão Geral refeita: destaques com aspeto e resposta de jogo, distribuição de lugares no lugar da curva, progressão e movimento, e menos repetições.
-- Todos os separadores na mesma linguagem visual de painéis da Visão Geral.
-- Navegação principal mais legível nos dois temas.
-- Histórico mais rápido: os ícones dos augments também vêm da cache em disco.
-- Base da aplicação atualizada (Electron 28 para 45).
+
+- Campeões sem vitória a preto e branco: a cor passa a ser o prémio da vitória, e a coleção lê-se de relance.
+- "Sem vitória" como lista única, do mais perto do troféu ao que ainda não foi jogado, com a melhor colocação de cada campeão à vista e a cor a dizer o degrau — verde no 2º lugar, cinzento em quem ainda vai longe.
+- Arranque da aba em "Todos", a vista onde a coleção se vê mesmo: a cor a ganhar terreno ao cinzento.
+- Contagem ao lado dos filtros a dizer o que conta ("70 na coleção", "103 por ganhar") em vez de um número que mudava de significado.
+- Azulejos mais juntos, com 1px entre eles.
+- Grelha navegável por teclado, com nome, estado e melhor lugar anunciados a leitores de ecrã.
 
 ### Correções
-- Correção das pistas das barras de progresso, que não acompanhavam o tema.
-- Correção do servidor escolhido para contas com a tag escrita em minúsculas, como "na1".
-- Correção de duas contas com a mesma etiqueta a serem aceites em silêncio, o que fazia parecer que o botão não tinha funcionado.
-- Correção da consulta rápida a perder campeões já fixados quando se escreve depressa, e de nomes mal escritos desaparecerem sem aviso.
-- Correção de ícones de augments já guardados que podiam não aparecer quando a lista de versões não respondia.
+
+- Correção do clique sem efeito nos campeões já jogados mas ainda sem vitória: abrem agora a ficha nas Estatísticas.
+- Fim dos saltos para as Estatísticas que aterravam numa lista onde o campeão nem aparecia — a lista chega já filtrada por ele.
 
 ## English
 
 ### What's New
-- Challenges rebuilt from top to bottom: one-click invites for people you've already played with, a three-step creation flow with a running summary, rule presets (Classic, Pure duel, Custom) plus a panel showing what counts toward the score, a slot-by-slot room code, and a live scoreboard where positions swap as you play.
-- Collection organised by class, with a completion bar and three states: won, played but not won yet, and untouched. Tighter tiles, sorting by class or alphabetically, and a tooltip with each champion's games, 1st places, top 3, average placement and KDA.
-- Quick check for several champions at once, as chips: type three letters, press Enter to pin the champion and the field is free for the next one — made for champion select.
-- Account linking in a single field, with the full Riot ID exactly as it appears in game, and a guide beside it showing where to find it.
-- Suggested build and recommendations with evidence weight, so you can see what each suggestion rests on.
-- The app now works without internet: champion, item and augment names kept on disk, on top of the icons.
-- Updates that apply themselves while the app sits in the background, instead of waiting for a click that may never come.
+
+- Notice at the top of the Collection when there are unrecorded 1st places, with a button to recover them without going to Settings.
+- Next milestone on the progress bar: how many champions are left for the next step, with a mark on the bar.
+- A progress bar of its own for every class, so you can see at a glance where most is missing.
 
 ### Improvements
-- Overview rebuilt: highlights with a game-like look and feel, placement distribution in place of the curve, progression and motion, and fewer repetitions.
-- Every tab in the same panel language as the Overview.
-- Main navigation more legible in both themes.
-- Faster History: augment icons now come from the disk cache too.
-- Updated application base (Electron 28 to 45).
+
+- Champions without a win in black and white: colour becomes the prize for winning, and the collection reads at a glance.
+- "No win yet" as a single list, from the closest to the trophy down to the ones never played, with each champion's best placement on show and the colour telling you the step — green for a 2nd place, grey for the ones still far off.
+- The tab now opens on "All", the view where the collection actually shows: colour gaining ground on grey.
+- The count beside the filters now says what it counts ("70 collected", "103 to win") instead of a number that changed meaning.
+- Tighter tiles, with 1px between them.
+- Keyboard navigation across the whole grid, with name, state and best placement announced to screen readers.
 
 ### Fixes
-- Fix for progress bar markers that didn't follow the theme.
-- Fix for the server picked for accounts with a lowercase tag, such as "na1".
-- Fix for two accounts with the same label being accepted silently, which made the button look broken.
-- Fix for quick check losing already pinned champions when typing fast, and for misspelled names disappearing without warning.
-- Fix for already cached augment icons that could fail to show when the version list didn't respond.
+
+- Fix for the dead click on champions already played but still without a win: they now open their card in Stats.
+- No more jumps to Stats landing on a list where the champion was nowhere to be seen — the list arrives filtered by them.
