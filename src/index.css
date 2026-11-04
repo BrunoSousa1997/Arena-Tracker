@@ -801,15 +801,16 @@ select:hover {
    falta". A dessaturação responde-a de relance, e é a linguagem que qualquer
    coleção de jogo usa para o que está por desbloquear.
 
-   Só para quem nunca foi jogado: os que já foram jogados sem vitória ficam a
-   cores (ver winCardTried em App.jsx), porque esses são os que estão a um
-   bom jogo de entrar e não merecem ler-se como intocados. */
-.at-champ-locked img {
+   Vale para tudo o que ainda não tem vitória, jogado ou não: a cor é o prémio
+   da vitória e nada mais a dá. O que separa um já-jogado de um intocado é a
+   moldura acesa (ver winCardTried em App.jsx) e um pouco mais de opacidade,
+   não o retrato. */
+.at-champ-nowin img {
   filter: grayscale(1);
   transition: filter 0.15s ease;
 }
 
-.at-champ-locked:hover img {
+.at-champ-nowin:hover img {
   filter: grayscale(0.35);
 }
 
