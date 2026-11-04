@@ -258,6 +258,12 @@ export function rankForTierIndex(index, tierCount) {
 // de tanque" só faz sentido se a régua for igual dos dois lados.
 const CLASS_TIERS = [5, 25, 50, 100, 250];
 
+// A escada da cobertura do roster vive aqui fora porque a Coleção também a
+// usa: é lá que se vê a barra subir, e a meta seguinte que ela mostra tem de
+// ser a MESMA que dá o distintivo. Duas listas iguais em dois ficheiros era
+// garantir que um dia diziam coisas diferentes.
+export const COVERAGE_TIERS = [10, 25, 50, 75, 100];
+
 // "desc" explica em texto o que a categoria conta e como sobe — sem isto
 // várias delas eram adivinhação a partir do título (ex: "Maratona" não diz
 // que conta partidas seguidas na mesma sessão).
@@ -265,7 +271,7 @@ export function buildAchievementCategories(stats, t) {
   return [
     { id: "wins", iconId: "trophy", title: t("achv_cat_wins"), desc: t("achv_cat_wins_desc"), value: stats.totalWins, unit: "", tiers: [1, 10, 25, 50, 100, 250, 500] },
     { id: "games", iconId: "arena", title: t("achv_cat_games"), desc: t("achv_cat_games_desc"), value: stats.totalGames, unit: "", tiers: [10, 50, 100, 250, 500, 1000] },
-    { id: "coverage", iconId: "globe", title: t("achv_cat_coverage"), desc: t("achv_cat_coverage_desc"), value: stats.coveragePct, unit: "%", tiers: [10, 25, 50, 75, 100] },
+    { id: "coverage", iconId: "globe", title: t("achv_cat_coverage"), desc: t("achv_cat_coverage_desc"), value: stats.coveragePct, unit: "%", tiers: COVERAGE_TIERS },
     { id: "winstreak", iconId: "flame", title: t("achv_cat_winstreak"), desc: t("achv_cat_winstreak_desc"), value: stats.bestWinStreak, unit: "", tiers: [3, 5, 10, 15, 20] },
     { id: "top3streak", iconId: "medal", title: t("achv_cat_top3streak"), desc: t("achv_cat_top3streak_desc"), value: stats.bestTop3Streak, unit: "", tiers: [3, 5, 10, 15] },
     { id: "triplekill", iconId: "swords", title: t("achv_cat_triplekill"), desc: t("achv_cat_triplekill_desc"), value: stats.tripleKillCount, unit: "", tiers: [1, 5, 10, 25] },

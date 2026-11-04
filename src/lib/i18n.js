@@ -1222,6 +1222,11 @@ const DICTIONARY = {
     en: "You have unrecorded 1st places. Run “Repair wins” in Settings → Sync.",
   },
   collection_progress: { pt: "Coleção completa", en: "Collection complete" },
+  // A meta seguinte da escada de cobertura (a mesma das conquistas).
+  collection_next_milestone: {
+    pt: "faltam {n} para {pct}%",
+    en: "{n} to go for {pct}%",
+  },
   collection_tried: { pt: "já jogado, ainda sem vitória", en: "played, no win yet" },
   collection_filter_won: { pt: "Com vitória", en: "With a win" },
   collection_unowned_empty: {

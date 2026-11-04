@@ -37,6 +37,7 @@ import ConfirmDialog from "./components/ConfirmDialog";
 import NotificationBell from "./components/NotificationBell";
 import QuickCheck from "./components/QuickCheck";
 import AchievementToasts from "./components/AchievementToasts";
+import { COVERAGE_TIERS } from "./lib/achievementStats";
 import { championMatchesTerm, normalizeChampionId, parseSearchTerms } from "./lib/champions";
 import { useLanguage } from "./lib/i18n";
 import { useStaticData } from "./hooks/useStaticData";
@@ -848,6 +849,26 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filteredCollection, champions, owned, lang, collectionSort]);
 
+  // A meta seguinte da barra de progresso. Uma percentagem sozinha é um
+  // estado; com a meta ao lado passa a haver um próximo passo — e numa aba
+  // cujo propósito é completar uma coleção, é o próximo passo que faz
+  // voltar. Os degraus são os das conquistas (ver COVERAGE_TIERS), por isso
+  // isto não inventa metas: diz, da barra, o que falta para o distintivo
+  // seguinte.
+  const proximaMeta = useMemo(() => {
+    if (!champions.length) return null;
+    const pct = (owned.size / champions.length) * 100;
+    const meta = COVERAGE_TIERS.find((degrau) => pct < degrau);
+    if (meta == null) return null;
+    return {
+      meta,
+      // Mínimo de 1: com arredondamentos, a conta pode dar 0 para quem está
+      // mesmo em cima do degrau sem lhe ter chegado — e "faltam 0" seria
+      // dizer que já lá está.
+      faltam: Math.max(1, Math.ceil((meta / 100) * champions.length) - owned.size),
+    };
+  }, [owned, champions]);
+
   // ================= RESUMO FILTRADO POR FORMATO =================
   const statsMatches = useMemo(() => {
     if (teamSizeFilter === "all") return matches;
@@ -1648,7 +1669,21 @@ export default function App() {
                           animate={{ width: `${(owned.size / champions.length) * 100}%` }}
                           transition={{ duration: 0.5, ease: "easeOut" }}
                         />
+                        {/* O risco na barra é a meta seguinte: assim vê-se o
+                            quão longe está, e não só se lê. */}
+                        {proximaMeta && (
+                          <div
+                            style={{ ...styles.collectionProgressMark, left: `${proximaMeta.meta}%` }}
+                          />
+                        )}
                       </div>
+                      {proximaMeta && (
+                        <span style={styles.collectionProgressNext}>
+                          {t("collection_next_milestone")
+                            .replace("{n}", proximaMeta.faltam)
+                            .replace("{pct}", proximaMeta.meta)}
+                        </span>
+                      )}
                     </div>
                   )}
                   {/* Sem esta linha, a aba ficava simplesmente em branco por
@@ -1671,12 +1706,29 @@ export default function App() {
                       {/* Em alfabético não há cabeçalho: é uma prateleira só
                           e um título por cima dela não diria nada. */}
                       {grupo.titulo && (
-                        <div style={styles.collectionGroupHead}>
-                          <span style={styles.collectionGroupTitle}>{grupo.titulo}</span>
-                          <span style={styles.collectionGroupCount}>
-                            {grupo.ganhos} / {grupo.total}
-                          </span>
-                        </div>
+                        <>
+                          <div style={styles.collectionGroupHead}>
+                            <span style={styles.collectionGroupTitle}>{grupo.titulo}</span>
+                            <span style={styles.collectionGroupCount}>
+                              {grupo.ganhos} / {grupo.total}
+                            </span>
+                          </div>
+                          {/* "12 / 18" ao lado de "15 / 50" obrigava a fazer
+                              seis divisões de cabeça para saber em que classe
+                              se está pior. A barra responde a isso de
+                              relance, e é a mesma linguagem da barra do topo
+                              — só mais fina, que aqui é um subtotal. */}
+                          <div style={styles.collectionGroupTrack}>
+                            <motion.div
+                              style={styles.collectionGroupFill}
+                              initial={{ width: 0 }}
+                              animate={{
+                                width: `${grupo.total ? (grupo.ganhos / grupo.total) * 100 : 0}%`,
+                              }}
+                              transition={{ duration: 0.5, ease: "easeOut" }}
+                            />
+                          </div>
+                        </>
                       )}
 
                       <div style={styles.grid}>
@@ -2670,8 +2722,9 @@ const styles = {
   collectionGroupHead: {
     display: "flex",
     alignItems: "baseline",
+    justifyContent: "space-between",
     gap: 8,
-    marginBottom: 6,
+    marginBottom: 4,
   },
 
   collectionGroupTitle: {
@@ -2723,10 +2776,43 @@ const styles = {
   },
 
   collectionProgressTrack: {
+    position: "relative",
     height: 6,
     borderRadius: "var(--radius-pill)",
     background: "rgba(var(--soft-rgb),0.1)",
     overflow: "hidden",
+  },
+
+  // O risco da meta seguinte, por cima do preenchimento.
+  collectionProgressMark: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    width: 2,
+    background: "rgba(var(--soft-rgb),0.55)",
+  },
+
+  collectionProgressNext: {
+    alignSelf: "flex-end",
+    fontSize: 11,
+    fontWeight: 600,
+    color: "var(--text-muted)",
+  },
+
+  // Subtotal de cada prateleira: metade da altura da barra do topo, para se
+  // ler como um detalhe dela e não como outra barra a competir.
+  collectionGroupTrack: {
+    height: 3,
+    marginBottom: 6,
+    borderRadius: "var(--radius-pill)",
+    background: "rgba(var(--soft-rgb),0.1)",
+    overflow: "hidden",
+  },
+
+  collectionGroupFill: {
+    height: "100%",
+    borderRadius: "var(--radius-pill)",
+    background: "var(--accent-gradient)",
   },
 
   collectionProgressFill: {
